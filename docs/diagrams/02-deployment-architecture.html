@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>陪诊师平台 · 多 AZ 部署架构</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafbfc; --paper-2:#ffffff;
+    --ink:#1f3a4d; --muted:#6b8294; --soft:#97a7b6;
+    --rule:#e5eaf0; --rule-solid:#cdd7e0;
+    --accent:#1a8f7a; --accent-tint:rgba(26,143,122,0.10);
+    --accent-deep:#0f6b5a; --link:#2e5aa8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Geist','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 32px;}
+  .eyebrow{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:36px;line-height:1.2;margin:0 0 8px;color:var(--ink);letter-spacing:.005em}
+  .subtitle{font-family:'Geist',sans-serif;font-size:14px;color:var(--muted);margin-bottom:32px;max-width:820px;line-height:1.6}
+  .diagram{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:24px;overflow-x:auto}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule);font-family:'Geist Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid var(--rule-solid)}
+  .legend-swatch.zone-a{background:rgba(26,143,122,0.04);border-color:rgba(26,143,122,0.4)}
+  .legend-swatch.zone-b{background:rgba(46,90,168,0.04);border-color:rgba(46,90,168,0.4)}
+  .legend-swatch.box{background:#ffffff;border-color:var(--ink)}
+  .legend-swatch.store{background:rgba(31,58,77,0.05);border-color:var(--muted)}
+  .colophon{margin-top:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--soft);letter-spacing:.06em;text-align:right}
+  .callout{margin-top:24px;padding:16px 20px;border-left:3px solid var(--accent);background:var(--accent-tint);border-radius:4px;font-family:'Instrument Serif',serif;font-style:italic;font-size:14px;color:var(--ink);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DIAGRAM · 02 / DEPLOYMENT</p>
+  <h1>陪诊师平台 · 多 AZ 部署架构</h1>
+  <p class="subtitle">两个可用区平行部署 + 异地灾备。生产 AZ-A 承担主要流量，AZ-B 热备；核心数据库 PostgreSQL 16 + Patroni 主从跨 AZ，灾备机房按日 `pg_basebackup` + WAL archive 异步同步。</p>
+
+  <div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 720" role="img" aria-labelledby="dep02-title dep02-desc">
+<title id="dep02-title">多 AZ 部署架构图</title>
+<desc id="dep02-desc">两个可用区 AZ-A 和 AZ-B 对称部署 Kubernetes 集群，运行 Go 微服务 distroless 镜像；SLB 与 CDN 在边缘分发流量，AZ-A 故障时 AZ-B 接管；PostgreSQL 16 主库在 AZ-A、同步备库在 AZ-B（Patroni 仲裁自动切换），异地灾备机房按日 pg_basebackup + WAL archive 异步同步；Redis 跨 AZ 集群、Kafka 跨 AZ 集群、对象存储单地域多 AZ。</desc>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b8294"/></marker>
+  <marker id="arr-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1a8f7a"/></marker>
+  <marker id="arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+</defs>
+
+<!-- ============ EDGE LAYER ============ -->
+<rect x="40" y="40" width="1040" height="80" rx="6" fill="rgba(31,58,77,0.02)" stroke="rgba(31,58,77,0.18)" stroke-dasharray="4,3"/>
+<text x="56" y="58" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.10em">EDGE · 边缘层</text>
+
+<!-- CDN -->
+<rect x="80" y="68" width="200" height="40" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="180" y="84" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">EDGE</text>
+<text x="180" y="100" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">CDN / WAF</text>
+
+<!-- SLB -->
+<rect x="320" y="68" width="200" height="40" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="420" y="84" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">LB</text>
+<text x="420" y="100" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">SLB · 负载均衡</text>
+
+<!-- DNS -->
+<rect x="560" y="68" width="200" height="40" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="660" y="84" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">DNS</text>
+<text x="660" y="100" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">智能 DNS · 流量调度</text>
+
+<!-- Edge → SLB -->
+<path d="M 280 88 L 320 88" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 520 88 L 560 88" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ============ AZ-A ZONE ============ -->
+<rect x="40" y="144" width="520" height="416" rx="8" fill="rgba(26,143,122,0.04)" stroke="rgba(26,143,122,0.40)" stroke-dasharray="4,4"/>
+<text x="56" y="162" font-family="'Geist Mono',monospace" font-size="9" fill="#1a8f7a" letter-spacing="0.10em">AZ-A · 主可用区（主流量）</text>
+
+<!-- AZ-A services (focal: order/match/pay) -->
+<rect x="80" y="184" width="200" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="180" y="204" font-size="7" font-family="'Geist Mono',monospace" fill="#1a8f7a" text-anchor="middle" letter-spacing="0.08em">FOCAL · 2x</text>
+<text x="180" y="226" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">订单 · 匹配 · 支付</text>
+<text x="180" y="244" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">order · match · pay</text>
+<text x="180" y="256" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">强一致 3 副本</text>
+
+<!-- AZ-A user/escort -->
+<rect x="320" y="184" width="220" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="430" y="204" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SVC · 2x</text>
+<text x="430" y="226" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">用户 · 陪诊师 · 评价</text>
+<text x="430" y="244" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">user · escort · review</text>
+
+<!-- AZ-A admin -->
+<rect x="320" y="280" width="220" height="64" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="430" y="300" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">ADMIN · 2x</text>
+<text x="430" y="322" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">运营后台</text>
+
+<!-- AZ-A MQ -->
+<rect x="80" y="360" width="200" height="60" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="180" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">MQ · 3 brokers</text>
+<text x="180" y="400" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">Kafka</text>
+
+<!-- AZ-A Redis -->
+<rect x="320" y="360" width="220" height="60" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="430" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">CACHE · cluster</text>
+<text x="430" y="400" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">Redis 7</text>
+
+<!-- AZ-A DB (Focal master) -->
+<rect x="80" y="440" width="200" height="96" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="180" y="460" font-size="7" font-family="'Geist Mono',monospace" fill="#1a8f7a" text-anchor="middle" letter-spacing="0.08em">FOCAL · MASTER</text>
+<text x="180" y="484" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">PostgreSQL 16 · 主</text>
+<text x="180" y="502" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">RPO < 5min · RTO < 30min</text>
+<text x="180" y="518" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">半同步复制 → AZ-B 从库</text>
+
+<!-- AZ-A ES -->
+<rect x="320" y="440" width="220" height="96" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="430" y="460" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SEARCH · 3 nodes</text>
+<text x="430" y="484" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">Elasticsearch</text>
+<text x="430" y="502" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">订单 / 评价 检索</text>
+
+<!-- ============ AZ-B ZONE ============ -->
+<rect x="600" y="144" width="480" height="416" rx="8" fill="rgba(46,90,168,0.04)" stroke="rgba(46,90,168,0.40)" stroke-dasharray="4,4"/>
+<text x="616" y="162" font-family="'Geist Mono',monospace" font-size="9" fill="#2e5aa8" letter-spacing="0.10em">AZ-B · 同城热备（接管流量）</text>
+
+<!-- AZ-B services -->
+<rect x="640" y="184" width="200" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="740" y="204" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SVC · 2x</text>
+<text x="740" y="226" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">订单 · 匹配 · 支付</text>
+<text x="740" y="244" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">order · match · pay</text>
+
+<rect x="860" y="184" width="200" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="960" y="204" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SVC · 2x</text>
+<text x="960" y="226" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">用户 · 陪诊师 · 评价</text>
+
+<rect x="860" y="280" width="200" height="64" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="960" y="300" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">ADMIN · 2x</text>
+<text x="960" y="322" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">运营后台</text>
+
+<rect x="640" y="360" width="200" height="60" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="740" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">MQ · 3 brokers</text>
+<text x="740" y="400" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">Kafka mirror</text>
+
+<rect x="860" y="360" width="200" height="60" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="960" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">CACHE · cluster</text>
+<text x="960" y="400" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">Redis 7</text>
+
+<!-- AZ-B DB (slave) -->
+<rect x="640" y="440" width="200" height="96" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="740" y="460" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SLAVE · 热备</text>
+<text x="740" y="484" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">MySQL 8 · 从库</text>
+<text x="740" y="502" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">半同步 · 自动提升</text>
+<text x="740" y="518" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">读流量承接</text>
+
+<rect x="860" y="440" width="200" height="96" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="960" y="460" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SEARCH · 3 nodes</text>
+<text x="960" y="484" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">Elasticsearch</text>
+
+<!-- ============ DR ZONE ============ -->
+<rect x="40" y="584" width="1040" height="100" rx="8" fill="rgba(31,58,77,0.03)" stroke="rgba(31,58,77,0.20)" stroke-dasharray="4,3"/>
+<text x="56" y="602" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.10em">DR · 异地灾备（每日全量 + binlog 异步同步 · RPO ≤ 1h · RTO ≤ 4h）</text>
+
+<rect x="80" y="616" width="280" height="56" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="220" y="636" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">DR DB</text>
+<text x="220" y="656" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">MySQL 灾备 · binlog</text>
+
+<rect x="400" y="616" width="280" height="56" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="540" y="636" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">DR FS</text>
+<text x="540" y="656" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">OSS 异地镜像</text>
+
+<rect x="720" y="616" width="320" height="56" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="880" y="636" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">DR RUNBOOK</text>
+<text x="880" y="656" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">冷启动预案 · 季度演练</text>
+
+<!-- arrows: Edge → AZ-A and AZ-B -->
+<path d="M 420 108 L 180 184" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<path d="M 420 108 L 740 184" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+
+<!-- DB sync AZ-A → AZ-B -->
+<path d="M 280 488 L 640 488" fill="none" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arr-link)"/>
+<rect x="446" y="476" width="36" height="12" rx="2" fill="#fafbfc"/>
+<text x="464" y="485" font-size="8" font-family="'Geist Mono',monospace" fill="#2e5aa8" text-anchor="middle" letter-spacing="0.06em">SYNC</text>
+
+<!-- DB → DR -->
+<path d="M 180 536 L 220 616" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arr)"/>
+
+</svg>
+  </div>
+
+  <div class="callout">焦点：订单域在两个 AZ 各部署 2 副本（>= 4 副本满足强一致 + 高可用）；MySQL 主库在 AZ-A，从库在 AZ-B 半同步；任意 AZ 整体故障时 DNS 切流 + 从库自动提升，RTO < 5min。</div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch zone-a"></span>AZ-A 主可用区（accent）</span>
+    <span class="legend-item"><span class="legend-swatch zone-b"></span>AZ-B 同城热备（link blue）</span>
+    <span class="legend-item"><span class="legend-swatch box"></span>容器服务 / Pod</span>
+    <span class="legend-item"><span class="legend-swatch store"></span>数据存储</span>
+  </div>
+
+  <p class="colophon">docs/diagrams/02-deployment-architecture.html · v1.0 · 医疗蓝绿主题</p>
+</div>
+</body>
+</html>

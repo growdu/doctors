@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>陪诊师平台 · 抢单时序</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafbfc; --paper-2:#ffffff;
+    --ink:#1f3a4d; --muted:#6b8294; --soft:#97a7b6;
+    --rule:#e5eaf0; --rule-solid:#cdd7e0;
+    --accent:#1a8f7a; --accent-tint:rgba(26,143,122,0.10);
+    --accent-deep:#0f6b5a; --link:#2e5aa8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Geist','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 32px;}
+  .eyebrow{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:36px;line-height:1.2;margin:0 0 8px;color:var(--ink);letter-spacing:.005em}
+  .subtitle{font-family:'Geist',sans-serif;font-size:14px;color:var(--muted);margin-bottom:32px;max-width:820px;line-height:1.6}
+  .diagram{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:24px;overflow-x:auto}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule);font-family:'Geist Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid var(--rule-solid)}
+  .legend-swatch.focal{background:var(--accent-tint);border-color:var(--accent)}
+  .legend-swatch.life{background:#ffffff;border-color:var(--ink)}
+  .colophon{margin-top:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--soft);letter-spacing:.06em;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DIAGRAM · 08 / SEQUENCE</p>
+  <h1>陪诊师抢单时序 · 端到端</h1>
+  <p class="subtitle">从订单支付完成到陪诊师成功接单、患者收到通知的完整时序；5 个角色、15 步交互，含分布式锁、幂等、超时回退关键机制。</p>
+
+  <div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 760" role="img" aria-labelledby="sq08-title sq08-desc">
+<title id="sq08-title">陪诊师抢单时序图</title>
+<desc id="sq08-desc">五个泳道（lifeline）：患者、订单服务、消息队列、抢单池 Redis、陪诊师 APP。流程：患者支付 → 订单服务写库发 MQ → MQ 消费者计算候选 → 写抢单池 ZSET → 推送给陪诊师 → 陪诊师抢单 → 分布式锁 SETNX → 抢单成功回调 → 订单服务确认 → 推送患者与生成虚拟号。</desc>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b8294"/></marker>
+  <marker id="arr-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1a8f7a"/></marker>
+</defs>
+
+<!-- ===== LIFELINES ===== -->
+<!-- 1. 患者 -->
+<g>
+  <rect x="80" y="60" width="120" height="40" rx="4" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1"/>
+  <text x="140" y="78" font-size="9" font-family="'Geist Mono',monospace" fill="#2e5aa8" text-anchor="middle" letter-spacing="0.08em">ACTOR</text>
+  <text x="140" y="94" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">患者</text>
+  <line x1="140" y1="100" x2="140" y2="660" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3"/>
+</g>
+
+<!-- 2. 订单服务 -->
+<g>
+  <rect x="240" y="60" width="120" height="40" rx="4" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+  <text x="300" y="78" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+  <text x="300" y="94" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">订单服务</text>
+  <line x1="300" y1="100" x2="300" y2="660" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3"/>
+</g>
+
+<!-- 3. 消息队列 -->
+<g>
+  <rect x="400" y="60" width="120" height="40" rx="4" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1"/>
+  <text x="460" y="78" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">ASYNC</text>
+<text x="460" y="94" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#0f6b5a" text-anchor="middle">消息队列</text>
+  <line x1="460" y1="100" x2="460" y2="660" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3"/>
+</g>
+
+<!-- 4. 抢单池 -->
+<g>
+  <rect x="560" y="60" width="120" height="40" rx="4" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1"/>
+  <text x="620" y="78" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL</text>
+  <text x="620" y="94" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">抢单池 Redis</text>
+  <line x1="620" y1="100" x2="620" y2="660" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3"/>
+</g>
+
+<!-- 5. 陪诊师 -->
+<g>
+  <rect x="720" y="60" width="120" height="40" rx="4" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1"/>
+  <text x="780" y="78" font-size="9" font-family="'Geist Mono',monospace" fill="#2e5aa8" text-anchor="middle" letter-spacing="0.08em">ACTOR</text>
+  <text x="780" y="94" font-size="12" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">陪诊师</text>
+  <line x1="780" y1="100" x2="780" y2="660" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3"/>
+</g>
+
+<!-- ===== STEPS ===== -->
+<!-- Step 1: 患者 → 订单服务：发起支付 -->
+<text x="140" y="130" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#1f3a4d">①</text>
+<path d="M 140 138 L 300 138" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="180" y="128" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="220" y="139" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">POST /orders</text>
+
+<!-- Step 2: 订单服务 → 订单服务：写库 -->
+<rect x="290" y="160" width="20" height="14" rx="2" fill="#ffffff" stroke="#6b8294" stroke-width="0.8"/>
+<text x="300" y="171" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">写库</text>
+
+<!-- Step 3: 订单服务 → 消息队列 -->
+<text x="380" y="200" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#0f6b5a">②</text>
+<path d="M 300 208 L 460 208" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="320" y="198" width="120" height="14" rx="2" fill="#fafbfc"/>
+<text x="380" y="209" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">PUBLISH order.created</text>
+
+<!-- Step 4: 消息队列 → 抢单池：消费者写入 -->
+<text x="540" y="246" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#0f6b5a">③</text>
+<path d="M 460 254 L 620 254" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="500" y="244" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="540" y="255" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">ZADD zset</text>
+
+<!-- Step 5: 抢单池 → 陪诊师：推送 -->
+<text x="700" y="292" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#1a8f7a">④</text>
+<path d="M 620 300 L 780 300" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="660" y="290" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="700" y="301" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">PUSH notif</text>
+
+<!-- Step 6: 陪诊师 → 抢单池：抢单请求 -->
+<text x="700" y="338" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#0f6b5a">⑤</text>
+<path d="M 780 346 L 620 346" fill="none" stroke="#0f6b5a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="660" y="336" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="700" y="347" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">GRAB attempt</text>
+
+<!-- Step 7: 抢单池 self-loop: 分布式锁 -->
+<rect x="608" y="368" width="24" height="14" rx="2" fill="rgba(26,143,122,0.10)" stroke="#0f6b5a" stroke-width="0.8"/>
+<text x="620" y="379" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">SETNX</text>
+<path d="M 620 380 L 640 380 L 640 392 L 620 392" fill="none" stroke="#0f6b5a" stroke-width="1" marker-end="url(#arr-acc)"/>
+
+<!-- Step 8: 抢单池 → 订单服务：抢单成功回调 -->
+<text x="460" y="418" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#0f6b5a">⑥</text>
+<path d="M 620 426 L 300 426" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="380" y="416" width="160" height="14" rx="2" fill="#fafbfc"/>
+<text x="460" y="427" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">POST /orders/{id}/accept</text>
+
+<!-- Step 9: 订单服务 self: 校验幂等 + 改状态 -->
+<rect x="290" y="448" width="20" height="14" rx="2" fill="#ffffff" stroke="#6b8294" stroke-width="0.8"/>
+<text x="300" y="459" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">校验</text>
+<path d="M 300 462 L 320 462 L 320 474 L 300 474" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="290" y="490" width="20" height="14" rx="2" fill="#ffffff" stroke="#6b8294" stroke-width="0.8"/>
+<text x="300" y="501" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">改状态</text>
+
+<!-- Step 10: 订单服务 → 抢单池：清除候选 -->
+<path d="M 300 510 L 620 510" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="450" y="500" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="490" y="511" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">DEL zset</text>
+
+<!-- Step 11: 订单服务 → 患者：通知 -->
+<text x="220" y="546" font-family="'Instrument Serif',serif" font-style="italic" font-size="11" fill="#1a8f7a">⑦</text>
+<path d="M 300 554 L 140 554" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="180" y="544" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="220" y="555" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">虚拟号 + 通知</text>
+
+<!-- Step 12: 订单服务 → 陪诊师：通知 -->
+<path d="M 300 580 L 780 580" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="540" y="570" width="80" height="14" rx="2" fill="#fafbfc"/>
+<text x="580" y="581" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">任务详情</text>
+
+<!-- ===== TIMEOUT / ALT ===== -->
+<rect x="80" y="610" width="960" height="50" rx="4" fill="rgba(217,119,6,0.04)" stroke="#d97706" stroke-width="1" stroke-dasharray="5,3"/>
+<text x="100" y="632" font-family="'Geist Mono',monospace" font-size="9" fill="#d97706" letter-spacing="0.10em">ALT · 异常分支</text>
+<text x="200" y="650" font-size="10" font-family="'Geist',sans-serif" fill="#1f3a4d">· 抢锁失败 → 抢单池返回 409，前端提示"已被其他陪诊师抢到"</text>
+
+<!-- timeout callout -->
+<rect x="80" y="670" width="960" height="36" rx="4" fill="rgba(31,58,77,0.04)" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,3"/>
+<text x="100" y="692" font-size="10" font-family="'Geist',sans-serif" fill="#1f3a4d">· 30min 全池无接单 → 订单服务自动 <tspan font-weight="600">refunding</tspan> + 触发客服介入（参见 06 异常降级）</text>
+
+</svg>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch life"></span>同步调用</span>
+    <span class="legend-item"><span class="legend-swatch focal"></span>焦点链路（订单匹配）</span>
+  </div>
+
+  <p class="colophon">docs/diagrams/08-grab-order-sequence.html · v1.0 · 医疗蓝绿主题</p>
+</div>
+</body>
+</html>

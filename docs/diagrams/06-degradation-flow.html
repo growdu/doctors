@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>陪诊师平台 · 服务异常与降级路径</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafbfc; --paper-2:#ffffff;
+    --ink:#1f3a4d; --muted:#6b8294; --soft:#97a7b6;
+    --rule:#e5eaf0; --rule-solid:#cdd7e0;
+    --accent:#1a8f7a; --accent-tint:rgba(26,143,122,0.10);
+    --accent-deep:#0f6b5a; --link:#2e5aa8;
+    --danger:#c0392b; --warning:#d97706;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Geist','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 32px;}
+  .eyebrow{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:36px;line-height:1.2;margin:0 0 8px;color:var(--ink);letter-spacing:.005em}
+  .subtitle{font-family:'Geist',sans-serif;font-size:14px;color:var(--muted);margin-bottom:32px;max-width:820px;line-height:1.6}
+  .diagram{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:24px;overflow-x:auto}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule);font-family:'Geist Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid var(--rule-solid)}
+  .legend-swatch.step{background:#ffffff;border-color:var(--ink)}
+  .legend-swatch.focal{background:var(--accent-tint);border-color:var(--accent)}
+  .legend-swatch.danger{background:rgba(192,57,43,0.06);border-color:var(--danger)}
+  .legend-swatch.warn{background:rgba(217,119,6,0.08);border-color:var(--warning)}
+  .colophon{margin-top:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--soft);letter-spacing:.06em;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DIAGRAM · 06 / FLOWCHART</p>
+  <h1>服务异常与降级路径</h1>
+  <p class="subtitle">覆盖支付、匹配、服务、突发四大异常分支的处置决策树；红色为高危分支（必须客服介入），黄色为可自动处理的降级路径。</p>
+
+  <div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 760" role="img" aria-labelledby="fc06-title fc06-desc">
+<title id="fc06-title">服务异常与降级路径决策树</title>
+<desc id="fc06-desc">四个并列决策树：支付异常（微信/网络/账户）、匹配异常（超时/无候选/拒接）、服务异常（迟到/爽约/突发）、突发异常（SOS）。每个决策树从异常检测到处置闭环，明确自动/人工边界。</desc>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b8294"/></marker>
+  <marker id="arr-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1a8f7a"/></marker>
+  <marker id="arr-danger" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#c0392b"/></marker>
+</defs>
+
+<!-- ========== TREE 1: 支付异常 ========== -->
+<rect x="40" y="56" width="240" height="616" rx="6" fill="rgba(217,119,6,0.04)" stroke="rgba(217,119,6,0.30)" stroke-dasharray="4,3"/>
+<text x="56" y="78" font-family="'Geist Mono',monospace" font-size="9" fill="#d97706" letter-spacing="0.10em">TREE 01 · 支付异常</text>
+
+<!-- root -->
+<rect x="80" y="96" width="160" height="48" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="160" y="116" font-size="11" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">支付失败</text>
+<text x="160" y="132" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">order.status = created</text>
+
+<!-- branch 1 -->
+<rect x="60" y="180" width="100" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="110" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">余额不足</text>
+<text x="110" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">→ 换支付方式</text>
+
+<!-- branch 2 -->
+<rect x="180" y="180" width="100" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="230" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#c0392b" text-anchor="middle">网络超时</text>
+<text x="230" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">→ 自动重试 3 次</text>
+
+<!-- branch 3 -->
+<rect x="60" y="260" width="100" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="110" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#c0392b" text-anchor="middle">账户异常</text>
+<text x="110" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">→ 风控拦截</text>
+
+<!-- branch 4 -->
+<rect x="180" y="260" width="100" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="230" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">回调延迟</text>
+<text x="230" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">→ 主动 query 一次</text>
+
+<!-- converge -->
+<rect x="100" y="340" width="120" height="40" rx="6" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="160" y="358" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#d97706" text-anchor="middle">5 分钟未支付</text>
+<text x="160" y="372" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">订单自动关闭</text>
+
+<!-- final -->
+<rect x="100" y="420" width="120" height="48" rx="6" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="160" y="440" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">客服介入</text>
+<text x="160" y="454" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">（重复失败/风控）</text>
+
+<!-- arrows T1 -->
+<path d="M 130 144 L 110 180" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 190 144 L 230 180" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 130 144 L 110 260" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 190 144 L 230 260" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 110 220 L 130 340" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 230 220 L 190 340" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 110 300 L 130 340" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 230 300 L 190 340" fill="none" stroke="#d97706" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 160 380 L 160 420" fill="none" stroke="#c0392b" stroke-width="1.4" marker-end="url(#arr-danger)"/>
+
+<!-- SLA box T1 -->
+<rect x="60" y="520" width="200" height="80" rx="6" fill="rgba(31,58,77,0.04)" stroke="#6b8294" stroke-width="1"/>
+<text x="160" y="540" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.06em" text-anchor="middle">SLA</text>
+<text x="160" y="558" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">自动 95% · 人工 5%</text>
+<text x="160" y="576" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">人工首响 < 5min</text>
+<text x="160" y="590" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">故障 P95 < 30s 自愈</text>
+
+<!-- ========== TREE 2: 匹配异常 ========== -->
+<rect x="300" y="56" width="240" height="616" rx="6" fill="rgba(217,119,6,0.04)" stroke="rgba(217,119,6,0.30)" stroke-dasharray="4,3"/>
+<text x="316" y="78" font-family="'Geist Mono',monospace" font-size="9" fill="#d97706" letter-spacing="0.10em">TREE 02 · 匹配异常</text>
+
+<rect x="340" y="96" width="160" height="48" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="420" y="116" font-size="11" font-family="'Geist',sans-serif" font-weight="600" fill="#0f6b5a" text-anchor="middle">订单进入匹配池</text>
+<text x="420" y="132" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">status = matching</text>
+
+<!-- 30min timer -->
+<rect x="340" y="180" width="160" height="40" rx="20" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1"/>
+<text x="420" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#0f6b5a" text-anchor="middle">30 分钟无接单</text>
+<text x="420" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">自动扩大范围</text>
+
+<!-- 候选为空 -->
+<rect x="320" y="260" width="80" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="360" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#c0392b" text-anchor="middle">无候选</text>
+<text x="360" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">→ 切换城市</text>
+
+<!-- 接单后拒绝 -->
+<rect x="440" y="260" width="80" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="480" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">接后拒</text>
+<text x="480" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">→ 扣信用</text>
+
+<!-- 多次重试耗尽 -->
+<rect x="340" y="340" width="160" height="40" rx="6" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="420" y="358" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">重试 ≥ 3 次失败</text>
+<text x="420" y="372" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">触发人工介入</text>
+
+<!-- 三选项 -->
+<rect x="320" y="420" width="100" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="370" y="438" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">改时间</text>
+
+<rect x="440" y="420" width="80" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="480" y="438" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">退款</text>
+
+<rect x="320" y="480" width="200" height="40" rx="20" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1"/>
+<text x="420" y="498" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#0f6b5a" text-anchor="middle">人工强派（稀缺时段）</text>
+
+<!-- SLA T2 -->
+<rect x="320" y="560" width="200" height="80" rx="6" fill="rgba(31,58,77,0.04)" stroke="#6b8294" stroke-width="1"/>
+<text x="420" y="580" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.06em" text-anchor="middle">SLA</text>
+<text x="420" y="598" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">自动 80% · 人工 20%</text>
+<text x="420" y="616" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">人工首响 < 15min</text>
+<text x="420" y="630" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">退款 1-3 工作日</text>
+
+<!-- arrows T2 -->
+<path d="M 420 144 L 420 180" fill="none" stroke="#0f6b5a" stroke-width="1.2" marker-end="url(#arr-acc)"/>
+<path d="M 380 220 L 360 260" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 460 220 L 480 260" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 360 300 L 420 340" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+<path d="M 480 300 L 460 340" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+<path d="M 380 380 L 370 420" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 460 380 L 480 420" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 420 380 L 420 480" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ========== TREE 3: 服务异常 ========== -->
+<rect x="560" y="56" width="240" height="616" rx="6" fill="rgba(192,57,43,0.04)" stroke="rgba(192,57,43,0.30)" stroke-dasharray="4,3"/>
+<text x="576" y="78" font-family="'Geist Mono',monospace" font-size="9" fill="#c0392b" letter-spacing="0.10em">TREE 03 · 服务异常</text>
+
+<rect x="600" y="96" width="160" height="48" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="680" y="116" font-size="11" font-family="'Geist',sans-serif" font-weight="600" fill="#0f6b5a" text-anchor="middle">服务执行中</text>
+<text x="680" y="132" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">status = in_service</text>
+
+<!-- 迟到 -->
+<rect x="580" y="180" width="100" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="630" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">陪诊师迟到</text>
+<text x="630" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">> 15min 通知</text>
+
+<!-- 患者爽约 -->
+<rect x="700" y="180" width="100" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="750" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">患者爽约</text>
+<text x="750" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">> 30min 自动</text>
+
+<!-- 突发 -->
+<rect x="640" y="260" width="80" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="680" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">突发</text>
+<text x="680" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">SOS + 客服</text>
+
+<!-- 设备离线 -->
+<rect x="580" y="260" width="60" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="610" y="282" font-size="9" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">设备</text>
+<text x="610" y="294" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">离线</text>
+
+<!-- 投诉 -->
+<rect x="720" y="260" width="80" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="760" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#c0392b" text-anchor="middle">投诉</text>
+<text x="760" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">→ 工单</text>
+
+<!-- 改派 -->
+<rect x="600" y="340" width="160" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="680" y="358" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">自动改派 / 强派</text>
+<text x="680" y="372" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">30min 内到岗</text>
+
+<!-- SLA T3 -->
+<rect x="580" y="440" width="200" height="80" rx="6" fill="rgba(31,58,77,0.04)" stroke="#6b8294" stroke-width="1"/>
+<text x="680" y="460" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.06em" text-anchor="middle">SLA</text>
+<text x="680" y="478" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">客服 7×24</text>
+<text x="680" y="496" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">首响 < 30s</text>
+<text x="680" y="510" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">改派 < 30min</text>
+
+<!-- 兜底 -->
+<rect x="600" y="560" width="160" height="48" rx="6" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="680" y="580" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">兜底：人工介入</text>
+<text x="680" y="594" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">退款 + 补偿券</text>
+
+<!-- arrows T3 -->
+<path d="M 640 144 L 630 180" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 720 144 L 750 180" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 660 220 L 610 260" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 700 220 L 680 260" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+<path d="M 730 220 L 760 260" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 610 300 L 680 340" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 680 300 L 680 340" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+<path d="M 760 300 L 700 340" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 680 380 L 680 560" fill="none" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arr-danger)"/>
+
+<!-- ========== TREE 4: 突发 / SOS ========== -->
+<rect x="820" y="56" width="240" height="616" rx="6" fill="rgba(192,57,43,0.04)" stroke="rgba(192,57,43,0.30)" stroke-dasharray="4,3"/>
+<text x="836" y="78" font-family="'Geist Mono',monospace" font-size="9" fill="#c0392b" letter-spacing="0.10em">TREE 04 · 突发 · SOS</text>
+
+<rect x="860" y="96" width="160" height="48" rx="6" fill="rgba(192,57,43,0.10)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="940" y="116" font-size="11" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">SOS 触发</text>
+<text x="940" y="132" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">长按 3s · 用户授权</text>
+
+<!-- 上报 -->
+<rect x="840" y="180" width="100" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="890" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">平台收报</text>
+<text x="890" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">30s 上报位置</text>
+
+<!-- 紧急联系人 -->
+<rect x="960" y="180" width="100" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="1010" y="198" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">紧急联系人</text>
+<text x="1010" y="212" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">短信 + 推送</text>
+
+<!-- 视情况报警 -->
+<rect x="900" y="260" width="80" height="40" rx="20" fill="rgba(192,57,43,0.10)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="940" y="278" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">110/120</text>
+<text x="940" y="292" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">用户授权联动</text>
+
+<!-- 录音录像 -->
+<rect x="840" y="320" width="80" height="40" rx="20" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+<text x="880" y="338" font-size="10" font-family="'Geist',sans-serif" font-weight="500" fill="#d97706" text-anchor="middle">录音</text>
+<text x="880" y="352" font-size="9" font-family="'Geist Mono',monospace" fill="#d97706" text-anchor="middle">后台采集</text>
+
+<!-- 客服工单 -->
+<rect x="960" y="320" width="80" height="40" rx="20" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="1000" y="338" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">紧急工单</text>
+<text x="1000" y="352" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">红色优先级</text>
+
+<!-- 安全组 -->
+<rect x="900" y="400" width="80" height="48" rx="6" fill="rgba(192,57,43,0.10)" stroke="#c0392b" stroke-width="1.2"/>
+<text x="940" y="420" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">安全响应组</text>
+<text x="940" y="434" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">48h 披露</text>
+
+<!-- SLA T4 -->
+<rect x="840" y="480" width="200" height="80" rx="6" fill="rgba(31,58,77,0.04)" stroke="#6b8294" stroke-width="1"/>
+<text x="940" y="500" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.06em" text-anchor="middle">SLA</text>
+<text x="940" y="518" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">应急秒级响应</text>
+<text x="940" y="536" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">报警联动 < 5s</text>
+<text x="940" y="550" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">全程留痕（合规）</text>
+
+<!-- arrows T4 -->
+<path d="M 940 144 L 890 180" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+<path d="M 940 144 L 1010 180" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+<path d="M 890 220 L 940 260" fill="none" stroke="#c0392b" stroke-width="1" marker-end="url(#arr-danger)"/>
+<path d="M 1010 220 L 940 260" fill="none" stroke="#c0392b" stroke-width="1" marker-end="url(#arr-danger)"/>
+<path d="M 900 300 L 880 320" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 980 300 L 1000 320" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 940 360 L 940 400" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr-danger)"/>
+
+<!-- legend below -->
+<text x="40" y="710" font-family="'Instrument Serif',serif" font-style="italic" font-size="14" fill="#1f3a4d">原则：80% 自动 + 20% 人工兜底；红色分支不绕过客服；任何状态变更都进入审计日志。</text>
+
+</svg>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch focal"></span>入口决策</span>
+    <span class="legend-item"><span class="legend-swatch step"></span>普通分支</span>
+    <span class="legend-item"><span class="legend-swatch warn"></span>自动降级路径</span>
+    <span class="legend-item"><span class="legend-swatch danger"></span>必须人工介入</span>
+  </div>
+
+  <p class="colophon">docs/diagrams/06-degradation-flow.html · v1.0 · 医疗蓝绿主题</p>
+</div>
+</body>
+</html>
