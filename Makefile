@@ -9,7 +9,22 @@ SERVICES := auth order match
 
 .PHONY: help
 help: ## 显示所有命令
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo "Targets:"
+	@echo "  tidy                 go mod tidy"
+	@echo "  build                编译所有服务二进制到 bin/"
+	@echo "  test                 单元测试"
+	@echo "  test-integration     集成测试（需 docker compose up）"
+	@echo "  lint                 golangci-lint"
+	@echo "  fmt                  go fmt"
+	@echo "  vet                  go vet"
+	@echo "  docker-up            启动 PG + Redis + Kafka"
+	@echo "  docker-down          停止并清理容器"
+	@echo "  docker-logs          查看日志"
+	@echo "  migrate              数据库迁移（占位）"
+	@echo "  run-auth             启动 auth-service"
+	@echo "  run-order            启动 order-service"
+	@echo "  run-match            启动 match-service"
+	@echo "  clean                清理 bin 和临时文件"
 
 .PHONY: tidy
 tidy: ## go mod tidy
