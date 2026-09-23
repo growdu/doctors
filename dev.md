@@ -87,14 +87,31 @@ doctors/
 
 ---
 
-## 1. 阶段 0 · 项目骨架
+## 1. 阶段 0 · 项目骨架 ✅ 已完成
 
 **目标**：可被 `make test` / `make docker-up` 正常执行的最简 monorepo。
+
+**实际完成**（commit `f3c881b` → `bdd9cf7`）：
+
+| Task | 状态 | commit |
+| :-- | :--: | :-- |
+| 0.1 go.mod / .gitignore / .golangci.yml / Makefile | ✅ | `e18e4dc` |
+| 0.2 docker-compose.yml（PG + Redis + Kafka） | ✅ | `4dc843e` |
+| 0.3 shared/httpx 统一响应（OK/Fail + trace_id） | ✅ | `70bbf38` |
+| 0.4 shared/errs 业务错误码 + Error 类型 | ✅ | `bdd9cf7` |
+| 0.5 顶层 smoke（make help + go test ./...） | ✅ | — |
+
+**踩过的坑**：
+1. **Go toolchain 自动升级**：最初 `go get` 触发了 Go 1.25.0 toolchain 下载（gin 1.12 依赖要求），但 1.25 下载卡住 → 改为固定 `go 1.22` + `gin v1.10.0` + `testify v1.9.0`，并通过 `go env -w GOTOOLCHAIN=local` 禁用自动升级。
+2. **泛型推断**：`httpx.OK(c, nil)` 无法推断 T，必须显式 `httpx.OK[any](c, nil)`。
+3. **gin.CreateTestContext 不带 Request**：`c.GetHeader` 会 panic，必须用 `httptest.NewRequest` 构造 request 注入。
+
+**测试覆盖**：5（httpx）+ 12（errs）= **17 个单元测试，全部通过**。
 
 **关键决策**：
 
 1. **monorepo 单 go module** 而非 multi-module：11 个微服务在编译时共享 `shared/` 包，sqlc、proto 复用；缺点是大，但 v1 服务不多，可接受。
-2. **顶层 Makefile** 暴露所有命令；`make help` 必须列出全部 target。
+2. **顶层 Makefile** 暴露所有命令；`make help` 必须列出全部 target（Windows 上 awk 不可用，改为纯 echo）。
 3. **docker-compose** 只起 PG + Redis + Kafka 三个外部依赖；服务本身由 `make run-<svc>` 拉起。
 4. **`shared/httpx`** 第一版就定下统一响应格式：
 
@@ -102,16 +119,8 @@ doctors/
    {"code": 0, "message": "ok", "data": {}, "trace_id": "..."}
    ```
 
-   错误码规范参见 `docs/08-接口需求.md` 8.8。
-
-**步骤**：
-- [ ] 0.1 go.mod（Go 1.22）
-- [ ] 0.2 .gitignore
-- [ ] 0.3 .golangci.yml
-- [ ] 0.4 顶层 Makefile
-- [ ] 0.5 docker-compose.yml（PG + Redis + Kafka）
-- [ ] 0.6 shared/httpx 包（含响应/错误码 + 单测）
-- [ ] 0.7 顶层 smoke：`make help` + `go test ./...`
+   HTTP 状态固定 200，业务码在 body.code 中——避免前端在 4xx 时拿不到完整 body。
+5. **`shared/errs`** 用业务码 5 位（10xxx）+ 系统码 6 位（500xxx）分段；`Code.HTTPStatus()` 给中间件做映射；`errors.Is/As` 链路贯穿到底层。
 
 ---
 
