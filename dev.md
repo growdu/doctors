@@ -124,20 +124,39 @@ doctors/
 
 ---
 
-## 2. 阶段 1 · shared 基础设施
+## 2. 阶段 1 · shared 基础设施 ✅ 已完成
 
-**目标**：所有服务可直接 import 的通用包：config、logger、db（pgxpool）、redis、kafka、auth（JWT）。
+**目标**：所有服务可直接 import 的通用包：config、logger、db（pgxpool）、redis、kafka、auth（JWT）、idempotency。
+
+**实际完成**（commit `70bbf38` 之后 6 个新 commit）：
+
+| Task | 包 | 关键能力 | 单测 | commit |
+| :-- | :-- | :-- | :--: | :-- |
+| 1.1 | shared/config | viper + yaml + env 覆盖 + 默认值 | 5 ✅ | — |
+| 1.2 | shared/logger | zap 全局 logger + trace_id context | 6 ✅ | — |
+| 1.6 | shared/auth | JWT HS256 签发/校验 + 错误分类 | 6 ✅ | — |
+| 1.7 | shared/idempotency | Store 接口 + Manager + 规范化 | 9 ✅ | — |
+| 1.3 | shared/db | pgxpool + WithTx + DSN 校验 | 4 ✅ | — |
+| 1.4 | shared/redis | go-redis v9 + 地址校验 | 2 ✅ | — |
+| 1.5 | shared/kafka | kafka-go writer/reader + topic 规范化 | 13 ✅ | — |
+
+**累计 45 个单测全部通过**（阶段 0 的 17 + 阶段 1 的 28）；另含 3 个集成测试（`pool_integration_test.go` / `client_integration_test.go` / `client_integration_test.go`），用 `//go:build integration` 隔离，需 `make docker-up` 后跑 `go test -tags=integration ./...`。
+
+**踩过的坑**：
+1. **pgx v5.11.0 要求 Go ≥ 1.25**：最初 `go get` 默认拉到最新版本，触发 toolchain 升级要求。降版本到 `v5.7.1`（兼容 Go 1.22）。
+2. **zap v1.28 `Field.Interface` 行为变化**：原先假设 `f.Interface` 返回字符串值，实际在 v1.28 上对某些类型返回 nil。改用 `entries[0].ContextMap()` API，更稳定。
+3. **memStore 设计**：第一版只跟踪 done，导致 Reserve 永远成功；改为 `reserved + done` 两个 map：Reserve 标记 reserved，Done 时清除 reserved，逻辑正确。
+4. **viper 子目录切换**：测试通过 `os.Chdir` + `t.TempDir()` 切换工作目录，让每个测试用独立的 yaml 文件，互不污染。
 
 **关键决策**：
 
-1. **config**：Viper + 多源（环境变量 > 本地 yaml）；每个服务 `config.Load("auth")` 自动选 `config/auth.yaml`
-2. **logger**：zap + 全局 `logger.L()`；强制 JSON 输出；含 trace_id 注入
-3. **db**：pgxpool + 健康检查 + `WithTx` 事务辅助；连接池参数从 config 读
-4. **redis**：go-redis v9 + `ClusterClient` 支持
-5. **kafka**：kafka-go（segmentio）；生产者 / 消费者接口统一
-6. **auth**：HS256 JWT；claim 含 `user_id / role / unionid / exp`
-
-每个包：先写 `*_test.go`，再写 `*.go`，最后 `commit`。
+1. **config**：Viper + 多源（环境变量 > 本地 yaml）；每个服务 `config.Load("auth")` 自动选 `config/<service>.yaml`，环境变量前缀 `DOCTORS_<SERVICE>_<FIELD>`。
+2. **logger**：zap + 全局 `logger.L()`；强制 JSON 输出；`WithTrace(ctx, id)` + `FromContext(ctx)` 让 trace_id 沿 ctx 传递，业务代码零侵入。
+3. **db**：pgxpool + 健康检查 + `WithTx(ctx, pool, fn)` 事务辅助（自动 commit/rollback + panic 安全）；DSN 必须以 `postgres://` 开头，避免误连 MySQL。
+4. **redis**：go-redis v9；addr 必须是 `host:port`，无 scheme。
+5. **kafka**：kafka-go（segmentio）；topic 规范化小写 + 字符白名单；集成测试用 `DOCTORS_KAFKA_BROKERS` 切换 broker。
+6. **auth**：HS256 JWT；claim 含 `user_id / role / unionid / exp / iat / iss`；空密钥直接拒绝。
+7. **idempotency**：Store 接口允许 Redis / PG / 内存多种实现；`NormalizeKey` 统一 trim + 小写，避免空格 / 大小写造成漏判。
 
 ---
 
