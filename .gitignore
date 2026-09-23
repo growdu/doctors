@@ -1,0 +1,42 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Local data
+/.data/
+/tmp/
+
+# Generated
+/sqlc/
+/gen/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
