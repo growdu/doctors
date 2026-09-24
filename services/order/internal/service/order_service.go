@@ -31,6 +31,10 @@ type OrderRepo interface {
 	UpdateStatus(ctx context.Context, id int64, to string, expectVersion int, escortID *int64) error
 	InsertEvent(ctx context.Context, orderID int64, from *string, to string, actorID *int64, payload []byte) error
 	ListEvents(ctx context.Context, orderID int64) ([]*repo.OrderEvent, error)
+	// 状态机统一 plan: 锁单三件套
+	LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error
+	ReleaseLock(ctx context.Context, id int64, expectVersion int) error
+	LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error)
 }
 
 // UserLookup 仅需 FindByID：auth-service 的 user 视图（id + 是否实名）。
