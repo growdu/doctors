@@ -26,14 +26,14 @@ func Auth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.GetHeader("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
-			httpx.Fail(c, errs.CodeUnauthorized.HTTPStatus(), "missing bearer token")
+			httpx.Fail(c, int(errs.CodeUnauthorized), "missing bearer token")
 			c.Abort()
 			return
 		}
 		tok := strings.TrimPrefix(h, "Bearer ")
 		claims, err := authpkg.Parse(secret, tok)
 		if err != nil {
-			httpx.Fail(c, errs.CodeUnauthorized.HTTPStatus(), "invalid token")
+			httpx.Fail(c, int(errs.CodeUnauthorized), "invalid token")
 			c.Abort()
 			return
 		}
