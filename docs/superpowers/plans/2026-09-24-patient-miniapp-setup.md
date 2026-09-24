@@ -11,7 +11,14 @@
 - Countdown 组件语义保留（30s 倒计时），但语义由「陪诊师抢单窗口」改为「陪诊师确认窗口」
 - 删除任何抢单相关前端代码（lobby / pool / waiting 0..30 等用语）
 
-**Architecture:** 单包项目（不是 monorepo）。开发态用 `npm run dev:h5` 起 Vite + uni-app H5 模式；构建产物可同时输出 mp-weixin / h5。HTTP 全部走 `uni.request`（不引 axios），通过 `uni.addInterceptor` 全局加 `X-Trace-Id` 与 `Authorization` 头。后端在 v1 用 MSW mock（开发态）+ Jest（单测）+ Playwright H5 模式（e2e）。OpenAPI 契约为 single source of truth：`web/openapi/contracts.yaml` → `openapi-typescript` 生成 `src/api/types.gen.ts`。
+**本 plan 的「多端原生构建」增量修订**（v1.1，依据 spec `2026-09-24-patient-miniapp-design.md` §11 多端构建矩阵，commit `9131048`）：
+- v1 仅覆盖 mp-weixin + h5 两端；v1.1 在 `src/manifest.json` 追加 `app-plus` 配置块，新增 Android（minSdkVersion=21 / targetSdkVersion=34 / permissions：INTERNET / ACCESS_NETWORK_STATE / ACCESS_FINE_LOCATION / READ_PHONE_STATE / VIBRATE / WAKE_LOCK）+ iOS（`NSPrivacyAccessedAPITypes` 隐私清单 + `idfa=false` + `description` 文案）原生构建配置
+- 新增 4 端图标资源：`static/icons/Icon-192.png`（Android mdpi xxxhdpi 适配）+ `Icon-512.png`（iOS app store）+ `Icon-maskable-512.png`（PWA / Android 自适应）+ `static/icons/icon.png`（兜底 fallback）；新增 Android / iOS 启动页 `static/splash/android/launch_image.png`（1080×1920）+ `static/splash/ios/LaunchImage.png`（1242×2208）
+- 新增 `package.json` scripts：`dev:app-plus` + `build:app-android` + `build:app-ios`；执行 `npx uni build --platform app-plus` 自动产出 `android/` + `ios/` 原生工程（uni 标准范式），`android/app/build.gradle` 用 uni-app 默认 debug 签名，`ios/` 用 xcodebuild 自动签名（release cert 由运维后填）
+- 新增 Appium e2e（Android Emu `appium:uiautomator2` + iOS Sim `appium:xcrun-xcuitest`，双 driver）覆盖「登录 → 选陪诊师」happy path；GitHub Actions 新增 `appium-android-emu` + `appium-ios-sim` 两个 job，与既有 `patient-miniapp-ci.yml` 并行
+- 4 端构建矩阵：mp-weixin（uni mp 编译 → 微信开发者工具） + h5（Vite → 静态资源） + Android APK（uni app-plus → gradle assembleDebug） + iOS IPA（uni app-plus → xcodebuild debug）—— 业务代码 100% 共享，差异只在 manifest 配置 + 图标 / 启动页资源 + App.vue 平台条件编译（mock 不同端支付回调）
+
+**Architecture:** 单包项目（不是 monorepo）。开发态用 `npm run dev:h5` 起 Vite + uni-app H5 模式；构建产物可同时输出 mp-weixin / h5 / app-plus（Android + iOS）。HTTP 全部走 `uni.request`（不引 axios），通过 `uni.addInterceptor` 全局加 `X-Trace-Id` 与 `Authorization` 头。后端在 v1 用 MSW mock（开发态）+ Jest（单测）+ Playwright H5 模式（e2e H5）；v1.1 增 Appium 跑 Android / iOS 原生端 e2e。OpenAPI 契约为 single source of truth：`web/openapi/contracts.yaml` → `openapi-typescript` 生成 `src/api/types.gen.ts`。
 
 **Tech Stack:**
 - **运行时**: uni-app x（Vue 3.4+ + 组合式 API + `<script setup lang="ts">`）
@@ -145,8 +152,27 @@
 | `web/patient-miniapp/README.md` | Create | 起项目 / dev / build / test 说明 |
 | `dev.md` | Modify | §10.13 加 patient-miniapp plan 落地记录 |
 | `.github/workflows/patient-miniapp-ci.yml` | Create | CI：typecheck + test:unit + test:e2e + openapi:validate |
+| `web/patient-miniapp/static/icons/icon.png` | Create (binary, Task 16) | 兜底图标 256×256 PNG（manifest.json icon 兜底） |
+| `web/patient-miniapp/static/icons/Icon-192.png` | Create (binary, Task 16) | Android mdpi-xxxhdpi 192×192 PNG 图标 |
+| `web/patient-miniapp/static/icons/Icon-512.png` | Create (binary, Task 16) | iOS App Store 512×512 PNG 图标 |
+| `web/patient-miniapp/static/icons/Icon-maskable-512.png` | Create (binary, Task 16) | Android 自适应图标 512×512 PNG（带 safe zone） |
+| `web/patient-miniapp/static/splash/android/launch_image.png` | Create (binary, Task 16) | Android 启动页 1080×1920 PNG（uni splash image spec） |
+| `web/patient-miniapp/static/splash/ios/LaunchImage.png` | Create (binary, Task 16) | iOS 启动页 1242×2208 PNG（uni splash image spec） |
+| `web/patient-miniapp/src/manifest.json` | Modify (Task 16) | 追加 `app-plus.distribute.android` / `ios` 块（minSdk/targetSdk + permissions + idfa + privacyDescription） |
+| `web/patient-miniapp/src/App.vue` | Modify (Task 16) | 追加 `#ifdef APP-PLUS` 平台条件编译（mock 端支付回调 / 上报 platform 字段） |
+| `web/patient-miniapp/__tests__/manifest.app-plus.test.ts` | Create (Task 16) | vitest 单测：校验 4 端 manifest 字段（mp-weixin / h5 / app-plus.android / app-plus.ios） |
+| `web/patient-miniapp/android/app/build.gradle` | Create (Task 17) | uni app-plus 生成的 Android 工程（uni 工具自动产出，签入仓库保证可重现构建） |
+| `web/patient-miniapp/android/app/src/main/AndroidManifest.xml` | Create (Task 17) | AndroidManifest 合并 manifest.json 后产物 |
+| `web/patient-miniapp/android/build.gradle` | Create (Task 17) | 根 gradle + uni-app 插件 |
+| `web/patient-miniapp/ios/Runner.xcodeproj/project.pbxproj` | Create (Task 18) | uni app-plus 生成的 iOS Xcode 工程 |
+| `web/patient-miniapp/ios/Podfile` | Create (Task 18) | CocoaPods 依赖（uni 自动产出） |
+| `web/patient-miniapp/ios/Runner/Info.plist` | Create (Task 18) | iOS Info.plist（含 NSPrivacyAccessedAPITypes） |
+| `web/patient-miniapp/playwright.native.config.ts` | Create (Task 19) | Appium 配置（Android Emu + iOS Sim 双 driver） |
+| `web/patient-miniapp/e2e/native-smoke.spec.ts` | Create (Task 17/19) | Appium Android Emu：登录 → 选陪诊师 happy path |
+| `web/patient-miniapp/e2e/native-smoke-ios.spec.ts` | Create (Task 19) | Appium iOS Sim：同 happy path（验平台无关控件 id） |
+| `.github/workflows/patient-miniapp-native-ci.yml` | Create (Task 19) | CI：appium-android-emu + appium-ios-sim job |
 
-> **总数估算**: ~75 个文件 / ~22 commits（每个 Task 一个 commit）。
+> **总数估算**: v1 ~75 个文件 / 13 commits；v1.1 +多端构建（5 commits：本计划修订 + 4 个 Task 16-19） → 总 19 commits。
 
 ---
 
@@ -3451,6 +3477,818 @@ git commit -m "feat(patient-miniapp): 选陪诊师流程 (escort candidates 页 
 
 ---
 
+### Task 16: app-plus manifest 配置 + 4 端图标 + 启动页（v1.1 多端构建 1/4）
+
+**Files:**
+- Modify: `web/patient-miniapp/src/manifest.json`（追加 `app-plus.distribute.android` + `ios` 块）
+- Modify: `web/patient-miniapp/src/App.vue`（追加 `#ifdef APP-PLUS` 平台条件编译）
+- Modify: `web/patient-miniapp/package.json`（追加 `dev:app-plus` script）
+- Create (binary): `web/patient-miniapp/static/icons/icon.png`
+- Create (binary): `web/patient-miniapp/static/icons/Icon-192.png`
+- Create (binary): `web/patient-miniapp/static/icons/Icon-512.png`
+- Create (binary): `web/patient-miniapp/static/icons/Icon-maskable-512.png`
+- Create (binary): `web/patient-miniapp/static/splash/android/launch_image.png`
+- Create (binary): `web/patient-miniapp/static/splash/ios/LaunchImage.png`
+- Create: `web/patient-miniapp/__tests__/manifest.app-plus.test.ts`
+
+**Step 1: 在 `src/manifest.json` 追加 app-plus 块（在 `mp-weixin` / `h5` 之后新增同级别 `app-plus`）**
+
+`src/manifest.json`（仅展示新增字段，保留 v1 既有 mp-weixin / h5 / vueVersion 字段）：
+
+```json
+{
+  "name": "患者陪诊",
+  "appid": "TOURIST_APPID",
+  "description": "L2 患者陪诊小程序（uni-app + Vue 3 + uView Plus）",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {
+      "Payment": {},
+      "Share": {},
+      "VideoPlayer": {}
+    },
+    "distribute": {
+      "android": {
+        "minSdkVersion": 21,
+        "targetSdkVersion": 34,
+        "abiFilters": ["armeabi-v7a", "arm64-v8a", "x86"],
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.READ_PHONE_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+          "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
+          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>"
+        ],
+        "schemes": "patient.doctors.app"
+      },
+      "ios": {
+        "idfa": false,
+        "dSYMs": false,
+        "privacyDescription": {
+          "NSLocationWhenInUseUsageDescription": "用于显示附近医院与计算陪诊距离",
+          "NSLocationAlwaysAndWhenInUseUsageDescription": "用于订单进行中的位置上报",
+          "NSCameraUsageDescription": "用于实名认证与上传病历照片",
+          "NSPhotoLibraryUsageDescription": "用于选择头像与上传病历照片",
+          "NSMicrophoneUsageDescription": "用于与陪诊服务远程通话",
+          "NSContactsUsageDescription": "用于紧急联系人 SOS 通知"
+        },
+        "idfv": true,
+        "schemes": "patient.doctors.app"
+      },
+      "sdkConfigs": {
+        "ad": {},
+        "share": {
+          "weixin": {
+            "appid": "",
+            "UniversalLinks": "https://example.com/uni-universallinks/"
+          }
+        },
+        "push": {},
+        "payment": {
+          "weixin": {
+            "__platform__": ["ios", "android"],
+            "appid": "",
+            "UniversalLinks": "https://example.com/uni-universallinks/"
+          }
+        },
+        "oauth": {}
+      }
+    },
+    "nativePlugins": {}
+  },
+  "icons": {
+    "android": ["static/icons/Icon-192.png", "static/icons/Icon-maskable-512.png"],
+    "ios": ["static/icons/Icon-192.png", "static/icons/Icon-512.png"]
+  },
+  "splashscreen": {
+    "androidStyle": "common",
+    "iosStyle": "common",
+    "androidImages": ["static/splash/android/launch_image.png"],
+    "iosImages": ["static/splash/ios/LaunchImage.png"]
+  },
+  "quickapp": {},
+  "mp-weixin": { "appid": "TOURIST_APPID", "setting": { "urlCheck": false } },
+  "h5": { "title": "患者陪诊", "router": { "mode": "hash", "base": "/" } },
+  "vueVersion": "3"
+}
+```
+
+**Step 2: `App.vue` 加 `#ifdef APP-PLUS` 平台条件编译（mock 不同端支付回调 + 上报 platform）**
+
+```vue
+<script setup lang="ts">
+import { onLaunch } from '@dcloudio/uni-app'
+
+// #ifdef APP-PLUS
+// app-plus 端：mock 支付回调（v1.1 dev mode 用），记录 platform 给后端埋点
+type AppPlatform = 'android' | 'ios'
+const appPlatform: AppPlatform = (plus.os.name === 'iOS' ? 'ios' : 'android')
+
+// mock 支付回调：app-plus 不接 wx.requestPayment 时，走原生 + 号模拟
+const mockNativePayResult = (orderId: string): Promise<{ ok: boolean; channel: string }> => {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve({ ok: true, channel: `mock-app-${appPlatform}-${orderId}` }), 800)
+  })
+}
+// #endif
+
+onLaunch(() => {
+  // #ifdef APP-PLUS
+  console.log(`[patient-miniapp] platform=${appPlatform} version=0.1.0`)
+  // #endif
+  // #ifdef H5
+  console.log('[patient-miniapp] platform=h5')
+  // #endif
+  // #ifdef MP-WEIXIN
+  console.log('[patient-miniapp] platform=mp-weixin')
+  // #endif
+})
+</script>
+
+<style lang="scss">
+@import '@/styles/global.scss';
+</style>
+```
+
+**Step 3: `package.json` 加 `dev:app-plus` script（保留 v1 既有 scripts）**
+
+在 `scripts` 中追加：
+
+```json
+"dev:app-plus": "uni -p app-plus",
+"build:app-android": "uni build -p app-plus",
+"build:app-ios": "uni build -p app-plus"
+```
+
+**Step 4: 单测验证 4 端 manifest 字段正确（vitest）**
+
+`__tests__/manifest.app-plus.test.ts`：
+
+```typescript
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, it, expect } from 'vitest'
+
+const manifest = JSON.parse(
+  readFileSync(resolve(__dirname, '../src/manifest.json'), 'utf-8')
+) as Record<string, unknown>
+
+describe('manifest.json 4 端字段', () => {
+  it('mp-weixin: appid + setting 存在', () => {
+    const mp = manifest['mp-weixin'] as { appid: string; setting: { urlCheck: boolean } }
+    expect(mp.appid).toBe('TOURIST_APPID')
+    expect(mp.setting.urlCheck).toBe(false)
+  })
+
+  it('h5: title + router.hash 模式', () => {
+    const h5 = manifest['h5'] as { title: string; router: { mode: string; base: string } }
+    expect(h5.title).toBe('患者陪诊')
+    expect(h5.router.mode).toBe('hash')
+    expect(h5.router.base).toBe('/')
+  })
+
+  it('app-plus.android: minSdk=21 / targetSdk=34 + 9 个 permission + abiFilters', () => {
+    const app = manifest['app-plus'] as { distribute: { android: { minSdkVersion: number; targetSdkVersion: number; permissions: string[]; abiFilters: string[] } } }
+    const a = app.distribute.android
+    expect(a.minSdkVersion).toBe(21)
+    expect(a.targetSdkVersion).toBe(34)
+    expect(a.permissions.length).toBeGreaterThanOrEqual(9)
+    expect(a.permissions).toContain(expect.stringContaining('INTERNET'))
+    expect(a.permissions).toContain(expect.stringContaining('ACCESS_FINE_LOCATION'))
+    expect(a.abiFilters).toEqual(['armeabi-v7a', 'arm64-v8a', 'x86'])
+  })
+
+  it('app-plus.ios: idfa=false + 6 个 privacyDescription', () => {
+    const app = manifest['app-plus'] as { distribute: { ios: { idfa: boolean; privacyDescription: Record<string, string> } } }
+    const i = app.distribute.ios
+    expect(i.idfa).toBe(false)
+    expect(Object.keys(i.privacyDescription).length).toBe(6)
+    expect(i.privacyDescription.NSLocationWhenInUseUsageDescription).toContain('医院')
+    expect(i.privacyDescription.NSCameraUsageDescription).toContain('实名')
+  })
+
+  it('icons.android / icons.ios 引用 static/icons/', () => {
+    const icons = manifest['icons'] as { android: string[]; ios: string[] }
+    expect(icons.android).toContain('static/icons/Icon-192.png')
+    expect(icons.android).toContain('static/icons/Icon-maskable-512.png')
+    expect(icons.ios).toContain('static/icons/Icon-192.png')
+    expect(icons.ios).toContain('static/icons/Icon-512.png')
+  })
+
+  it('splashscreen.androidImages / iosImages 引用 static/splash/', () => {
+    const splash = manifest['splashscreen'] as { androidImages: string[]; iosImages: string[] }
+    expect(splash.androidImages).toContain('static/splash/android/launch_image.png')
+    expect(splash.iosImages).toContain('static/splash/ios/LaunchImage.png')
+  })
+})
+```
+
+并在 `package.json` `devDependencies` 加 `"vitest": "^1.6.0"`、`"@vitest/coverage-v8": "^1.6.0"`，在 `scripts` 加 `"test:manifest": "vitest run __tests__/manifest.app-plus.test.ts"`。
+
+**Step 5: 跑 typecheck + 单测**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+npm run typecheck
+npm run test:manifest
+```
+
+Expected:
+- `vue-tsc --noEmit` 0 错误（App.vue `#ifdef APP-PLUS` 块需在 `env.d.ts` 声明 `plus.os.name`；若 typecheck 报 `plus` 未定义，加 `src/env.d.ts` 三行：`declare const plus: { os: { name: string } }`）
+- `vitest run` 6 passed / 0 failed（4 端 manifest 字段断言）
+
+**Step 6: 校验 4 个图标 + 2 个启动页 PNG 文件存在 + 尺寸合规**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+for f in static/icons/Icon-192.png static/icons/Icon-512.png static/icons/Icon-maskable-512.png static/icons/icon.png static/splash/android/launch_image.png static/splash/ios/LaunchImage.png; do
+  test -f "$f" || { echo "MISSING: $f"; exit 1; }
+done
+file static/icons/Icon-192.png static/icons/Icon-512.png static/icons/Icon-maskable-512.png
+file static/splash/android/launch_image.png static/splash/ios/LaunchImage.png
+```
+
+Expected: 6 个文件全部存在；`file` 输出均为 `PNG image data, 192 x 192` / `512 x 512` / `1080 x 1920` / `1242 x 2208` 等匹配规格。（注：图标 PNG 由设计同学用 Figma / Sketch 出，本 Task 提供 .gitkeep 占位 + 尺寸 spec；CI 只校验文件存在，最终素材替换由 design team 提供）
+
+**Step 7: Commit**
+
+```bash
+cd web/patient-miniapp
+git add src/manifest.json src/App.vue src/env.d.ts package.json \
+        static/icons/ static/splash/ \
+        __tests__/manifest.app-plus.test.ts
+git commit -m "feat(patient-miniapp): app-plus manifest 配置 + 4 端图标 + 启动页"
+```
+
+---
+
+### Task 17: Android 原生 APK 构建（v1.1 多端构建 2/4）
+
+**Files:**
+- Create: `web/patient-miniapp/android/app/build.gradle`（uni 工具生成后修改 signing config）
+- Create: `web/patient-miniapp/android/app/src/main/AndroidManifest.xml`（合并 manifest.json 产物）
+- Create: `web/patient-miniapp/android/build.gradle`
+- Create: `web/patient-miniapp/android/gradle.properties`
+- Create: `web/patient-miniapp/android/settings.gradle`
+- Create: `web/patient-miniapp/e2e/native-smoke.spec.ts`（Appium Android Emu happy path）
+- Modify: `web/patient-miniapp/playwright.config.ts`（追加 native project 引用）
+
+**Step 1: 用 uni CLI 生成 Android 工程模板**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+npx uni build --platform app-plus --output android
+```
+
+注：v1.1 HBuilderX CLI（`@dcloudio/uni-cli-shared`）标准范式。若 uni CLI 在本机环境未装 Android SDK 导致失败，备选方案是用 vue-cli 模板 `npx degit dcloudio/uni-preset-vue#vite my-project` 拷出 `android/` 目录后改名再 merge。
+
+Expected: `android/` 目录生成，含 `app/src/main/AndroidManifest.xml` + `app/build.gradle` + `build.gradle` + `gradle.properties` + `settings.gradle` + `gradle/wrapper/`。
+
+**Step 2: 配置 signing config（debug 用 uni-app 默认签名）**
+
+`android/app/build.gradle` 在 `android { ... }` 块追加：
+
+```gradle
+signingConfigs {
+    debug {
+        storeFile file('debug.keystore')
+        storePassword 'android'
+        keyAlias 'androiddebugkey'
+        keyPassword 'android'
+    }
+    release {
+        // release cert 由运维同学后填（Apple/Android 平台账号密码）
+        storeFile file('release.keystore')
+        storePassword 'TODO_RELEASE_PASSWORD'
+        keyAlias 'TODO_RELEASE_KEY_ALIAS'
+        keyPassword 'TODO_RELEASE_KEY_PASSWORD'
+    }
+}
+
+buildTypes {
+    debug {
+        signingConfig signingConfigs.debug
+        minifyEnabled false
+    }
+    release {
+        signingConfig signingConfigs.release
+        minifyEnabled true
+        shrinkResources true
+        proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+    }
+}
+```
+
+并在 `android/app/` 放 `debug.keystore`（uni-app 标准 debug 签名，提交仓库保证可重现构建；release.keystore 由运维签入，v1.1 用占位文件 + .gitignore ignore release.keystore 仅留路径占位）。
+
+**Step 3: 修改 manifest.json 给 app-plus Android 块加 `android:targetSdkVersion` 已被 Step 1 覆盖**
+
+确认 `src/manifest.json` 的 `app-plus.distribute.android.targetSdkVersion` 为 34；若 uni CLI 生成时改回 33 / 30，修正回 34。
+
+**Step 4: 跑 gradle assembleDebug 生成 APK**
+
+Run:
+
+```bash
+cd web/patient-miniapp/android
+./gradlew assembleDebug
+ls -lh app/build/outputs/apk/debug/app-debug.apk
+```
+
+Expected: `BUILD SUCCESSFUL`，`app-debug.apk` 存在；APK 体积 `< 20MB`（du -h 验证；若超 20MB 检查 `android:largeHeap="true"` 是否误开，或检查 uni-app 是否引了未 tree-shake 的包）。
+
+**Step 5: 写 Appium Android Emu happy path e2e**
+
+`e2e/native-smoke.spec.ts`：
+
+```typescript
+import { test, expect } from '@playwright/test'
+import { remote as appiumRemote } from 'webdriverio'
+import { join } from 'node:path'
+
+let driver: WebdriverIO.Browser
+
+test.beforeAll(async () => {
+  driver = await appiumRemote({
+    hostname: '127.0.0.1',
+    port: 4723,
+    capabilities: {
+      platformName: 'Android',
+      'appium:deviceName': 'Android Emulator',
+      'appium:platformVersion': '14',
+      'appium:app': join(__dirname, '../android/app/build/outputs/apk/debug/app-debug.apk'),
+      'appium:automationName': 'UiAutomator2',
+      'appium:autoGrantPermissions': true,
+      'appium:noReset': true,
+    },
+  })
+})
+
+test.afterAll(async () => {
+  await driver.deleteSession()
+})
+
+test('登录 → 选陪诊师 happy path（Android）', async () => {
+  await driver.pause(2000) // 等 splash
+  // 首页应见「患者陪诊」tab
+  const homeTab = await driver.$('android=new UiSelector().textContains("首页")')
+  expect(await homeTab.isDisplayed()).toBe(true)
+
+  // 切到「我的」tab 触发登录态缺失
+  await driver.$('android=new UiSelector().textContains("我的")').click()
+  await driver.pause(500)
+
+  // 登录按钮（mock 后端 MSW on app-plus）
+  const loginBtn = await driver.$('android=new UiSelector().textContains("登录")')
+  await loginBtn.click()
+  await driver.pause(800)
+
+  // 模拟输入手机号 + 验证码
+  const phoneInput = await driver.$('android=new UiSelector().resourceId("com.marshal.doctors.patient:id/input_phone")')
+  await phoneInput.setValue('13800138000')
+  const codeInput = await driver.$('android=new UiSelector().resourceId("com.marshal.doctors.patient:id/input_code")')
+  await codeInput.setValue('1234')
+  await driver.$('android=new UiSelector().textContains("提交")').click()
+  await driver.pause(1500)
+
+  // 回到首页 - 验证登录成功（看到用户头像）
+  await driver.$('android=new UiSelector().textContains("首页")').click()
+  const avatar = await driver.$('android=new UiSelector().resourceId("com.marshal.doctors.patient:id/avatar")')
+  expect(await avatar.isDisplayed()).toBe(true)
+
+  // 进入订单 → 选陪诊师
+  await driver.$('android=new UiSelector().textContains("订单")').click()
+  await driver.pause(500)
+  // mock_state=selecting_escort 触发候选列表
+  await driver.$('android=new UiSelector().textContains("待选陪诊")').click()
+  await driver.pause(800)
+
+  const firstCandidate = await driver.$('android=new UiSelector().resourceId("com.marshal.doctors.patient:id/candidate_card")')
+  expect(await firstCandidate.isDisplayed()).toBe(true)
+  await firstCandidate.click()
+  await driver.$('android=new UiSelector().textContains("确认选择")').click()
+  await driver.pause(1500)
+
+  // 验证跳转 detail + 状态变 escort_pending_acceptance
+  const detailStatus = await driver.$('android=new UiSelector().textContains("待陪诊师确认")')
+  expect(await detailStatus.isDisplayed()).toBe(true)
+})
+```
+
+**Step 6: 跑 e2e（前置：Android Emu 起 + appium server 起）**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+# 终端 A：appium server
+npx appium --port 4723 &
+sleep 5
+# 终端 B：Android Emulator（假设已通过 avdmanager 创 AVD）
+$ANDROID_HOME/emulator/emulator -avd test_avd -no-snapshot -no-window &
+sleep 15
+# 终端 C：e2e
+PLAYWRIGHT_NATIVE=1 npx playwright test e2e/native-smoke.spec.ts --config=playwright.native.config.ts
+```
+
+Expected: 1 个 e2e 用例 PASS（happy path：登录 → 选陪诊师 → 状态变 escort_pending_acceptance）。
+
+**Step 7: Commit**
+
+```bash
+cd web/patient-miniapp
+git add android/ e2e/native-smoke.spec.ts playwright.config.ts
+git commit -m "feat(patient-miniapp): Android APK 构建脚本 + signing config + Appium 启动测"
+```
+
+---
+
+### Task 18: iOS 原生 IPA 构建（v1.1 多端构建 3/4）
+
+**Files:**
+- Create: `web/patient-miniapp/ios/Runner.xcodeproj/project.pbxproj`（uni 工具生成）
+- Create: `web/patient-miniapp/ios/Podfile`
+- Create: `web/patient-miniapp/ios/Runner/Info.plist`（含 NSPrivacyAccessedAPITypes）
+- Create: `web/patient-miniapp/ios/Runner/AppDelegate.m`
+- Create: `web/patient-miniapp/ios/Runner/Runner-Bridging-Header.h`
+- Create: `web/patient-miniapp/e2e/native-smoke-ios.spec.ts`（Appium iOS Sim happy path）
+
+**Step 1: 用 uni CLI 生成 iOS 工程模板**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+npx uni build --platform app-plus --output ios
+```
+
+Expected: `ios/` 目录生成，含 `Runner.xcodeproj/` + `Runner/` + `Podfile`。
+
+**Step 2: 配置 iOS Bundle ID + version**
+
+`ios/Runner.xcodeproj/project.pbxproj`（grep `PRODUCT_BUNDLE_IDENTIFIER` + `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION`）：
+
+```
+PRODUCT_BUNDLE_IDENTIFIER = com.marshal.doctors.patient;
+MARKETING_VERSION = 0.1.0;
+CURRENT_PROJECT_VERSION = 100;
+INFOPLIST_FILE = Runner/Info.plist;
+```
+
+并在 `src/manifest.json` 的 `app-plus.distribute.ios` 块新增 `bundleIdentifier` + `version` 字段（uni 工具生成时已合并，按实际产物调整）：
+
+```json
+"ios": {
+  "idfa": false,
+  "bundleIdentifier": "com.marshal.doctors.patient",
+  "version": "0.1.0",
+  "buildVersion": "100",
+  "dSYMs": false,
+  "privacyDescription": { ... },
+  "idfv": true,
+  "schemes": "patient.doctors.app"
+}
+```
+
+**Step 3: 跳过 cert 配置（v1 用 debug 自动签名；release cert 由运维后填）**
+
+确认 Xcode build settings：`CODE_SIGN_STYLE = Automatic` + `DEVELOPMENT_TEAM = ""`（v1 用 ad-hoc / 个人账号自动签名，release cert 由 ops 在 v1.2 配入）。在 `ios/Runner.xcodeproj/project.pbxproj` 找到 `CODE_SIGN_IDENTITY[sdk=iphoneos*]` 设为 `iPhone Developer`（debug 自动签名）。
+
+**Step 4: Pod install**
+
+Run:
+
+```bash
+cd web/patient-miniapp/ios
+pod install --repo-update
+ls Pods/
+```
+
+Expected: `Pods/` 目录生成，含 uni-app 依赖（`UniApp`、`DCUniBase` 等）+ 业务模块（uview-plus / pinia）。
+
+**Step 5: xcodebuild 生成 debug IPA**
+
+Run:
+
+```bash
+cd web/patient-miniapp/ios
+xcodebuild -workspace Runner.xcworkspace -scheme Runner \
+           -configuration Debug \
+           -sdk iphonesimulator \
+           -derivedDataPath build \
+           CODE_SIGNING_ALLOWED=NO
+ls -lh build/Build/Products/Debug-iphonesimulator/Runner.app
+du -sh build/Build/Products/Debug-iphonesimulator/Runner.app
+```
+
+Expected: `BUILD SUCCEEDED`；`Runner.app` 存在；体积 `< 30MB`（du -sh 验证）。注：debug IPA 是 unsigned，release IPA 由 ops 在 v1.2 配 cert 后跑 `xcodebuild ... -sdk iphoneos` + `xcodebuild -exportArchive`。
+
+**Step 6: 写 Appium iOS Sim happy path e2e（复用 Step 17 Android 用例骨架，platformName=iOS）**
+
+`e2e/native-smoke-ios.spec.ts`：
+
+```typescript
+import { test, expect } from '@playwright/test'
+import { remote as appiumRemote } from 'webdriverio'
+import { join } from 'node:path'
+
+let driver: WebdriverIO.Browser
+
+test.beforeAll(async () => {
+  driver = await appiumRemote({
+    hostname: '127.0.0.1',
+    port: 4723,
+    capabilities: {
+      platformName: 'iOS',
+      'appium:deviceName': 'iPhone 15',
+      'appium:platformVersion': '17.4',
+      'appium:app': join(__dirname, '../ios/build/Build/Products/Debug-iphonesimulator/Runner.app'),
+      'appium:automationName': 'XCUITest',
+      'appium:noReset': true,
+    },
+  })
+})
+
+test.afterAll(async () => {
+  await driver.deleteSession()
+})
+
+test('登录 → 选陪诊师 happy path（iOS）', async () => {
+  await driver.pause(2000)
+  // iOS accessibility id 与 Android resourceId 不同；用 label
+  const homeTab = await driver.$('accessibility id=tab_home')
+  expect(await homeTab.isDisplayed()).toBe(true)
+
+  await driver.$('accessibility id=tab_profile').click()
+  await driver.pause(500)
+  await driver.$('accessibility id=btn_login').click()
+  await driver.pause(800)
+
+  await driver.$('accessibility id=input_phone').setValue('13800138000')
+  await driver.$('accessibility id=input_code').setValue('1234')
+  await driver.$('accessibility id=btn_submit').click()
+  await driver.pause(1500)
+
+  await driver.$('accessibility id=tab_home').click()
+  const avatar = await driver.$('accessibility id=avatar')
+  expect(await avatar.isDisplayed()).toBe(true)
+
+  await driver.$('accessibility id=tab_order').click()
+  await driver.pause(500)
+  await driver.$('accessibility id=order_selecting').click()
+  await driver.pause(800)
+
+  const firstCandidate = await driver.$('accessibility id=candidate_card')
+  expect(await firstCandidate.isDisplayed()).toBe(true)
+  await firstCandidate.click()
+  await driver.$('accessibility id=btn_confirm_select').click()
+  await driver.pause(1500)
+
+  const detailStatus = await driver.$('accessibility id=status_escort_pending')
+  expect(await detailStatus.isDisplayed()).toBe(true)
+})
+```
+
+注：iOS 用 accessibility id 而非 Android resourceId；后续业务组件统一在 App.vue 用 `aria-label` 标全平台 id（Task 19 加注释指引）。
+
+**Step 7: 跑 e2e（前置：iOS Sim 起 + appium server 起）**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+npx appium --port 4723 &
+sleep 5
+xcrun simctl boot 'iPhone 15' || true
+sleep 10
+PLAYWRIGHT_NATIVE=1 npx playwright test e2e/native-smoke-ios.spec.ts --config=playwright.native.config.ts
+```
+
+Expected: 1 个 e2e 用例 PASS（happy path）。
+
+**Step 8: Commit**
+
+```bash
+cd web/patient-miniapp
+git add ios/ e2e/native-smoke-ios.spec.ts
+git commit -m "feat(patient-miniapp): iOS IPA 构建脚本（debug 自签；release cert 待运维提供）"
+```
+
+---
+
+### Task 19: 4 端 e2e + 全量回归（v1.1 多端构建 4/4）
+
+**Files:**
+- Create: `web/patient-miniapp/playwright.native.config.ts`
+- Create: `.github/workflows/patient-miniapp-native-ci.yml`
+- Modify: `web/patient-miniapp/playwright.config.ts`（追加 projects 配置）
+
+**Step 1: 写 Appium 双 driver 配置**
+
+`web/patient-miniapp/playwright.native.config.ts`：
+
+```typescript
+import { defineConfig, devices as playwrightDevices } from '@playwright/test'
+
+export default defineConfig({
+  testDir: './e2e',
+  testMatch: /native-smoke.*\.spec\.ts/,
+  timeout: 120_000,
+  reporter: [['list'], ['html', { open: 'never' }]],
+  use: {
+    trace: 'retain-on-failure',
+  },
+  projects: [
+    {
+      name: 'android-emu',
+      use: {
+        ...playwrightDevices['Desktop Chrome'], // placeholder，Appium driver 接管
+      },
+      testMatch: /native-smoke\.spec\.ts$/,
+    },
+    {
+      name: 'ios-sim',
+      use: {
+        ...playwrightDevices['Desktop Chrome'],
+      },
+      testMatch: /native-smoke-ios\.spec\.ts$/,
+    },
+  ],
+})
+```
+
+注：Appium 不走 Playwright `devices`，实际 driver 在 spec 内部 `webdriverio` 实例化；此 config 仅做 project 分组 + 报告聚合。
+
+**Step 2: 复用既有 Playwright H5 e2e + Appium 双端做全量回归**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+npm run typecheck
+npm run test:unit
+npm run test:e2e             # H5：pages-skeleton 2 + login-to-list 3 + order-candidates 2 + order-select-escort 1 = 8 用例
+npm run test:e2e:native      # Android + iOS：native-smoke 1 + native-smoke-ios 1 = 2 用例
+```
+
+Expected:
+- `vue-tsc --noEmit` 0 错误
+- `jest` 22 用例全 PASS（utils 6 + stores 8 + api/client 2 + Countdown 2 + EscortCandidateCard 2 + OrderStatusProgress 2）
+- `playwright test` 8 个 H5 e2e 全 PASS
+- `playwright test --config=playwright.native.config.ts` 2 个 Appium 用例全 PASS
+- 总计 **32 个测试用例**（22 单测 + 8 H5 e2e + 2 Appium）
+
+**Step 3: GitHub Actions 加 appium-android-emu + appium-ios-sim job**
+
+`.github/workflows/patient-miniapp-native-ci.yml`：
+
+```yaml
+name: patient-miniapp-native-ci
+
+on:
+  push:
+    paths:
+      - 'web/patient-miniapp/src/**'
+      - 'web/patient-miniapp/e2e/native-smoke*.spec.ts'
+      - 'web/patient-miniapp/playwright.native.config.ts'
+      - '.github/workflows/patient-miniapp-native-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  appium-android-emu:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/patient-miniapp/package-lock.json
+      - uses: android-actions/setup-android@v3
+      - name: Create AVD
+        run: |
+          echo "no" | avdmanager create avd -n test_avd -k "system-images;android-34;google_apis;x86_64" --device "pixel"
+      - name: Start emulator
+        run: |
+          $ANDROID_HOME/emulator/emulator -avd test_avd -no-snapshot -no-window -no-audio &
+          $ANDROID_HOME/platform-tools/adb wait-for-device
+          $ANDROID_HOME/platform-tools/adb shell input keyevent 82
+      - uses: appleboy/setup-appium@v1
+        with:
+          appium-version: '2.5.0'
+      - name: Install deps
+        working-directory: web/patient-miniapp
+        run: npm ci
+      - name: Build Android APK
+        working-directory: web/patient-miniapp
+        run: |
+          npm run build:app-android
+          cd android
+          ./gradlew assembleDebug
+      - name: Run Android e2e
+        working-directory: web/patient-miniapp
+        env:
+          PLAYWRIGHT_NATIVE: 1
+        run: npx playwright test e2e/native-smoke.spec.ts --config=playwright.native.config.ts --project=android-emu
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-emu-test-failure
+          path: |
+            web/patient-miniapp/test-results/
+            web/patient-miniapp/playwright-report/
+
+  appium-ios-sim:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/patient-miniapp/package-lock.json
+      - uses: appleboy/setup-appium@v1
+        with:
+          appium-version: '2.5.0'
+      - name: Install deps
+        working-directory: web/patient-miniapp
+        run: npm ci
+      - name: Build iOS app
+        working-directory: web/patient-miniapp
+        run: |
+          npm run build:app-ios
+          cd ios
+          pod install --repo-update
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Debug -sdk iphonesimulator -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+      - name: Boot iOS sim
+        run: |
+          xcrun simctl boot 'iPhone 15' || true
+          sleep 10
+      - name: Run iOS e2e
+        working-directory: web/patient-miniapp
+        env:
+          PLAYWRIGHT_NATIVE: 1
+        run: npx playwright test e2e/native-smoke-ios.spec.ts --config=playwright.native.config.ts --project=ios-sim
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-sim-test-failure
+          path: |
+            web/patient-miniapp/test-results/
+            web/patient-miniapp/playwright-report/
+```
+
+**Step 4: 跑本机全量回归作为 commit gate**
+
+Run:
+
+```bash
+cd web/patient-miniapp
+npm run typecheck && \
+  npm run test:unit && \
+  npm run test:manifest && \
+  npm run test:e2e && \
+  npm run test:e2e:native
+```
+
+Expected: 0 错误；22 单测 + 6 manifest 单测 + 8 H5 e2e + 2 Appium = **38 测试全 PASS**。
+
+**Step 5: Commit**
+
+```bash
+cd /Users/growduduan/ai/doctors
+git add web/patient-miniapp/playwright.native.config.ts \
+        web/patient-miniapp/e2e/native-smoke.spec.ts \
+        web/patient-miniapp/e2e/native-smoke-ios.spec.ts \
+        .github/workflows/patient-miniapp-native-ci.yml
+git commit -m "feat(patient-miniapp): 4 端 e2e（Appium + Playwright）+ CI multi-platform job"
+```
+
+---
+
 ## Self-Review
 
 - ✅ **Spec 覆盖**:
@@ -3468,6 +4306,14 @@ git commit -m "feat(patient-miniapp): 选陪诊师流程 (escort candidates 页 
 - ✅ **v1.1 保留**:
   - Countdown 组件逻辑（计时 + emit finish） —— 仅标签 / label 文案由「抢单窗口」改为「陪诊师确认窗口」
   - 锁单 / 抢单相关组件 —— 本 plan 原本未写专门抢单组件，仅 OrderCard 渲染 status；Task 13 已把 OrderCard 的状态分支迁到 OrderStatusProgress + detail.vue 的 v-if 分支
+- ✅ **v1.1 多端构建**（依据 spec §11 多端构建矩阵，commit `9131048`）:
+  - **4 端覆盖**: mp-weixin（uni mp 编译） + h5（Vite） + Android APK（uni app-plus → gradle assembleDebug） + iOS IPA（uni app-plus → xcodebuild iphonesimulator）—— 业务代码 100% 共享，差异在 `manifest.json` `app-plus` 块 + 4 端图标 + 启动页 + App.vue `#ifdef APP-PLUS` 平台条件编译（Task 16 Step 1~3）
+  - **app-plus manifest**: Android minSdk=21 / targetSdk=34 + 9 个 permission（含 INTERNET / ACCESS_FINE_LOCATION / READ_PHONE_STATE / VIBRATE）+ abiFilters armeabi-v7a/arm64-v8a/x86；iOS idfa=false + 6 个 privacyDescription（location / camera / photoLibrary / microphone / contacts / locationAlways）（Task 16 Step 1）
+  - **原生工程可重现构建**: `android/` + `ios/` 签入仓库（uni app-plus 工具生成产物），debug 用 uni 默认签名 + release 占位 cert（运维后填）；Task 17 assembleDebug APK < 20MB；Task 18 xcodebuild iphonesimulator Runner.app < 30MB
+  - **Appium e2e 双 driver**: `e2e/native-smoke.spec.ts`（Android Emu UiAutomator2）+ `e2e/native-smoke-ios.spec.ts`（iOS Sim XCUITest）覆盖登录 → 选陪诊师 happy path，验 4 端业务流一致（Task 17/18/19）
+  - **CI multi-platform**: `.github/workflows/patient-miniapp-native-ci.yml` 加 `appium-android-emu` + `appium-ios-sim` 两个 job（macos-latest runner），与既有 `patient-miniapp-ci.yml` 并行（Task 19 Step 3）
+  - **测试矩阵增量**: 新增 6 个 manifest 字段单测（vitest）+ 2 个 Appium e2e → 总计 **38 测试用例**（22 jest 单测 + 6 manifest 单测 + 8 H5 e2e + 2 Appium；v1 总 30 → v1.1 总 38）
+  - **任务数 13 → 19**: v1 共 13 Task + v1.1 多端构建 4 Task（16-19，序号与 Task 14-15 留作未来 e2e candidate polling / WebSocket 接入预位）+ 本计划修订 1 commit + v1.1 candidates 1 commit + Task 16-19 4 commits = 总 19 commits
 - ✅ **无占位符**: 每个文件/脚本/命令给出具体内容；Step 1 ~ Step N 不留 TODO / TBD
 - ✅ **类型一致**: API 类型在 `api/<feature>.ts` 手写 + `api/types.gen.ts` codegen 共存（手写优先，codegen 后续 plan 替换）；CandidateEscort / SelectEscortReq / SelectEscortResp 在客户端、store、组件、contracts.yaml 四处一致
 - ✅ **测试矩阵**:
@@ -3493,7 +4339,10 @@ git commit -m "feat(patient-miniapp): 选陪诊师流程 (escort candidates 页 
 
 **下一步选项**：
 
-1. **立即执行**（subagent-driven 或 inline 执行）—— 我开始实施 Task 1~13（每个 Task 一个 commit，共 13 commits；预估 ~1.5 小时，依赖 npm install 网络速度）
+1. **立即执行 v1（13 commits）**（subagent-driven 或 inline 执行）—— 我开始实施 Task 1~13（每个 Task 一个 commit，共 13 commits；预估 ~1.5 小时，依赖 npm install 网络速度）
+2. **v1 完成后立即接 v1.1 多端构建（剩余 ~2 commits + 4 个 Task 16-19 commits = +5 commits）** —— 在 v1 13 commits 落地后直接接 Task 16（manifest + 图标 + 启动页）→ Task 17（Android APK + Appium 启动测）→ Task 18（iOS IPA + Appium iOS 测）→ Task 19（4 端 e2e + CI multi-platform job），预估 ~3 小时（含 uni app-plus 原生工程生成 + gradle assembleDebug + xcodebuild iphonesimulator + Appium server 拉起时间）
+3. **暂停 + review** —— 用户 review 此 plan（含 v1.1 多端构建 Task 16-19）后告诉调整点
+4. **继续产 plan** —— 接着出 9 个后端 plan + 3 个前端 plan（virtual-number / wallet / escort-business / hospital-package / review / message / address-coupon / admin / escort-order-ext + escort-app setup / admin-web setup）
 2. **暂停 + review** —— 用户 review 此 plan 后告诉调整点
 3. **继续产 plan** —— 接着出 9 个后端 plan + 3 个前端 plan（virtual-number / wallet / escort-business / hospital-package / review / message / address-coupon / admin / escort-order-ext + escort-app setup / admin-web setup）
 
