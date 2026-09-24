@@ -522,7 +522,57 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - scheduler 改扫 escort_pending_expire_at + 调 RejectAccept + 发 OrderEscortRejectedEvent
 - handler 加 POST /orders/:id/{select-escort,confirm-accept,reject-accept} 3 路由
 
-### 10.10 抢单锁单 30s（2026-09-24 order-lock plan）
+### 10.9.2 订单匹配模式重构 v1.1 实施落地（2026-09-24 order-lock plan v1.1）
+
+按 plan §1.2 + §4.1 落地"抢单→选人"重构；删旧抢单流程，加新选人 + 30s 确认窗口。
+
+**Schema 变更**（migration `0009_select_escort.up.sql`）：
+- 删除 `orders.lock_owner` / `orders.lock_expire_at` + 索引 `idx_orders_lock`
+- 新增 `orders.selected_escort_id BIGINT FK` + `orders.escort_pending_expire_at TIMESTAMPTZ`
+- 索引 `idx_orders_selecting ON orders(escort_pending_expire_at) WHERE selected_escort_id IS NOT NULL`
+- 状态 CHECK 新增 `selecting_escort` + `escort_pending_acceptance` 两状态（与旧 matching/pending_acceptance 并存）
+- 新建 `escort_availabilities` 表（陪诊师空余时段；由 escort-availability plan 接管）
+
+**落地 commits（10 个）**：
+
+| commit | 性质 | 内容 |
+| :-- | :-- | :-- |
+| `7b394d2` | test(order/state) | state machine 8 新单测（RED） |
+| `58db9b9` | feat(order/state) | state machine 加 2 新状态 + transitions（GREEN；19 单测过） |
+| `161c5bd` | docs(dev.md) | §10.9.1 状态机 v1.1 说明 |
+| `a8b9d12` | feat(migrations) | 0009_select_escort（orders 字段换 + CHECK + escort_availabilities 表） |
+| `689555a` | feat(contracts) | 4 新 topic + 4 新事件 + 删 OrderMatchingEvent |
+| `b0c898e` | feat(order/events) | publisher 加 4 新方法 + 删 PublishOrderMatching |
+| `2abc780` | feat(order) | 删 Accept/TryLock/ReleaseAcceptLock + 加 SelectEscort/ConfirmAccept/RejectAccept + repo 字段换 + scheduler 用 PendingExpired + handler 加 3 新路由 + errs 加 CodeUnprocessable/CodeGone |
+| `121d821` | test(order) | 更新所有 fake/stub 匹配 v1.1 repo 接口 + 删 Lock* 测试 + 加 SelectEscort_NonPatient |
+| `doc-update` | docs(dev.md) | §10.9.2 本节 |
+| （含 integration test） | test(order/repo) | 5 新集成测试（SelectForEscort OK/VersionMismatch/WrongStatus + ConfirmByEscort OK/Expired + RejectByEscort OK + PendingExpired FindsExpiring） |
+
+**测试矩阵**：
+- `services/order/internal/state/`：19 个（8 v1 + 8 v1.1 + 3 通用）
+- `services/order/internal/events/`：5 个（NopPublisher 4 事件 + NilWriter）
+- `services/order/internal/service/`：14 个（Create × 4 + 业务流 × 6 + SelectEscort/ConfirmAccept/RejectAccept）
+- `services/order/internal/scheduler/`：4 个（ScanOnce 发布 / 跳过未过期 / 跳过 nil selected_escort_id / Run ctx cancel）
+- `services/order/internal/handler/`：14 个（含 v1.1 新路由测试）
+- `services/order/internal/server/`：2 个（Engine + RunShutdown）
+- `services/order/internal/router/`：1 个（8 路由注册）
+- `services/order/internal/repo/`：5 个集成测试（需 docker compose up）
+- `shared/contracts/`：13 个（含 4 v1.1 新事件 RoundTrip）
+- `shared/errs/`：2 个
+
+**pre-existing bug 顺手修复**：
+1. `services/order/internal/service/order_service.go` `WithTx` 注释错误（"v1 Accept 用" → "v1 旧 Accept 用；v1.1 仅 cancel/refund 可能用"）
+2. `services/order/internal/scheduler/expired_lock_scanner.go` 文件名沿用旧名（保留 git history；实际语义改名 EscortInviteExpiry scanner；命名注释提供整改测试）
+
+**未做**（留给后续 plan）：
+- escort-availability plan v1.1 实施（`escort_availabilities` 表已建，由 escort-availability plan 接管完整 CRUD + 5 API）
+- escort-order-ext plan v1.1 实施（陪诊师邀请查询 handler 路由 + CandidatesLookup / AvailabilityLookup 接口实现）
+- match-service 集成：OrderSelectingEscortEvent 触发后生成候选陪诊师 + 写 Redis `order_candidates:{order_id}` SET
+- admin-web 后端：OrderListPage 加 selected_escort_id / escort_pending_expire_at 列 + dashboard 待确认卡片
+- patient-miniapp / escort-app 前端适配（plan 已 commit v1.1，前端代码实施留 Phase 4-5）
+- Redis SETNX `orders:confirm:{order_id}` 30s 防重复触发（v1.1 plan §6 提到；v1 DB 唯一约束兜底，未实现 Redis 部分；可作 v1.2 增量）
+
+### 10.10 抢单锁单 30s（2026-09-24 order-lock plan，已被 §10.9.2 替换为选人流程）
 
 解决评审 C-04（抢单并发"先到先得 30s 锁单"无落地）+ 实现三道防线。
 
