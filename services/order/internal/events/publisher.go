@@ -22,11 +22,20 @@ import (
 )
 
 // Publisher 抽象订单事件发布。
+//
+// v1.1（order-matching-redesign）：删除 PublishOrderMatching；新增 4 个：
+//   - PublishOrderSelectingEscort：paid → selecting_escort
+//   - PublishOrderEscortSelected：selecting_escort → escort_pending_acceptance
+//   - PublishOrderEscortConfirmed：escort_pending_acceptance → accepted
+//   - PublishOrderEscortRejected：escort_pending_acceptance → selecting_escort（拒接或 30s 超时）
 type Publisher interface {
 	PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error
 	PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error
 	PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error
-	PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error
+	PublishOrderSelectingEscort(ctx context.Context, ev contracts.OrderSelectingEscortEvent) error
+	PublishOrderEscortSelected(ctx context.Context, ev contracts.OrderEscortSelectedEvent) error
+	PublishOrderEscortConfirmed(ctx context.Context, ev contracts.OrderEscortConfirmedEvent) error
+	PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error
 	Close() error
 }
 
@@ -83,17 +92,35 @@ func (p *KafkaPublisher) PublishOrderCancelled(ctx context.Context, ev contracts
 	return p.publish(ctx, contracts.TopicOrderCancelled, strconv.FormatInt(ev.OrderID, 10), ev)
 }
 
-// PublishOrderMatching 发布 order.matching 事件（锁单超时 / 拒接 → 回退 matching）。
-func (p *KafkaPublisher) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
-	return p.publish(ctx, contracts.TopicOrderMatching, strconv.FormatInt(ev.OrderID, 10), ev)
+// PublishOrderSelectingEscort 发布 order.selecting_escort 事件。
+func (p *KafkaPublisher) PublishOrderSelectingEscort(ctx context.Context, ev contracts.OrderSelectingEscortEvent) error {
+	return p.publish(ctx, contracts.TopicOrderSelectingEscort, strconv.FormatInt(ev.OrderID, 10), ev)
+}
+
+// PublishOrderEscortSelected 发布 order.escort_selected 事件。
+func (p *KafkaPublisher) PublishOrderEscortSelected(ctx context.Context, ev contracts.OrderEscortSelectedEvent) error {
+	return p.publish(ctx, contracts.TopicOrderEscortSelected, strconv.FormatInt(ev.OrderID, 10), ev)
+}
+
+// PublishOrderEscortConfirmed 发布 order.escort_confirmed 事件。
+func (p *KafkaPublisher) PublishOrderEscortConfirmed(ctx context.Context, ev contracts.OrderEscortConfirmedEvent) error {
+	return p.publish(ctx, contracts.TopicOrderEscortConfirmed, strconv.FormatInt(ev.OrderID, 10), ev)
+}
+
+// PublishOrderEscortRejected 发布 order.escort_rejected 事件。
+func (p *KafkaPublisher) PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error {
+	return p.publish(ctx, contracts.TopicOrderEscortRejected, strconv.FormatInt(ev.OrderID, 10), ev)
 }
 
 // NopPublisher 是测试或 dev 占位实现。
 type NopPublisher struct {
-	CreatedCount   int
-	AcceptedCount  int
-	CancelledCount int
-	MatchingCount  int
+	CreatedCount            int
+	AcceptedCount           int
+	CancelledCount          int
+	SelectingEscortCount    int
+	EscortSelectedCount     int
+	EscortConfirmedCount    int
+	EscortRejectedCount     int
 }
 
 // PublishOrderCreated 计数 + 返回。
@@ -114,9 +141,27 @@ func (p *NopPublisher) PublishOrderCancelled(ctx context.Context, ev contracts.O
 	return nil
 }
 
-// PublishOrderMatching 计数 + 返回。
-func (p *NopPublisher) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
-	p.MatchingCount++
+// PublishOrderSelectingEscort 计数 + 返回。
+func (p *NopPublisher) PublishOrderSelectingEscort(ctx context.Context, ev contracts.OrderSelectingEscortEvent) error {
+	p.SelectingEscortCount++
+	return nil
+}
+
+// PublishOrderEscortSelected 计数 + 返回。
+func (p *NopPublisher) PublishOrderEscortSelected(ctx context.Context, ev contracts.OrderEscortSelectedEvent) error {
+	p.EscortSelectedCount++
+	return nil
+}
+
+// PublishOrderEscortConfirmed 计数 + 返回。
+func (p *NopPublisher) PublishOrderEscortConfirmed(ctx context.Context, ev contracts.OrderEscortConfirmedEvent) error {
+	p.EscortConfirmedCount++
+	return nil
+}
+
+// PublishOrderEscortRejected 计数 + 返回。
+func (p *NopPublisher) PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error {
+	p.EscortRejectedCount++
 	return nil
 }
 

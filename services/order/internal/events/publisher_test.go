@@ -36,12 +36,40 @@ func TestNopPublisher_CountsCancelled(t *testing.T) {
 	assert.Equal(t, 1, p.CancelledCount)
 }
 
-// TestNopPublisher_CountsMatching 验证 PublishOrderMatching 计数。
-func TestNopPublisher_CountsMatching(t *testing.T) {
+// TestNopPublisher_CountsSelectingEscort 验证 PublishOrderSelectingEscort 计数（v1.1 新增）。
+func TestNopPublisher_CountsSelectingEscort(t *testing.T) {
 	p := &NopPublisher{}
-	ev := contracts.OrderMatchingEvent{OrderID: 1, EscortID: 7, Reason: "lock_expired", RetriedAt: time.Now()}
-	require.NoError(t, p.PublishOrderMatching(context.Background(), ev))
-	assert.Equal(t, 1, p.MatchingCount)
+	ev := contracts.OrderSelectingEscortEvent{OrderID: 1, PatientID: 5, City: "shanghai", OccurredAt: time.Now()}
+	require.NoError(t, p.PublishOrderSelectingEscort(context.Background(), ev))
+	assert.Equal(t, 1, p.SelectingEscortCount)
+}
+
+// TestNopPublisher_CountsEscortSelected 验证 PublishOrderEscortSelected 计数（v1.1 新增）。
+func TestNopPublisher_CountsEscortSelected(t *testing.T) {
+	p := &NopPublisher{}
+	ev := contracts.OrderEscortSelectedEvent{
+		OrderID: 1, PatientID: 5, SelectedEscortID: 7,
+		EscortPendingExpireAt: time.Now().Add(30 * time.Second),
+		OccurredAt:            time.Now(),
+	}
+	require.NoError(t, p.PublishOrderEscortSelected(context.Background(), ev))
+	assert.Equal(t, 1, p.EscortSelectedCount)
+}
+
+// TestNopPublisher_CountsEscortConfirmed 验证 PublishOrderEscortConfirmed 计数（v1.1 新增）。
+func TestNopPublisher_CountsEscortConfirmed(t *testing.T) {
+	p := &NopPublisher{}
+	ev := contracts.OrderEscortConfirmedEvent{OrderID: 1, PatientID: 5, EscortID: 7, ConfirmedAt: time.Now()}
+	require.NoError(t, p.PublishOrderEscortConfirmed(context.Background(), ev))
+	assert.Equal(t, 1, p.EscortConfirmedCount)
+}
+
+// TestNopPublisher_CountsEscortRejected 验证 PublishOrderEscortRejected 计数（v1.1 新增）。
+func TestNopPublisher_CountsEscortRejected(t *testing.T) {
+	p := &NopPublisher{}
+	ev := contracts.OrderEscortRejectedEvent{OrderID: 1, PatientID: 5, EscortID: 7, Reason: "lock_expired", OccurredAt: time.Now()}
+	require.NoError(t, p.PublishOrderEscortRejected(context.Background(), ev))
+	assert.Equal(t, 1, p.EscortRejectedCount)
 }
 
 // TestNopPublisher_Close 不报错。
