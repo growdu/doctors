@@ -1,0 +1,28 @@
+# match-service 本地配置示例
+service: match
+
+http:
+  addr: ":8083"
+  read_timeout_sec: 30
+  write_timeout_sec: 30
+
+db:
+  dsn: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+  max_conns: 5
+  min_conns: 1
+
+redis:
+  addr: 127.0.0.1:6379
+  db: 0
+
+kafka:
+  brokers:
+    - 127.0.0.1:9092
+  group_id: match-service
+
+auth:
+  jwt_secret: dev-secret-change-me
+  jwt_ttl: 3600000000000
+
+logging:
+  level: info
