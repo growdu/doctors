@@ -488,6 +488,40 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - 30s 锁单超时的 Redis SETNX 与定时扫描器
 - §4.6 退款分段（refund plan）
 
+### 10.9.1 订单匹配模式重构 v1.1（2026-09-24 order-matching-redesign plan）
+
+解决陪诊师注册后由陪诊师抢单 → 患者选人 + 陪诊师 30s 确认的产品决策变更。
+
+**新增状态**（追加到状态机枚举，旧状态保留兼容）：
+- `selecting_escort`：订单已支付，系统已生成候选陪诊师列表，等待患者选择（不依赖 lock_owner）
+- `escort_pending_acceptance`：患者已选 1 位陪诊师，30s 确认窗口；confirm → accepted；拒接 / 超时 → 回退 selecting_escort
+
+**转换表扩展**：
+- `paid → selecting_escort`（与旧 `paid → matching` 并存）
+- `selecting_escort → escort_pending_acceptance`（患者选人）
+- `escort_pending_acceptance → accepted`（陪诊师 confirm）
+- `escort_pending_acceptance → selecting_escort`（陪诊师拒接 / 30s 超时）
+- `selecting_escort → canceled`（患者取消）
+
+**新字段**（由后续 order-lock plan 0009 迁移落地）：
+- `orders.selected_escort_id BIGINT FK → users(id)`
+- `orders.escort_pending_expire_at TIMESTAMPTZ`
+
+**落地 commits（2 个）**：
+
+| commit | 类型 | 内容 |
+| :-- | :-- | :-- |
+| `7b394d2` | test | state machine 加 8 新单测（selecting_escort / escort_pending_acceptance 转换，RED）|
+| `58db9b9` | feat | state machine 加 2 新状态 + transitions 扩展（GREEN；19 单测全过）|
+
+**未做**（留给后续 plan）：
+- order-lock plan 0009 迁移（替换 lock_owner → selected_escort_id + 加 escort_pending_expire_at + 删 lock_expire_at 索引）
+- shared/contracts/events 加 3 新事件（OrderSelectingEscortEvent / OrderEscortConfirmedEvent / OrderEscortRejectedEvent）+ 删 OrderMatchingEvent
+- repo 加 SelectForEscort / ConfirmByEscort / RejectByEscort / PendingExpired 4 方法
+- service 加 SelectEscort / ConfirmAccept / RejectAccept 3 方法
+- scheduler 改扫 escort_pending_expire_at + 调 RejectAccept + 发 OrderEscortRejectedEvent
+- handler 加 POST /orders/:id/{select-escort,confirm-accept,reject-accept} 3 路由
+
 ### 10.10 抢单锁单 30s（2026-09-24 order-lock plan）
 
 解决评审 C-04（抢单并发"先到先得 30s 锁单"无落地）+ 实现三道防线。
