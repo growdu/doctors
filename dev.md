@@ -449,3 +449,41 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 6. **mock 默认实现**：每个 service 在 `cmd/main.go` 用 nilRepo / nilProvider 占位；接入真实现后只改 main，业务代码不动。
 7. **handler 层零业务逻辑**：仅做参数绑定 → service → errs 翻译。保持 handler 简单可测试。
 8. **独立骨架但未跑业务流**：6 个新服务的 main 都能 build，但业务流需要 docker compose 才能真跑（与现有阶段 2~4 模式一致）。
+
+### 10.9 状态机统一（2026-09-24 state-machine plan）
+
+解决评审 C-01（04 vs 07 状态机不一致）+ 引入评审要求的中间态。
+
+**新增状态**：`pending_acceptance`（抢单锁单 30s 窗口）/ `settling`（结算中）/ `disputed`（争议中）。
+
+**新增字段**：`orders.lock_owner BIGINT FK` / `orders.lock_expire_at TIMESTAMPTZ`。
+
+**落地 commits（8 个）**：
+
+| commit | 类型 | 内容 |
+| :-- | :-- | :-- |
+| `afe7517` | feat | 状态机三态 + 转换表调整 |
+| `f629c69` | fix(migrations) | cleanup 用新 conn（defer conn.Close 后旧 conn 已关） |
+| `73da081` | feat(migrations) | 0003_orders_state 加 lock_owner/lock_expire_at + CHECK 扩展 |
+| `1cde7c7` | fix(order) | UpdateStatus $5 → $4（pre-existing SQL 占位错位） |
+| `fc0e434` | feat(order) | repo 加 LockForAccept / ReleaseLock / LockExpired 三方法 |
+| `8ab21fd` | fix(order) | fake/stub OrderRepo 补全锁单三件套 |
+| `9c45ea9` | fix(test) | setupAcceptPool 预建 50 个 bulk 用户（FK pre-existing） |
+| `eb9ccbd` | feat(order) | service 加 TryLock/ReleaseAcceptLock/ConfirmAccept 三方法 |
+| `0c4dd07` | docs | 04 流程图 + 07 表结构 + roadmap 落地引用 |
+
+**新增测试**：
+- `services/order/internal/state/`：8 个新单元测试（pending_acceptance/settling/disputed 转换）
+- `migrations/`：`Test0003OrdersStateUpDown`（加列 + CHECK + 索引 + down 可逆）
+- `services/order/internal/repo/`：5 个新集成测试（LockForAccept 版本冲突 / 状态非法 / ReleaseLock / OK / LockExpired）
+- `services/order/internal/service/`：3 个新集成测试（LockThenConfirm / LockFailsOnConflict / ReleaseLock）
+
+**pre-existing bug 顺手修复**（不在原 plan 内）：
+
+1. `migrations/migrations_test.go`：cleanup 在 `defer conn.Close` 之后跑，引用闭锁变量导致 cleanup 静默失败。修：cleanup 内新建 conn 跑 down SQL。
+2. `services/order/internal/repo/order_repo.go` `UpdateStatus` SQL 引用 `$5` 但参数列表只 4 个：所有集成测试一执行就报"could not determine data type of parameter"。修：改为 `$4`。
+3. `services/order/internal/service/accept_integration_test.go` `setupAcceptPool`：只建 1 个 escort 用户，但 `TestAccept_OnlyOneWins` 用 50 个不同 escortID（1000+i）→ FK 违反。修：批量预建 50 个 bulk 用户 + 测试查真实 ids。
+
+**未做**（留给 §4.2 order-lock plan）：
+- 30s 锁单超时的 Redis SETNX 与定时扫描器
+- §4.6 退款分段（refund plan）
