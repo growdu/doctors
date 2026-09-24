@@ -487,3 +487,40 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 **未做**（留给 §4.2 order-lock plan）：
 - 30s 锁单超时的 Redis SETNX 与定时扫描器
 - §4.6 退款分段（refund plan）
+
+### 10.10 抢单锁单 30s（2026-09-24 order-lock plan）
+
+解决评审 C-04（抢单并发"先到先得 30s 锁单"无落地）+ 实现三道防线。
+
+**三道防线**：
+1. **Redis SETNX** `orders:accept-lock:{order_id}` 30s（Redis 不可用降级为 NopLocker）
+2. **DB 校验** `status='matching' AND version=N`
+3. **DB UPDATE** `status='pending_acceptance', lock_owner, lock_expire_at`
+
+**超时回退**：`ExpiredLockScanner` 每 5s 扫一次 `orders WHERE status='pending_acceptance' AND lock_expire_at < NOW()`，自动 `ReleaseAcceptLock` 回退 `matching` 并发 `OrderMatchingEvent`。
+
+**落地 commits（5 个）**：
+
+| commit | 性质 | 内容 |
+| :-- | :-- | :-- |
+| `bcee2ca` | feat(shared/lock) | RedisLocker SETNX + Lua 释放 + NopLocker |
+| `c83b68f` | feat(order) | events.Publisher 加 PublishOrderMatching + contracts 加 OrderMatchingEvent |
+| `a5a7ee7` | feat(order) | TryLock 接 RedisLocker SETNX 第一道闸 |
+| `1988dc1` | feat(order) | ExpiredLockScanner 5s 扫描过期锁单 |
+| `4e25fca` | feat(order) | main 装配 RedisLocker + KafkaPublisher + Scheduler |
+
+**新增测试**：
+- `shared/lock/`：3 个单测（NopLocker passthrough / Release / 接口满足）
+- `services/order/internal/service/`：3 个集成测试（NopLocker 兜底 / Redis SETNX 阻断 / TTL 到期后 DB 兜底）
+- `services/order/internal/scheduler/`：4 个单测（ScanOnce 发布 / 跳过未过期 / 跳过 nil lock_owner / Run 响应 ctx）
+
+**实施细节 / 与 plan 偏差**：
+
+1. **NopLocker 行为调整**：原 plan 写"NopLocker 永远返回 false 模拟 Redis 不可用"，但实际会让上层误判为 `ErrLockTaken`。改为"NopLocker 永远 ok=true（passthrough）"，让上层 Service.TryLock 跳过 SETNX 检查，直接走 DB 唯一约束兜底（与 plan 注释"Redis 不可用时降级跳过"一致）。
+2. **scanner 调用 actorID**：scanner 用 `*o.LockOwner` 作为 `ReleaseAcceptLock` 的 actorID（不是 plan 写的 0）；service.ReleaseAcceptLock 要求 actorID == lock_owner，否则 ErrForbidden。
+3. **token best-effort release**：TryLock 与 Release 的 Redis token 是独立随机生成的，Release 可能不命中——靠 TTL 到期自动过期。生产环境应把 token 存 DB 做精确释放（v2 引入）。
+4. **main 装配降级**：如果 cfg.Redis.Addr / cfg.Kafka.Brokers 缺失，自动降级为 NopLocker / NopPublisher；scheduler 仅在 repo 非 nil 时启动——保持现有骨架向后兼容（smoke 不走业务路径）。
+
+**未做**（留给后续）：
+- Redis token 存 DB 做精确 Release
+- `OrderLockEvent` Kafka 消费端（match-service 收到 `OrderMatchingEvent` 后重新推送候选陪诊师）

@@ -148,6 +148,14 @@ created → paid → matching → pending_acceptance → accepted → in_service
 
 **影响**：参考 L1.4 引入新的 `OrderLockScheduler` 异步任务。
 
+**落地 commit（2026-09-24 order-lock plan）**：
+
+- `bcee2ca` feat(shared/lock): RedisLocker SETNX + Lua 释放 + NopLocker
+- `c83b68f` feat(order): events.Publisher 加 PublishOrderMatching + contracts 加 OrderMatchingEvent
+- `a5a7ee7` feat(order): TryLock 加 Redis SETNX 第一道闸 + NopLocker passthrough
+- `1988dc1` feat(order): ExpiredLockScanner 5s 扫描过期锁单 + 自动回退 + 发 OrderMatchingEvent
+- `4e25fca` feat(order): main 装配 RedisLocker + KafkaPublisher + 启动 ExpiredLockScanner
+
 ### 4.3 退款分段
 
 **目的**：解决 C-04 + 评审 I-05 "退款分段留扩展点"。
