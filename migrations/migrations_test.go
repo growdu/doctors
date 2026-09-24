@@ -355,6 +355,127 @@ func Test0004RefundsUpDown(t *testing.T) {
 	}
 }
 
+// Test0007WalletsUpDown 验证 wallets + withdrawals + billings 三表 + orders.completed_at 加列。
+// 依赖 0001_users + 0002_orders + 0003_orders_state；测试结束回滚所有变更。
+func Test0007WalletsUpDown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn())
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	// 先建 users + orders + orders_state（billings.user_id / withdrawals.user_id 引用 users.id；orders 需要存在）
+	for _, f := range []string{"0001_users.up.sql", "0002_orders.up.sql", "0003_orders_state.up.sql"} {
+		sql, _ := os.ReadFile(f)
+		_, err = conn.Exec(ctx, string(sql))
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() {
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanCancel()
+		cleanConn, err := pgx.Connect(cleanCtx, dsn())
+		if err != nil {
+			return
+		}
+		defer cleanConn.Close(cleanCtx)
+		for _, f := range []string{"0003_orders_state.down.sql", "0002_orders.down.sql", "0001_users.down.sql"} {
+			sql, _ := os.ReadFile(f)
+			_, _ = cleanConn.Exec(cleanCtx, string(sql))
+		}
+	})
+
+	applyUp(t, "0007_wallets.up.sql", []string{"wallets", "withdrawals", "billings"})
+
+	// 列检查（wallets）
+	for _, col := range []string{"user_id", "balance", "frozen", "total_earned", "total_withdrawn", "currency", "updated_at", "created_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='wallets' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "wallets.%s should exist", col)
+	}
+
+	// 列检查（withdrawals）
+	for _, col := range []string{"id", "user_id", "amount", "channel", "account", "status", "external_tx_id", "failure_reason", "created_at", "reviewed_at", "reviewed_by", "paid_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='withdrawals' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "withdrawals.%s should exist", col)
+	}
+
+	// 列检查（billings）
+	for _, col := range []string{"id", "user_id", "order_id", "type", "amount", "balance_after", "frozen_after", "note", "created_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='billings' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "billings.%s should exist", col)
+	}
+
+	// orders.completed_at 加列检查
+	var completedCol bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		               WHERE table_name='orders' AND column_name='completed_at')`).
+		Scan(&completedCol)
+	require.NoError(t, err)
+	assert.True(t, completedCol, "orders.completed_at should exist after 0007")
+
+	// 索引检查
+	for _, idx := range []string{"idx_wallets_user", "idx_withdrawals_user_created", "idx_withdrawals_status", "idx_billings_user_created", "idx_orders_completed"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, idx).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "index %s should exist", idx)
+	}
+
+	// CHECK 约束（withdrawals.status / billings.type）
+	for _, conname := range []string{"withdrawals_status_check", "billings_type_check"} {
+		var has bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
+			               WHERE constraint_name=$1)`, conname).
+			Scan(&has)
+		require.NoError(t, err)
+		assert.True(t, has, "check constraint %s should exist", conname)
+	}
+
+	// down 校验
+	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer downCancel()
+	downSQL, err := os.ReadFile("0007_wallets.down.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(downCtx, string(downSQL))
+	require.NoError(t, err, "apply 0007_wallets.down.sql")
+
+	for _, tbl := range []string{"wallets", "withdrawals", "billings"} {
+		var gone bool
+		err := conn.QueryRow(downCtx,
+			`SELECT NOT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name=$1)`, tbl).
+			Scan(&gone)
+		require.NoError(t, err)
+		assert.True(t, gone, "%s should be gone after down", tbl)
+	}
+
+	// orders.completed_at 也得被回退
+	var completedGone bool
+	err = conn.QueryRow(downCtx,
+		`SELECT NOT EXISTS(SELECT 1 FROM information_schema.columns
+		                  WHERE table_name='orders' AND column_name='completed_at')`).
+		Scan(&completedGone)
+	require.NoError(t, err)
+	assert.True(t, completedGone, "orders.completed_at should be gone after down")
+}
+
 // TestAllUpMigrationsApplyCleanly 串行应用所有 up 文件，确保幂等 + 无脏表。
 func TestAllUpMigrationsApplyCleanly(t *testing.T) {
 	files, err := filepath.Glob("./*.up.sql")
