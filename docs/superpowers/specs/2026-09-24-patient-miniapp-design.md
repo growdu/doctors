@@ -5,13 +5,15 @@
 **Goal:** 实现患者陪诊全链路（注册 → 下单 → 支付 → 服务 → 评价 → 退款），产出可在微信开发者工具跑通的 v1.0。
 
 **Tech Stack:**
-- **框架**: uni-app x（Vue 3 + 组合式 API + `<script setup>`）
-- **UI**: uView Plus 2.x（专为 uni-app 定制的 UI 库；兼容微信小程序 + H5）
+- **框架**: uni-app x（Vue 3 + 组合式 API + `<script setup>`；**4 端构建**：mp-weixin 小程序 / H5 Web / App-Android 原生 / App-iOS 原生）
+- **UI**: uView Plus 2.x（专为 uni-app 定制的 UI 库；兼容微信小程序 + H5；Android/iOS 原生适配由 uni-app 引擎保证）
 - **状态管理**: Pinia（与 Vue 3 配套）
-- **HTTP**: uni-request（基于 Promise + 拦截器；自动加 trace_id）
-- **路由**: uni-app 自带 pages.json（声明式）
-- **样式**: SCSS + uView 主题变量（可换肤）
-- **测试**: Jest（组件）+ Playwright（H5 模式 e2e）
+- **HTTP**: uni-request（基于 Promise + 拦截器；自动加 trace_id）— **4 端共用**
+- **路由**: uni-app 自带 pages.json（声明式；mp-weixin + H5 + app-plus 三种运行模式自动适配）
+- **样式**: SCSS + uView 主题变量（可换肤）+ uni-app `rpx` 单位（4 端自适应）
+- **原生插件**: `wx-pay-uniapp`（v1 mock，仅 mp-weixin 用；app-plus 原生微信支付 v1 也走 mock，v2 接 WXApi / WXPayEntryActivity）
+- **测试**: Jest（组件，4 端共用）+ Playwright（H5 模式 e2e）+ Appium（Android/iOS 原生 e2e，v1.1 新增）
+- **构建工具**: HBuilderX 或 CLI `uni build`（4 端产物同源，单包）
 
 **前置依赖:**
 - 后端：`docs/superpowers/specs/2026-09-24-l2-api-gap-design.md` 全部 P0 API
@@ -327,27 +329,33 @@ uni.addInterceptor('request', {
 
 ---
 
-## 8. 构建 + CI
+## 8. 构建 + CI（v1.1：4 端构建）
 
 ```bash
 # 开发
-npm run dev:mp-weixin          # 微信小程序
+npm run dev:mp-weixin          # 微信小程序（微信开发者工具预览）
+npm run dev:h5                 # H5（Chrome 调试）
+npm run dev:app-plus           # App（自定义基座，自动选 Android / iOS）
 
 # 构建
 npm run build:mp-weixin        # 输出 dist/build/mp-weixin
+npm run build:h5               # 输出 dist/build/h5
+npm run build:app-android      # 输出 dist/build/app-plus/APK（debug 签名）
+npm run build:app-ios          # 输出 dist/build/app-plus/IPA（debug 签名；release 需 cert）
 
 # 类型检查 + 单测
 npm run typecheck
 npm run test:unit
 
-# E2E（启动 H5 dev server 后跑 Playwright）
+# E2E
 npm run dev:h5 &
-npm run test:e2e
+npm run test:e2e               # Playwright（H5 模式）
+npm run test:e2e:native        # Appium（Android Emu / iOS Sim，v1.1 新增）
 
 # 集成：Husky pre-commit 跑 typecheck + test:unit
 ```
 
-CI（GitHub Actions）必跑：`typecheck` / `test:unit` / `test:e2e` / `openapi-validate`。
+CI（GitHub Actions）必跑：`typecheck` / `test:unit` / `test:e2e` / `test:e2e:native` / `openapi-validate` / `build:app-android`（验 APK 可生成）。
 
 ---
 
@@ -358,6 +366,9 @@ CI（GitHub Actions）必跑：`typecheck` / `test:unit` / `test:e2e` / `openapi
 | 首屏渲染（冷启动） | < 2s |
 | 列表滚动 FPS | ≥ 50 |
 | 包体积（mp-weixin） | < 2 MB |
+| 包体积（H5） | < 1.5 MB（gzipped） |
+| 包体积（Android APK） | < 20 MB |
+| 包体积（iOS IPA） | < 30 MB |
 | 网络请求（首页） | < 3 个 |
 | 内存占用 | < 80 MB |
 
@@ -370,9 +381,78 @@ CI（GitHub Actions）必跑：`typecheck` / `test:unit` / `test:e2e` / `openapi
 | WebSocket 实时订单状态 | v2（v1 轮询 3s） |
 | 小程序码分享订单 | v1.5（先做截图分享） |
 | 微信支付分账 | v2 |
+| 微信支付 App 原生 SDK（iOS WXApi / Android WXPayEntryActivity）| v2（v1 全 4 端 mock 沙箱；tap "支付成功" 直接回调） |
+| App Store / Google Play 上架审核 | v2（v1 仅本地 debug APK/IPA 签名 + 自定义基座） |
+| iOS Push Notification（APNs）/ Android FCM 推送 | v2（v1 mock in-app notification） |
 | 视频陪诊（远程视频） | v3 |
 | AI 客服 | v3 |
 | 国际化（i18n） | v3 |
+
+---
+
+## 11. 多端构建矩阵（v1.1 增量）
+
+| 端 | 入口命令 | 产物 | 调试方式 | 关键差异点 |
+|---|---|---|---|---|
+| **微信小程序** | `npm run dev:mp-weixin` | `dist/build/mp-weixin/`（开发者工具导入）| 微信开发者工具（扫码预览）| 微信支付：mp SDK `wx.requestPayment`；相机：`wx.chooseMedia`；推送：subscribe message |
+| **H5 Web** | `npm run dev:h5` | `dist/build/h5/`（Vite 静态站）| Chrome DevTools | 微信支付：H5 走 `WXJSBridge`（v1 mock，跳过）；相机：`<input type=file capture；推送：无 |
+| **Android 原生** | `npm run dev:app-plus` → 选 Android | `dist/build/app-plus/APK`（debug 自签）| Android Studio / 真机 USB / Android Emu | 微信支付：v1 mock（v2 接 WXPayEntryActivity）；相机：`image_picker` uni 适配；推送：FCM（v1 mock）|
+| **iOS 原生** | `npm run dev:app-plus` → 选 iOS | `dist/build/app-plus/IPA`（debug 自签）| Xcode / 真机 USB / iOS Sim | 微信支付：v1 mock（v2 接 WXApi）；相机：`image_picker` uni 适配；推送：APNs（v1 mock）|
+
+**4 端共用代码**：
+- `src/pages/**` + `src/components/**` + `src/stores/**` + `src/api/**` + `src/utils/**`（100% 共用）
+- `src/manifest.json`：`mp-weixin` / `h5` / `app-plus` 三块条件编译
+- `static/`：图片 / 字体 / 启动图（4 端共用素材，自动按 manifest 分配）
+
+**平台条件编译（uni-app 语法）**：
+```vue
+<!-- #ifdef MP-WEIXIN -->
+<button @click="wxPay">微信支付</button>
+<!-- #endif -->
+
+<!-- #ifdef APP-PLUS -->
+<button @click="nativePay">原生支付（v1 mock）</button>
+<!-- #endif -->
+
+<!-- #ifdef H5 -->
+<button @click="h5Pay">H5 支付（v1 mock）</button>
+<!-- #endif -->
+```
+
+**manifest.json `app-plus` 关键字段**（v1.1 新增）：
+```json
+{
+  "app-plus": {
+    "distribute": {
+      "android": {
+        "minSdkVersion": 21,
+        "targetSdkVersion": 34,
+        "abiFilters": ["armeabi-v7a", "arm64-v8a"],
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+          "<uses-permission android:name=\"android.permission.READ_PHONE_STATE\"/>"
+        ]
+      },
+      "ios": {
+        "dSYMs": false,
+        "privacyDescription": {
+          "NSLocationWhenInUseUsageDescription": "用于显示附近医院",
+          "NSCameraUsageDescription": "用于拍照上传身份证",
+          "NSPhotoLibraryUsageDescription": "用于选择图片上传"
+        },
+        "idfa": false
+      }
+    }
+  }
+}
+```
+
+**DevOps 说明**：
+- Android `release.keystore` 与 iOS `Provisioning Profile / Cert` 由运维生成，存放在 `web/admin-web/scripts/keys/`（不提交 Git）
+- Debug APK 用 uni-app 默认 debug 签名（`android.debug.signing`）即可，dev 可直接生成
+- CI 仅跑 debug 签名构建 + e2e，release 签名由维护者本地完成
 
 ---
 
