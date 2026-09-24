@@ -268,6 +268,93 @@ func Test0003OrdersStateUpDown(t *testing.T) {
 	assert.False(t, idxGone, "idx_orders_lock should be gone after down")
 }
 
+// Test0004RefundsUpDown 验证 refunds + refund_policies 表结构。
+// 依赖 0001_users + 0002_orders；测试结束回滚所有变更。
+func Test0004RefundsUpDown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn())
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	// 先建 users + orders
+	for _, f := range []string{"0001_users.up.sql", "0002_orders.up.sql"} {
+		sql, _ := os.ReadFile(f)
+		_, err = conn.Exec(ctx, string(sql))
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() {
+		downCtx, downCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer downCancel()
+		downConn, err := pgx.Connect(downCtx, dsn())
+		if err != nil {
+			return
+		}
+		defer downConn.Close(downCtx)
+		for _, f := range []string{"0002_orders.down.sql", "0001_users.down.sql"} {
+			sql, _ := os.ReadFile(f)
+			_, _ = downConn.Exec(downCtx, string(sql))
+		}
+	})
+
+	applyUp(t, "0004_refunds.up.sql", []string{"refunds", "refund_policies"})
+
+	// 列检查（refunds）
+	for _, col := range []string{"id", "order_id", "payment_id", "amount", "reason", "status", "created_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='refunds' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "refunds.%s should exist", col)
+	}
+
+	// 列检查（refund_policies）
+	for _, col := range []string{"id", "scope", "trigger_phase", "refund_percent", "escort_compensation_percent"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='refund_policies' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "refund_policies.%s should exist", col)
+	}
+
+	// 索引检查
+	for _, idx := range []string{"idx_refunds_order", "idx_refunds_payment"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, idx).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "index %s should exist", idx)
+	}
+
+	// 默认策略 4 档已 INSERT
+	var count int
+	err = conn.QueryRow(ctx, `SELECT COUNT(*) FROM refund_policies WHERE scope='default'`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 4, count, "v1 默认策略应有 4 档")
+
+	// down 校验
+	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer downCancel()
+	downSQL, err := os.ReadFile("0004_refunds.down.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(downCtx, string(downSQL))
+	require.NoError(t, err, "apply 0004_refunds.down.sql")
+
+	for _, tbl := range []string{"refunds", "refund_policies"} {
+		var gone bool
+		err := conn.QueryRow(downCtx,
+			`SELECT NOT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name=$1)`, tbl).
+			Scan(&gone)
+		require.NoError(t, err)
+		assert.True(t, gone, "%s should be gone after down", tbl)
+	}
+}
+
 // TestAllUpMigrationsApplyCleanly 串行应用所有 up 文件，确保幂等 + 无脏表。
 func TestAllUpMigrationsApplyCleanly(t *testing.T) {
 	files, err := filepath.Glob("./*.up.sql")
