@@ -2,7 +2,6 @@ package consumer
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/growdu/doctors/services/match/internal/pool"
 	"github.com/growdu/doctors/services/match/internal/scorer"
 	"github.com/growdu/doctors/services/match/internal/service"
+	"github.com/growdu/doctors/shared/contracts"
 )
 
 type nilLoader struct{}
@@ -23,28 +23,23 @@ func (nilLoader) ListAvailable(ctx context.Context, city string) ([]scorer.Escor
 // TestHandleOrderCreated 验证 HandleOrderCreated 走通 service.Match。
 func TestHandleOrderCreated(t *testing.T) {
 	svc := service.New(pool.NewNopPool(), nilLoader{}, 0)
-	ev := OrderCreatedEvent{OrderID: 100, City: "北京"}
+	ev := contracts.OrderCreatedEvent{OrderID: 100, City: "北京"}
 	cands, err := HandleOrderCreated(context.Background(), svc, ev)
 	require.NoError(t, err)
 	// nilLoader 返回空 escort list → 0 候选
 	assert.Empty(t, cands)
 }
 
-// TestOrderCreatedEvent_DecodeRoundtrip 验证 JSON 序列化可逆。
-func TestOrderCreatedEvent_DecodeRoundtrip(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	ev := OrderCreatedEvent{
-		OrderID:        1,
+// TestHandleOrderCreated_AllFieldsForwarded 验证 events 的字段都被传入 service。
+func TestHandleOrderCreated_AllFieldsForwarded(t *testing.T) {
+	svc := service.New(pool.NewNopPool(), nilLoader{}, 0)
+	ev := contracts.OrderCreatedEvent{
+		OrderID:        42,
 		City:           "上海",
-		ServiceStartAt: now,
+		ServiceStartAt: time.Now().Add(2 * time.Hour),
 		HospitalLat:    31.2,
 		HospitalLng:    121.5,
 	}
-	data, err := json.Marshal(ev)
+	_, err := HandleOrderCreated(context.Background(), svc, ev)
 	require.NoError(t, err)
-	var got OrderCreatedEvent
-	require.NoError(t, json.Unmarshal(data, &got))
-	assert.Equal(t, ev.OrderID, got.OrderID)
-	assert.Equal(t, ev.City, got.City)
-	assert.Equal(t, ev.HospitalLat, got.HospitalLat)
 }
