@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/growdu/doctors/services/order/internal/events"
 	"github.com/growdu/doctors/services/order/internal/repo"
 	"github.com/growdu/doctors/services/order/internal/state"
@@ -30,7 +32,17 @@ type RefundService interface {
 	Refund(ctx context.Context, orderID int64, reason string) (*contracts.RefundResult, error)
 }
 
+// TxRunner 是事务抽象；业务层只关心 fn(tx) 是否能跑。
+// v1 旧 Accept 流程用；v1.1 仍保留（cancel / refund 可能用）。
+type TxRunner interface {
+	WithTx(ctx context.Context, fn func(pgx.Tx) error) error
+}
+
 // OrderRepo 是仓储最小契约。
+//
+// v1.1（order-matching-redesign）：
+//   - 删除 LockForAccept / ReleaseLock / LockExpired 3 方法（抢单锁单）
+//   - 新增 SelectForEscort / ConfirmByEscort / RejectByEscort / PendingExpired 4 方法
 type OrderRepo interface {
 	Create(ctx context.Context, o *repo.Order) error
 	FindByID(ctx context.Context, id int64) (*repo.Order, error)
@@ -38,10 +50,11 @@ type OrderRepo interface {
 	UpdateStatus(ctx context.Context, id int64, to string, expectVersion int, escortID *int64) error
 	InsertEvent(ctx context.Context, orderID int64, from *string, to string, actorID *int64, payload []byte) error
 	ListEvents(ctx context.Context, orderID int64) ([]*repo.OrderEvent, error)
-	// 状态机统一 plan: 锁单三件套
-	LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error
-	ReleaseLock(ctx context.Context, id int64, expectVersion int) error
-	LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error)
+	// 状态机 v1.1: 选人 + 30s 确认窗口四件套
+	SelectForEscort(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error
+	ConfirmByEscort(ctx context.Context, id int64, escortID int64, now time.Time, expectVersion int) error
+	RejectByEscort(ctx context.Context, id int64, escortID int64, expectVersion int) error
+	PendingExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error)
 }
 
 // UserLookup 仅需 FindByID：auth-service 的 user 视图（id + 是否实名）。
@@ -56,15 +69,29 @@ type UserSnapshot struct {
 	RealNameVerified bool
 }
 
+// CandidatesLookup 是 v1.1 新增：查询某订单的候选陪诊师列表（SelectEscort 业务校验用）。
+// 实现可由 match-service gRPC stub / Redis 缓存 / in-memory 提供；service 不依赖具体实现。
+type CandidatesLookup interface {
+	IsInCandidates(ctx context.Context, orderID, escortID int64) (bool, error)
+}
+
+// AvailabilityLookup 是 v1.1 新增：查询陪诊师在指定时间是否有可用时段（SelectEscort 业务校验用）。
+// 实现由 escort-service gRPC stub 或 escort-client 包提供。
+type AvailabilityLookup interface {
+	HasAvailabilityFor(ctx context.Context, escortID int64, serviceStartAt any) (bool, error)
+}
+
 // Service 是 order 业务编排器。
 type Service struct {
-	orders    OrderRepo
-	users     UserLookup
-	txRunner  TxRunner      // 可选；抢单 (Accept) 时必需
-	publisher events.Publisher // 可选；nil 时不发布事件
-	clockNow  func() time.Time // 用于测试注入时间
-	locker    lock.Locker     // 可选；nil = 降级为 NopLocker
-	refund    RefundService  // 可选；nil = 不触发退款（v1 默认）
+	orders      OrderRepo
+	users       UserLookup
+	txRunner    TxRunner       // 可选；v1 旧 Accept 用
+	publisher   events.Publisher // 可选；nil 时不发布事件
+	clockNow    func() time.Time // 用于测试注入时间
+	locker      lock.Locker     // 可选；v1.1 保留兼容
+	refund      RefundService   // 可选；nil = 不触发退款（v1 默认）
+	candidates  CandidatesLookup  // v1.1 可选；nil = 跳过候选校验
+	availability AvailabilityLookup // v1.1 可选；nil = 跳过时段校验
 }
 
 // New 装配一个 Service。
@@ -77,7 +104,7 @@ func New(orders OrderRepo, users UserLookup) *Service {
 	}
 }
 
-// WithTx 注入事务执行器（阶段 3.6 接通 PG 后由 main 调）。
+// WithTx 注入事务执行器（v1 旧 Accept 用；v1.1 仅 cancel/refund 可能用）。
 func (s *Service) WithTx(tx TxRunner) *Service {
 	s.txRunner = tx
 	return s
@@ -95,8 +122,7 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	return s
 }
 
-// WithLocker 注入分布式锁（§4.2 order-lock plan：Redis SETNX 第一道闸）。
-// nil = NopLocker（永远拿不到锁，依赖 DB 兜底）。
+// WithLocker 注入分布式锁（v1.1 保留兼容，不再用于锁单；v2 可用于其他场景）。
 func (s *Service) WithLocker(l lock.Locker) *Service {
 	if l == nil {
 		l = lock.NopLocker{}
@@ -106,9 +132,20 @@ func (s *Service) WithLocker(l lock.Locker) *Service {
 }
 
 // WithRefundService 注入退款服务（refund plan：触发 refund.Service.Refund）。
-// nil = 不触发退款（v1 默认；后续 main 装配 refund.Service 后调用即可）。
 func (s *Service) WithRefundService(r RefundService) *Service {
 	s.refund = r
+	return s
+}
+
+// WithCandidatesLookup 注入候选陪诊师查询器（v1.1 SelectEscort 校验用）。
+func (s *Service) WithCandidatesLookup(c CandidatesLookup) *Service {
+	s.candidates = c
+	return s
+}
+
+// WithAvailabilityLookup 注入陪诊师时段查询器（v1.1 SelectEscort 校验用）。
+func (s *Service) WithAvailabilityLookup(a AvailabilityLookup) *Service {
+	s.availability = a
 	return s
 }
 

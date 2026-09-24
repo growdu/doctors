@@ -30,6 +30,10 @@ const (
 	CodeConflict Code = 12002
 	// CodeRateLimit 触发限流。
 	CodeRateLimit Code = 13001
+	// CodeUnprocessable 业务校验失败（如 escort 不在候选、不在可用时段等可恢复的业务错误）。
+	CodeUnprocessable Code = 14001
+	// CodeGone 资源已过期（如 escort_pending_expire_at 已过）。
+	CodeGone Code = 14002
 
 	// CodeInternal 服务器内部错误。
 	CodeInternal Code = 500000
@@ -54,6 +58,10 @@ func (c Code) HTTPStatus() int {
 		return http.StatusConflict
 	case CodeRateLimit:
 		return http.StatusTooManyRequests
+	case CodeUnprocessable:
+		return http.StatusUnprocessableEntity
+	case CodeGone:
+		return http.StatusGone
 	default:
 		return http.StatusInternalServerError
 	}

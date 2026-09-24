@@ -5,6 +5,12 @@
 //   - UpdateStatus 用 version 做乐观锁；并发安全靠 DB 不靠 Redis。
 //   - 状态变更走 UpdateStatus + InsertEvent；service 层负责把"原 status"先读出再调用，
 //     同一事务由 shared/db.WithTx 包装（阶段 3.5 补）。
+//
+// v1.1（order-matching-redesign）：
+//   - 删除 LockOwner / LockExpireAt 字段（v1 抢单锁单用）
+//   - 新增 SelectedEscortID / EscortPendingExpireAt 字段（v1.1 选人 +30s 确认窗口用）
+//   - 删 LockForAccept / ReleaseLock / LockExpired 3 方法
+//   - 增 SelectForEscort / ConfirmByEscort / RejectByEscort / PendingExpired 4 方法
 package repo
 
 import (
@@ -19,19 +25,19 @@ import (
 
 // Order 映射 orders 表行。
 type Order struct {
-	ID             int64
-	OrderNo        string
-	PatientID      int64
-	EscortID       *int64
-	HospitalID     int64
-	PackageID      int64
-	ServiceStartAt any // 借 `time.Time`；这里用 any 是为避免顶层 import 复杂化
-	Amount         float64
-	FinalAmount    float64
-	Status         string
-	Version        int
-	LockOwner      *int64     // pending_acceptance 锁单持有者；nil 表示未锁
-	LockExpireAt   *time.Time // 锁单超时时间；nil 表示未锁
+	ID                     int64
+	OrderNo                string
+	PatientID              int64
+	EscortID               *int64
+	HospitalID             int64
+	PackageID              int64
+	ServiceStartAt         any
+	Amount                 float64
+	FinalAmount            float64
+	Status                 string
+	Version                int
+	SelectedEscortID       *int64     // escort_pending_acceptance 已选陪诊师；nil 表示未选
+	EscortPendingExpireAt  *time.Time // 30s 确认窗口超时时间；nil 表示未进 escort_pending_acceptance
 }
 
 // OrderEvent 映射 order_events 表行。
@@ -50,8 +56,20 @@ var ErrOrderNotFound = errors.New("repo: order not found")
 // ErrVersionConflict 是乐观锁冲突（version 不匹配）。
 var ErrVersionConflict = errors.New("repo: order version conflict")
 
-// ErrInvalidStateForLock 是 LockForAccept 时订单状态不在 matching 的哨兵。
-var ErrInvalidStateForLock = errors.New("repo: order not in matching state for lock")
+// ErrInvalidStateForSelect 是 SelectForEscort 时订单状态不在 selecting_escort 的哨兵。
+var ErrInvalidStateForSelect = errors.New("repo: order not in selecting_escort state for select")
+
+// ErrInvalidStateForConfirm 是 ConfirmByEscort 时订单状态不在 escort_pending_acceptance 的哨兵。
+var ErrInvalidStateForConfirm = errors.New("repo: order not in escort_pending_acceptance state for confirm")
+
+// ErrInvalidStateForReject 是 RejectByEscort 时订单状态不在 escort_pending_acceptance 的哨兵。
+var ErrInvalidStateForReject = errors.New("repo: order not in escort_pending_acceptance state for reject")
+
+// ErrSelectedEscortMismatch 是 ConfirmByEscort 时 escortID != selected_escort_id 的哨兵。
+var ErrSelectedEscortMismatch = errors.New("repo: escort_id does not match selected_escort_id")
+
+// ErrInvitationExpired 是 ConfirmByEscort 时 escort_pending_expire_at 已过的哨兵。
+var ErrInvitationExpired = errors.New("repo: escort invitation expired")
 
 // OrderRepo 是 orders + order_events 表的仓储。
 type OrderRepo struct {
@@ -150,57 +168,122 @@ func (r *OrderRepo) ListEvents(ctx context.Context, orderID int64) ([]*OrderEven
 	return out, rows.Err()
 }
 
-// LockForAccept 在 matching 状态下加锁单 + 状态切到 pending_acceptance。
-// 同时校验 version；lockExpireAt 写入 orders 表。
-func (r *OrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+// SelectForEscort 在 selecting_escort 状态下：写 selected_escort_id + escort_pending_expire_at + 切到 escort_pending_acceptance。
+// 校验 version + status='selecting_escort'。
+func (r *OrderRepo) SelectForEscort(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
 	const q = `
 		UPDATE orders
-		   SET status = 'pending_acceptance', lock_owner = $1, lock_expire_at = $2,
-		       version = version + 1, updated_at = NOW()
-		 WHERE id = $3 AND version = $4 AND status = 'matching' AND deleted_at IS NULL`
+		   SET status = 'escort_pending_acceptance',
+		       selected_escort_id = $1,
+		       escort_pending_expire_at = $2,
+		       version = version + 1,
+		       updated_at = NOW()
+		 WHERE id = $3 AND version = $4 AND status = 'selecting_escort' AND deleted_at IS NULL`
 	tag, err := r.pool.Exec(ctx, q, escortID, expireAt, id, expectVersion)
 	if err != nil {
-		return fmt.Errorf("lock for accept: %w", err)
+		return fmt.Errorf("select for escort: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// 区分版本冲突与状态非法
 		var curStatus string
 		var curVer int
 		_ = r.pool.QueryRow(ctx, "SELECT status, version FROM orders WHERE id=$1", id).Scan(&curStatus, &curVer)
 		if curVer != expectVersion {
 			return ErrVersionConflict
 		}
-		return ErrInvalidStateForLock
+		return ErrInvalidStateForSelect
 	}
 	return nil
 }
 
-// ReleaseLock 把 pending_acceptance 回退到 matching；清除锁单字段。
-func (r *OrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+// ConfirmByEscort 在 escort_pending_acceptance 状态下：写 escort_id = selected_escort_id + 切到 accepted。
+// 校验：
+//   - status='escort_pending_acceptance'
+//   - selected_escort_id = $1（防止误确认）
+//   - escort_pending_expire_at > now()（未超时）
+func (r *OrderRepo) ConfirmByEscort(ctx context.Context, id int64, escortID int64, now time.Time, expectVersion int) error {
 	const q = `
 		UPDATE orders
-		   SET status = 'matching', lock_owner = NULL, lock_expire_at = NULL,
-		       version = version + 1, updated_at = NOW()
-		 WHERE id = $1 AND status = 'pending_acceptance' AND version = $2 AND deleted_at IS NULL`
-	tag, err := r.pool.Exec(ctx, q, id, expectVersion)
+		   SET status = 'accepted',
+		       escort_id = $1,
+		       selected_escort_id = NULL,
+		       escort_pending_expire_at = NULL,
+		       version = version + 1,
+		       updated_at = NOW()
+		 WHERE id = $2 AND version = $3
+		   AND status = 'escort_pending_acceptance'
+		   AND selected_escort_id = $1
+		   AND deleted_at IS NULL
+		   AND (escort_pending_expire_at IS NULL OR escort_pending_expire_at > $4)`
+	tag, err := r.pool.Exec(ctx, q, escortID, id, expectVersion, now)
 	if err != nil {
-		return fmt.Errorf("release lock: %w", err)
+		return fmt.Errorf("confirm by escort: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrVersionConflict
+		// 区分原因：超时 / selected_escort_id 不匹配 / 版本冲突 / 状态非法
+		var curStatus string
+		var curVer int
+		var curSelected *int64
+		var curExpire *time.Time
+		_ = r.pool.QueryRow(ctx, "SELECT status, version, selected_escort_id, escort_pending_expire_at FROM orders WHERE id=$1", id).
+			Scan(&curStatus, &curVer, &curSelected, &curExpire)
+		if curVer != expectVersion {
+			return ErrVersionConflict
+		}
+		if curStatus != "escort_pending_acceptance" {
+			return ErrInvalidStateForConfirm
+		}
+		if curSelected == nil || *curSelected != escortID {
+			return ErrSelectedEscortMismatch
+		}
+		if curExpire != nil && !curExpire.After(now) {
+			return ErrInvitationExpired
+		}
+		return ErrInvalidStateForConfirm
 	}
 	return nil
 }
 
-// LockExpired 返回已过期的锁单（按 lock_expire_at 升序）；给 §4.2 定时任务用。
-func (r *OrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*Order, error) {
-	const q = baseSelect + ` WHERE status = 'pending_acceptance'
-	                              AND lock_expire_at IS NOT NULL AND lock_expire_at < $1
-	                              ORDER BY lock_expire_at ASC
+// RejectByEscort 在 escort_pending_acceptance 状态下：清 selected_escort_id / escort_pending_expire_at + 回退 selecting_escort。
+// 校验 status + selected_escort_id（防止误拒）。
+func (r *OrderRepo) RejectByEscort(ctx context.Context, id int64, escortID int64, expectVersion int) error {
+	const q = `
+		UPDATE orders
+		   SET status = 'selecting_escort',
+		       selected_escort_id = NULL,
+		       escort_pending_expire_at = NULL,
+		       version = version + 1,
+		       updated_at = NOW()
+		 WHERE id = $1 AND version = $2
+		   AND status = 'escort_pending_acceptance'
+		   AND (selected_escort_id = $3 OR selected_escort_id IS NULL)
+		   AND deleted_at IS NULL`
+	tag, err := r.pool.Exec(ctx, q, id, expectVersion, escortID)
+	if err != nil {
+		return fmt.Errorf("reject by escort: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		var curStatus string
+		var curVer int
+		_ = r.pool.QueryRow(ctx, "SELECT status, version FROM orders WHERE id=$1", id).Scan(&curStatus, &curVer)
+		if curVer != expectVersion {
+			return ErrVersionConflict
+		}
+		return ErrInvalidStateForReject
+	}
+	return nil
+}
+
+// PendingExpired 返回已过期的 escort_pending_acceptance 订单（按 escort_pending_expire_at 升序）；给 §4.2 定时任务用。
+func (r *OrderRepo) PendingExpired(ctx context.Context, now time.Time, limit int) ([]*Order, error) {
+	const q = baseSelect + ` WHERE status = 'escort_pending_acceptance'
+	                              AND selected_escort_id IS NOT NULL
+	                              AND escort_pending_expire_at IS NOT NULL
+	                              AND escort_pending_expire_at < $1
+	                              ORDER BY escort_pending_expire_at ASC
 	                              LIMIT $2`
 	rows, err := r.pool.Query(ctx, q, now, limit)
 	if err != nil {
-		return nil, fmt.Errorf("find expired locks: %w", err)
+		return nil, fmt.Errorf("find expired invitations: %w", err)
 	}
 	defer rows.Close()
 	out := make([]*Order, 0)
@@ -214,11 +297,11 @@ func (r *OrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) (
 	return out, rows.Err()
 }
 
-// baseSelect 是 SELECT 子句。
+// baseSelect 是 SELECT 子句（v1.1：selected_escort_id / escort_pending_expire_at 替换 lock_owner / lock_expire_at）。
 const baseSelect = `
 	SELECT id, order_no, patient_id, escort_id, hospital_id, package_id,
 	       service_start_at, amount, final_amount, status, version,
-	       lock_owner, lock_expire_at
+	       selected_escort_id, escort_pending_expire_at
 	FROM orders`
 
 // scanOne 把单行扫描为 *Order。
@@ -227,7 +310,7 @@ func (r *OrderRepo) scanOne(row pgx.Row) (*Order, error) {
 	if err := row.Scan(
 		&o.ID, &o.OrderNo, &o.PatientID, &o.EscortID, &o.HospitalID, &o.PackageID,
 		&o.ServiceStartAt, &o.Amount, &o.FinalAmount, &o.Status, &o.Version,
-		&o.LockOwner, &o.LockExpireAt,
+		&o.SelectedEscortID, &o.EscortPendingExpireAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrOrderNotFound
@@ -243,7 +326,7 @@ func (r *OrderRepo) scanRow(rows pgx.Rows) (*Order, error) {
 	if err := rows.Scan(
 		&o.ID, &o.OrderNo, &o.PatientID, &o.EscortID, &o.HospitalID, &o.PackageID,
 		&o.ServiceStartAt, &o.Amount, &o.FinalAmount, &o.Status, &o.Version,
-		&o.LockOwner, &o.LockExpireAt,
+		&o.SelectedEscortID, &o.EscortPendingExpireAt,
 	); err != nil {
 		return nil, err
 	}

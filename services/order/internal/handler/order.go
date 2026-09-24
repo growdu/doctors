@@ -30,12 +30,20 @@ func New(svc *service.Service) *Handler {
 
 // RegisterRoutes 把 order 路由挂到 RouterGroup。
 // 中间件（如 Auth）已在 RouterGroup 上挂好。
+//
+// v1.1（order-matching-redesign）：
+//   - 删除 POST /orders/:id/accept（陪诊师抢单）
+//   - 新增 POST /orders/:id/select-escort（患者选陪诊师）
+//   - 新增 POST /orders/:id/confirm-accept（陪诊师 30s 内确认）
+//   - 新增 POST /orders/:id/reject-accept（陪诊师拒接或 scheduler 超时回退）
 func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	orders := r.Group("/orders")
 	orders.POST("", h.Create)
 	orders.GET("", h.List)
 	orders.GET("/:id", h.Get)
-	orders.POST("/:id/accept", h.Accept)
+	orders.POST("/:id/select-escort", h.SelectEscort)
+	orders.POST("/:id/confirm-accept", h.ConfirmAccept)
+	orders.POST("/:id/reject-accept", h.RejectAccept)
 	orders.POST("/:id/cancel", h.Cancel)
 	orders.POST("/:id/finish", h.Finish)
 }
@@ -129,23 +137,82 @@ func (h *Handler) Get(c *gin.Context) {
 	httpx.OK(c, o)
 }
 
-// Accept POST /api/v1/orders/{id}/accept
-func (h *Handler) Accept(c *gin.Context) {
+// SelectEscort POST /api/v1/orders/{id}/select-escort（v1.1 患者选陪诊师）。
+func (h *Handler) SelectEscort(c *gin.Context) {
+	uid := middleware.UserID(c)
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	if role := middleware.Role(c); role != "patient" {
+		respondError(c, errs.New(errs.CodeForbidden, "only patient can select escort"))
+		return
+	}
+	var body struct {
+		EscortID int64 `json:"escort_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, errs.New(errs.CodeParamInvalid, "invalid request body"))
+		return
+	}
+	if body.EscortID == 0 {
+		respondError(c, errs.New(errs.CodeParamInvalid, "escort_id required"))
+		return
+	}
+	res, err := h.svc.SelectEscort(c.Request.Context(), id, uid, body.EscortID)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	httpx.OK(c, gin.H{
+		"order_id":                  res.OrderID,
+		"version":                   res.Version,
+		"selected_escort_id":        res.SelectedEscortID,
+		"escort_pending_expire_at":  res.EscortPendingExpireAt,
+	})
+}
+
+// ConfirmAccept POST /api/v1/orders/{id}/confirm-accept（v1.1 陪诊师 30s 确认）。
+func (h *Handler) ConfirmAccept(c *gin.Context) {
 	uid := middleware.UserID(c)
 	id, ok := parseID(c)
 	if !ok {
 		return
 	}
 	if role := middleware.Role(c); role != "escort" {
-		respondError(c, errs.New(errs.CodeForbidden, "only escort can accept"))
+		respondError(c, errs.New(errs.CodeForbidden, "only escort can confirm accept"))
 		return
 	}
-	res, err := h.svc.Accept(c.Request.Context(), id, uid)
+	o, err := h.svc.ConfirmAccept(c.Request.Context(), id, uid)
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	httpx.OK(c, gin.H{"order_id": res.OrderID, "version": res.Version})
+	httpx.OK(c, o)
+}
+
+// RejectAccept POST /api/v1/orders/{id}/reject-accept（v1.1 陪诊师拒接或 scheduler 调超时回退）。
+func (h *Handler) RejectAccept(c *gin.Context) {
+	uid := middleware.UserID(c)
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, errs.New(errs.CodeParamInvalid, "invalid request body"))
+		return
+	}
+	if body.Reason == "" {
+		body.Reason = "escort_declined"
+	}
+	if err := h.svc.RejectAccept(c.Request.Context(), id, uid, body.Reason); err != nil {
+		respondError(c, err)
+		return
+	}
+	httpx.OK[any](c, nil)
 }
 
 // Cancel POST /api/v1/orders/{id}/cancel
