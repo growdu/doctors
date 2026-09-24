@@ -43,10 +43,12 @@ type TxRunner interface {
 // v1.1（order-matching-redesign）：
 //   - 删除 LockForAccept / ReleaseLock / LockExpired 3 方法（抢单锁单）
 //   - 新增 SelectForEscort / ConfirmByEscort / RejectByEscort / PendingExpired 4 方法
+//   - 新增 ListByEscort（v1.1 escort-order-ext：陪诊师查询「我的邀请」或「我的订单」）
 type OrderRepo interface {
 	Create(ctx context.Context, o *repo.Order) error
 	FindByID(ctx context.Context, id int64) (*repo.Order, error)
 	ListByPatient(ctx context.Context, patientID int64, limit, offset int) ([]*repo.Order, error)
+	ListByEscort(ctx context.Context, escortID int64, statusFilter string, limit, offset int) ([]*repo.Order, error)
 	UpdateStatus(ctx context.Context, id int64, to string, expectVersion int, escortID *int64) error
 	InsertEvent(ctx context.Context, orderID int64, from *string, to string, actorID *int64, payload []byte) error
 	ListEvents(ctx context.Context, orderID int64) ([]*repo.OrderEvent, error)
@@ -220,6 +222,17 @@ func (s *Service) List(ctx context.Context, patientID int64, limit, offset int) 
 		limit = 20
 	}
 	return s.orders.ListByPatient(ctx, patientID, limit, offset)
+}
+
+// ListForEscort 返回某 escort 的订单分页（v1.1 escort-order-ext plan）。
+//   - statusFilter 为 "" 时返回该 escort 名下所有订单（escort_id = $1）
+//   - statusFilter == "invitations" 时返回 selected_escort_id = $1 AND status = 'escort_pending_acceptance'
+//     （覆盖两种语义：已接受订单 vs 待确认邀请；前端可分 tab 展示）
+func (s *Service) ListForEscort(ctx context.Context, escortID int64, statusFilter string, limit, offset int) ([]*repo.Order, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	return s.orders.ListByEscort(ctx, escortID, statusFilter, limit, offset)
 }
 
 // Get 按 id 取订单。

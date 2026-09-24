@@ -118,6 +118,48 @@ func (r *OrderRepo) ListByPatient(ctx context.Context, patientID int64, limit, o
 	return out, rows.Err()
 }
 
+// ListByEscort 按 escort 分页查订单（v1.1 escort-order-ext plan）。
+//   - statusFilter == "" → 查 escort_id = $1（已确认接单的订单）
+//   - statusFilter == "invitations" → 查 selected_escort_id = $1 AND status = 'escort_pending_acceptance'（待确认邀请）
+//   - 其他值 → 按精确 status 过滤
+// 按 escort_pending_expire_at ASC（30s 倒计时用），无邀请时按 created_at DESC。
+func (r *OrderRepo) ListByEscort(ctx context.Context, escortID int64, statusFilter string, limit, offset int) ([]*Order, error) {
+	var q string
+	var args []any
+	switch statusFilter {
+	case "invitations":
+		q = baseSelect + ` WHERE selected_escort_id = $1
+		                    AND status = 'escort_pending_acceptance'
+		                    AND deleted_at IS NULL
+		                    ORDER BY escort_pending_expire_at ASC
+		                    LIMIT $2 OFFSET $3`
+		args = []any{escortID, limit, offset}
+	case "":
+		q = baseSelect + ` WHERE escort_id = $1 AND deleted_at IS NULL
+		                    ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+		args = []any{escortID, limit, offset}
+	default:
+		q = baseSelect + ` WHERE escort_id = $1 AND status = $2
+		                    AND deleted_at IS NULL
+		                    ORDER BY created_at DESC LIMIT $3 OFFSET $4`
+		args = []any{escortID, statusFilter, limit, offset}
+	}
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list by escort: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*Order, 0)
+	for rows.Next() {
+		o, err := r.scanRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // UpdateStatus 用乐观锁更新状态；escortID 可空（accepted 时填）。
 func (r *OrderRepo) UpdateStatus(ctx context.Context, id int64, toStatus string, expectVersion int, escortID *int64) error {
 	const q = `

@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/growdu/doctors/services/order/internal/middleware"
+	"github.com/growdu/doctors/services/order/internal/repo"
 	"github.com/growdu/doctors/services/order/internal/service"
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
@@ -68,6 +69,19 @@ func parseID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
+// parseInt 把 query 参数解析为 int（带 default）。
+func parseInt(c *gin.Context, key string, def int) int {
+	s := c.Query(key)
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
+}
+
 // ---------- handlers ----------
 
 type createReq struct {
@@ -108,14 +122,39 @@ func (h *Handler) Create(c *gin.Context) {
 	})
 }
 
-// List GET /api/v1/orders
+// List GET /api/v1/orders?role=escort&status=invitations&limit=20&offset=0
+//
+// 角色分流（v1.1 escort-order-ext plan）：
+//   - role='patient'（默认）：返回该 patient 名下所有订单
+//   - role='escort'：
+//     - status='invitations' → 我的邀请（escort_pending_acceptance 状态 + selected_escort_id=uid，按 escort_pending_expire_at ASC）
+//     - status='' 或缺省 → 我的订单（escort_id=uid，按 created_at DESC）
+//     - status='<other>' → 按精确 status 过滤
+//   - role='admin'：暂不实现，留 admin plan
 func (h *Handler) List(c *gin.Context) {
 	uid := middleware.UserID(c)
 	if uid == 0 {
 		respondError(c, errs.New(errs.CodeUnauthorized, "no user"))
 		return
 	}
-	list, err := h.svc.List(c.Request.Context(), uid, 20, 0)
+	role := middleware.Role(c)
+	limit := parseInt(c, "limit", 20)
+	offset := parseInt(c, "offset", 0)
+	status := c.Query("status")
+
+	var (
+		list []*repo.Order
+		err  error
+	)
+	switch role {
+	case "patient":
+		list, err = h.svc.List(c.Request.Context(), uid, limit, offset)
+	case "escort":
+		list, err = h.svc.ListForEscort(c.Request.Context(), uid, status, limit, offset)
+	default:
+		respondError(c, errs.New(errs.CodeForbidden, "unsupported role for list"))
+		return
+	}
 	if err != nil {
 		respondError(c, err)
 		return

@@ -58,6 +58,11 @@ func (r *fakeRepo) ListByPatient(ctx context.Context, patientID int64, limit, of
 	return out, nil
 }
 
+// ListByEscort v1.1：handler 测试用不到具体实现，只满足接口。
+func (r *fakeRepo) ListByEscort(ctx context.Context, escortID int64, statusFilter string, limit, offset int) ([]*repo.Order, error) {
+	return nil, nil
+}
+
 func (r *fakeRepo) UpdateStatus(ctx context.Context, id int64, to string, v int, escortID *int64) error {
 	o, ok := r.orders[id]
 	if !ok {

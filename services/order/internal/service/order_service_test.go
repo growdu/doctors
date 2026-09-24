@@ -46,6 +46,28 @@ func (r *fakeOrderRepo) ListByPatient(ctx context.Context, patientID int64, limi
 	}
 	return out, nil
 }
+
+// ListByEscort v1.1：支持 invitations 过滤。
+func (r *fakeOrderRepo) ListByEscort(ctx context.Context, escortID int64, statusFilter string, limit, offset int) ([]*repo.Order, error) {
+	out := make([]*repo.Order, 0)
+	for _, o := range r.orders {
+		switch statusFilter {
+		case "invitations":
+			if o.SelectedEscortID != nil && *o.SelectedEscortID == escortID && o.Status == "escort_pending_acceptance" {
+				out = append(out, o)
+			}
+		case "":
+			if o.EscortID != nil && *o.EscortID == escortID {
+				out = append(out, o)
+			}
+		default:
+			if o.EscortID != nil && *o.EscortID == escortID && o.Status == statusFilter {
+				out = append(out, o)
+			}
+		}
+	}
+	return out, nil
+}
 func (r *fakeOrderRepo) UpdateStatus(ctx context.Context, id int64, to string, ver int, escortID *int64) error {
 	for _, o := range r.orders {
 		if o.ID == id && o.Version == ver {

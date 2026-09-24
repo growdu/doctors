@@ -26,6 +26,9 @@ func (stubOrderRepo) FindByID(ctx context.Context, id int64) (*repo.Order, error
 func (stubOrderRepo) ListByPatient(ctx context.Context, id int64, l, o int) ([]*repo.Order, error) {
 	return nil, nil
 }
+func (stubOrderRepo) ListByEscort(ctx context.Context, id int64, status string, l, o int) ([]*repo.Order, error) {
+	return nil, nil
+}
 func (stubOrderRepo) UpdateStatus(ctx context.Context, id int64, to string, v int, e *int64) error {
 	return nil
 }
