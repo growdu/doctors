@@ -123,6 +123,56 @@ func Test0001UsersUpDown(t *testing.T) {
 	applyDown(t, "0001_users.down.sql", []string{"users"})
 }
 
+// Test0002OrdersUpDown 验证 0002_orders 的 up/down 行为可逆且符合契约。
+// 0002 依赖 0001 的 users 表。
+func Test0002OrdersUpDown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn())
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	// 先建 users（0002 依赖它），最后清理
+	usersSQL, err := os.ReadFile("0001_users.up.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, string(usersSQL))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		down, _ := os.ReadFile("0001_users.down.sql")
+		_, _ = conn.Exec(context.Background(), string(down))
+	})
+
+	applyUp(t, "0002_orders.up.sql", []string{"orders", "order_events"})
+
+	requiredCols := []string{
+		"id", "order_no", "patient_id", "escort_id", "hospital_id", "package_id",
+		"service_start_at", "amount", "final_amount", "status", "version",
+		"created_at", "updated_at", "deleted_at",
+	}
+	for _, col := range requiredCols {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='orders' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "orders.%s should exist", col)
+	}
+
+	requiredIdx := []string{"idx_orders_patient_created", "idx_orders_status_start", "idx_order_events_order"}
+	for _, idx := range requiredIdx {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, idx).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "index %s should exist", idx)
+	}
+
+	// down 验证：两张表都被清掉
+	applyDown(t, "0002_orders.down.sql", []string{"orders", "order_events"})
+}
+
 // TestAllUpMigrationsApplyCleanly 串行应用所有 up 文件，确保幂等 + 无脏表。
 func TestAllUpMigrationsApplyCleanly(t *testing.T) {
 	files, err := filepath.Glob("./*.up.sql")
