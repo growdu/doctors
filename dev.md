@@ -524,3 +524,42 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 **未做**（留给后续）：
 - Redis token 存 DB 做精确 Release
 - `OrderLockEvent` Kafka 消费端（match-service 收到 `OrderMatchingEvent` 后重新推送候选陪诊师）
+
+### 10.11 退款分段（2026-09-24 refund plan）
+
+解决评审 C-04 / I-05（退款分段留扩展点）+ 实现 docs/09 §9.2.1 P0 验收要求。
+
+**4 档默认策略**（`refund_policies` 表，可热加载）：
+
+| 触发时机 | 退款比例 | 陪诊师补偿 |
+| :-- | :--: | :--: |
+| 付款前 / 付款后 5 分钟内 / 5 分钟~接单前 | 100% | 0% |
+| 接单后~服务开始前 | 95% | 5% |
+| 服务已开始 | 0% | 0% |
+
+**落地 commits（4 个）**：
+
+| commit | 性质 | 内容 |
+| :-- | :-- | :-- |
+| `bd65583` | feat(migrations) | 0004 refunds + refund_policies (4 档默认 + idx) |
+| `ac5eb27` | feat(payment) | refund.Policy（4 档默认）+ DetectPhase / Decide / RefundAmount |
+| `a2f2cd5` | feat(payment) | RefundService 业务 + contracts.RefundResult / RefundCompletedEvent |
+| `34070c7` | feat(order) | Cancel 触发 RefundService（user_cancel / admin_cancel + best-effort） |
+
+**新增测试**：
+- `migrations/`：`Test0004RefundsUpDown`（加列 + CHECK + 默认 4 档 + down 可逆）
+- `services/payment/internal/refund/`：9 个单测（policy 5 + service 4）
+- `shared/contracts/`：3 个新单测（TopicOrderMatching / TopicRefundCompleted + RefundResult / RefundCompletedEvent RoundTrip）
+- `services/order/internal/service/`：4 个新单测（Cancel 触发 refund / admin_cancel 区分 / refund 失败不阻塞 / nil 安全）
+
+**实施细节 / 与 plan 偏差**：
+
+1. **`RefundResult` 放 shared/contracts**：plan 让 refund.Service 返回 `*service.RefundResult`（在 order/service 包），会形成 payment → order 反向依赖。改放 `shared/contracts.RefundResult`，order.service 通过 `RefundService` 接口返回 `*contracts.RefundResult`，避免循环 import。
+2. **`statusFromDecision` bug 修复**：plan 让 `!d.Eligible → "rejected"`；但 `in_service` policy 是 `Eligible=true, RefundPercent=0`，应为 rejected。改为 `!d.Eligible || d.RefundPercent == 0 → "rejected"`。
+3. **`Decide(ctx, ...)` 内部用 `context.Background()`**：plan 把 `OrderContext` 当 `context.Context` 传入 `repo.GetByScopeAndPhase`，编译失败。修正为单独传 `context.Background()`，OrderContext 是值类型。
+4. **Cancel 触发 refund 触发点**：根据 `actorID == o.PatientID` 区分 `user_cancel` / `admin_cancel`（plan 没区分 cause，统一用 "user_cancel"）。
+
+**未做**（留给 v2）：
+- 真实微信支付 V3 退款 API
+- `refunds` 表 `payment_id` 真实关联（v1 留 NULL 占位）
+- refund.Service 接到 main 装配（v1 main 仍是骨架 nil pool；接 DB 后再接 refund）

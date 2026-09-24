@@ -171,6 +171,13 @@ created → paid → matching → pending_acceptance → accepted → in_service
 
 **扩展点**：退款比例由 `refund_policies` 表配置；支持按"取消时机 × 距离服务开始时长"做策略。
 
+**落地 commit（2026-09-24 refund plan）**：
+
+- `bd65583` feat(migrations): 0004 refunds + refund_policies (4 档默认 + idx)
+- `ac5eb27` feat(payment): refund.Policy（4 档默认）+ DetectPhase / Decide / RefundAmount
+- `a2f2cd5` feat(payment): RefundService 业务 + contracts.RefundResult / RefundCompletedEvent
+- `34070c7` feat(order): Cancel 触发 RefundService（user_cancel / admin_cancel + best-effort）
+
 ### 4.4 SOS 一键报警（评审 P0）
 
 **触发**：订单 status=in_service 时，患者/陪诊师 App 长按 SOS 按钮 3s。
