@@ -1019,3 +1019,82 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 
 - patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → 状态流转 → admin-web 22 路由覆盖监控（dashboard / orders / escorts / refunds / wallets / 等 12 类目）
 - 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
+
+---
+
+## 16. 后端 wallet T+7 结算服务（2026-09-24 wallet plan §W1-W5）
+
+**目标**：实现 `services/wallet/` 独立服务，含 wallets / withdrawals / billings 三表 + T+7 冻结释放 scanner + 提现状态机 + 7 个 endpoint + Kafka consumer 框架（消费 OrderCompletedEvent / PaymentRefundedEvent）。
+
+**5 个 commit（按迁移 → 事件 → repo → service → handler 顺序）**：
+
+| commit | 内容 | 文件 |
+| :-- | :-- | :-- |
+| `b9bf7bd` | `feat(migrations)` 0007 wallets + withdrawals + billings + orders.completed_at | migrations/0007_wallets.{up,down}.sql + migrations_test.go 加 Test0007WalletsUpDown |
+| `cd2542b` | `feat(contracts)` OrderCompletedEvent + TopicOrderCompleted | shared/contracts/{events.go, contracts_test.go} |
+| `2266dc7` | `feat(wallet)` repo 加 WalletRepo (14 方法 + 9 集成测试) | services/wallet/internal/repo/wallet_repo.{go, _integration_test.go} |
+| `3ce91ea` | `feat(wallet)` service + T+7 Scanner | services/wallet/internal/service/{wallet_service, scanner, *_test.go} |
+| `bb28b83` | `feat(wallet)` handler + router + server + main + smoke | services/wallet/internal/{handler, router, server, middleware}/ + cmd/main.go + scripts/smoke-wallet.sh + config/wallet.yaml |
+
+**关键设计（按 plan §Architecture）**：
+
+1. **3 张表**：
+   - `wallets`：user_id UNIQUE, balance NUMERIC(10,2), frozen NUMERIC(10,2), created_at, updated_at
+   - `withdrawals`：user_id, amount_cents BIGINT, channel, account_no, status pending/approved/paid/rejected, external_tx_id, reason, created_at, updated_at
+   - `billings`：user_id, order_id, type income/refund/unfreeze/withdraw, amount NUMERIC, balance_after NUMERIC, created_at
+   - `orders.completed_at TIMESTAMPTZ` 加列（用于 T+7 扫描）
+2. **事件驱动**：消费 PaymentCompletedEvent → FreezeIncome（frozen += amount）；消费 PaymentRefundedEvent → DeductFrozenForRefund
+3. **T+7 scanner**：1 分钟扫一次（用 `interval` 参数化阈值，v1 用 1 分钟模拟 7 天可测，prod 改 `7*24*time.Hour`）；扫到 `orders.status='completed' AND completed_at + interval ≤ NOW()` → `frozen -= amount; balance += amount` + 写 billings
+4. **提现状态机**：`pending → approved → paid` / `pending → rejected`（单向不回退）
+5. **最低提现 100 元**（`MinWithdrawalCents = 10000`）
+6. **钱用 NUMERIC(10,2)**：go 端 `shopspring/decimal` 防精度漂移；wallet 暴露 int64 分单位给 API 层（前端约定整数分）
+7. **未注册用户查钱包**：`return nil, nil`（不报错）
+8. **Kafka best-effort**：publish 失败不阻塞主流程（写 warn log）
+
+**endpoint 清单（7 个）**：
+
+| 方法 | 路径 | 角色 |
+| :-- | :-- | :-- |
+| GET | `/api/v1/wallet` | patient/escort |
+| GET | `/api/v1/escorts/me/wallet` | escort |
+| POST | `/api/v1/escorts/me/wallet/withdraw` | escort |
+| GET | `/api/v1/wallet/transactions` | patient/escort |
+| POST | `/api/v1/admin/wallet/withdrawals/{id}/approve` | admin |
+| POST | `/api/v1/admin/wallet/withdrawals/{id}/pay` | admin |
+| POST | `/api/v1/admin/wallet/withdrawals/{id}/reject` | admin |
+
+**测试覆盖**：**~50 个单测**（全部 PASS）
+
+| 类别 | 测试数 |
+| :-- | :--: |
+| migrations Test0007WalletsUpDown | 1（集成） |
+| contracts TestOrderCompletedEvent_RoundTrip + 增项 | 3 |
+| wallet_repo_integration_test | 9（集成） |
+| wallet_service_test | 14 |
+| scanner_test | 6 |
+| handler_test | 11 |
+| router_test (TestHealthz) | 1 |
+
+**全量回归**：`go test ./...` 44 个测试包 0 FAIL（含新增 wallet）。
+
+**Plan 偏差**：
+
+1. **未创建子 module `services/wallet/go.mod`**：保持 monorepo（与 user / review / order 一致），`shopspring/decimal` 加到根 `go.mod`。
+2. **scanner 简化为单次扫描**：plan 让按 user 遍历 → service 调 `RunScanOnceForUser`；本批次简化为 `ListCompletedOrdersBefore(ctx, cutoff, limit)` 单次扫所有 escort 用户（避免 N+1，性能更好）。
+3. **`MinWithdrawalCents` 比较**：amount 单位改为元（与 decimal 一致），比较用 `100 元 = MinWithdrawalCents/100`。
+4. **fakeRepo UnfreezeToBalance 自动建钱包**：测试 setup 用 `GetOrCreate`（与真实 repo 行为一致）。
+5. **新增 `config/wallet.yaml`**：cmd 启动需要配置；plan 未列。
+
+**未做（留给后续）**：
+
+1. 集成测试需 `docker compose up` 起 PG 才能跑（`go test -tags=integration ./services/wallet/...`）
+2. 真实微信提现通道（v1 mock 写 `external_tx_id=MOCK-TX-{id}`）
+3. 退款发生在 T+7 窗口外的扣 balance 路径（v2 处理）
+4. docs/04 流程图 + dev.md §10.14 增量（按 worker brief 跳过）
+5. order-service 状态机迁移时同步 publish OrderCompletedEvent（v2 处理）
+
+**端到端联通（v1.1 目标）**：
+
+- patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → `accepted` → `in_service` → `completed`（写 `completed_at`）→ wallet scanner 1 分钟扫到 → `frozen -= amount; balance += amount` → escort 提现 → admin 审批 → paid（mock external_tx_id）
+- 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
+- 全量回归 44 个测试包 0 FAIL
