@@ -1,0 +1,269 @@
+# patient-miniapp / patient-service OpenAPI 契约（v2 增量适配）
+#
+# 说明：
+# - 本契约为最小可用 schema，覆盖 patient-miniapp 必用端点 + v2 选人模式 3 字段 + 2 新状态 + 2 指标；
+# - 与 admin-web/openapi/contracts.yaml 共享同一份 v2 字段定义（保证三端契约一致）；
+# - 待 order-service 真实 OpenAPI 文档生成后，可把本文件内容合并过去，
+#   再跑前端 generate 脚本重生成 client。
+#
+# 对应 spec：2026-09-24-order-matching-redesign.md §4.1
+#           2026-09-24-patient-miniapp-setup.md §P1-P7
+openapi: 3.1.0
+info:
+  title: patient-service (v2 增量 schema)
+  version: 2.0.0
+  description: |
+    patient-miniapp 后端契约最小集（含 v2 选人模式适配 3 字段 + 2 新状态 + PatientOverview 2 指标）。
+    完整契约待 order-service 真实 OpenAPI 生成后合并。
+
+paths:
+  /api/v1/orders:
+    get:
+      summary: 患者订单列表（支持 status filter）
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderListResponse'
+
+  /api/v1/orders/{id}:
+    get:
+      summary: 订单详情（详情页 / 状态轮询）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetailResponse'
+
+  /api/v1/orders/{id}/select-escort:
+    post:
+      summary: 患者选定某 escort（订单状态切到 escort_pending_acceptance）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                escort_id:
+                  type: integer
+                  format: int64
+              required: [escort_id]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelectEscortResponse'
+
+  /api/v1/orders/{id}/cancel:
+    post:
+      summary: 患者取消订单
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+              required: [reason]
+      responses:
+        '200':
+          description: OK
+
+  /api/v1/orders/{id}/candidates:
+    get:
+      summary: 候选陪诊师列表（selecting_escort 时调用）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidatesResponse'
+
+  /api/v1/patient/overview:
+    get:
+      summary: 患者端个人看板（v2 增量含 2 选人模式指标）
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientOverviewResponse'
+
+components:
+  schemas:
+    OrderStatus:
+      type: string
+      enum:
+        - created
+        - paid
+        - matching
+        - selecting_escort              # v2 新增
+        - escort_pending_acceptance     # v2 新增
+        - accepted
+        - in_service
+        - completed
+        - reviewed
+        - refunding
+        - refunded
+        - settling
+        - disputed
+        - closed
+        - canceled
+
+    EscortRejectReason:
+      type: string
+      nullable: true
+      enum:
+        - escort_declined
+        - lock_expired
+        - null
+
+    OrderListItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        hospital_name: { type: string }
+        final_amount: { type: number }
+        created_at: { type: string, format: date-time }
+        # v2 新增 ↓
+        selected_escort_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: 已选陪诊师 user_id（escort_pending_acceptance / accepted 时非空）
+        escort_pending_expire_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 陪诊师 30s 确认截止时间（仅 escort_pending_acceptance 状态时非空）
+        # v2 新增 ↑
+      required: [id, status, hospital_name, final_amount, created_at]
+
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderListItem'
+        - type: object
+          properties:
+            patient_name: { type: string }
+            patient_phone: { type: string }
+            package_name: { type: string }
+            # v2 新增 ↓
+            escort_reject_reason:
+              $ref: '#/components/schemas/EscortRejectReason'
+              description: |
+                拒接原因（订单从 escort_pending_acceptance 回退到 selecting_escort 时记录）：
+                - escort_declined：陪诊师主动拒接
+                - lock_expired：陪诊师超时未确认
+            # v2 新增 ↑
+
+    OrderListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/OrderListItem' }
+        total: { type: integer }
+
+    OrderDetailResponse:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/OrderDetail' }
+
+    SelectEscortResponse:
+      type: object
+      properties:
+        order_id:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+          description: 期望 'escort_pending_acceptance'
+        escort_pending_expire_at:
+          type: string
+          format: date-time
+          description: ISO8601；UI 30s 倒计时的截止时刻
+      required: [order_id, status, escort_pending_expire_at]
+
+    Candidate:
+      type: object
+      properties:
+        escort_id: { type: integer, format: int64 }
+        nickname: { type: string }
+        rating: { type: number, format: float, minimum: 0, maximum: 5 }
+        completed_orders: { type: integer }
+        distance_km: { type: number }
+        tags:
+          type: array
+          items: { type: string }
+      required: [escort_id, nickname, rating]
+
+    CandidatesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Candidate' }
+        generated_at:
+          type: string
+          format: date-time
+          description: ISO8601；前端展示"X 秒前刷新"用
+      required: [items, generated_at]
+
+    PatientOverview:
+      type: object
+      properties:
+        active_orders:        { type: integer }
+        completed_orders:     { type: integer }
+        # v2 新增 ↓
+        pending_selecting_escort:
+          type: integer
+          description: 等待患者选人的订单数（status=selecting_escort）
+        pending_escort_acceptance:
+          type: integer
+          description: 等待陪诊师确认的订单数（status=escort_pending_acceptance）
+        # v2 新增 ↑
+      required:
+        - active_orders
+        - completed_orders
+
+    PatientOverviewResponse:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/PatientOverview' }
