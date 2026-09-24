@@ -111,3 +111,50 @@ func TestCanTransition_Settling_ToClosed(t *testing.T) {
 func TestCanTransition_Refunding_ToSettling(t *testing.T) {
 	assert.True(t, CanTransition(StatusRefunding, StatusSettling))
 }
+
+// ===== 2026-09-24 order-matching-redesign plan: selecting_escort + escort_pending_acceptance 两态 =====
+// 抢单→选人重构：paid → selecting_escort（生成候选）→ 患者选 1 位 → escort_pending_acceptance（30s 陪诊师确认窗口）
+// → accepted（陪诊师确认）或 回退 selecting_escort（陪诊师拒接 / 超时）。
+// 旧的 matching + pending_acceptance 流程保留（兼容），新流程并存。
+
+// TestStatusSelectingEscort_Exists 验证 selecting_escort 在枚举中。
+func TestStatusSelectingEscort_Exists(t *testing.T) {
+	assert.True(t, IsValid(StatusSelectingEscort))
+}
+
+// TestStatusEscortPendingAcceptance_Exists 验证 escort_pending_acceptance 在枚举中。
+func TestStatusEscortPendingAcceptance_Exists(t *testing.T) {
+	assert.True(t, IsValid(StatusEscortPendingAcceptance))
+}
+
+// TestCanTransition_Paid_ToSelectingEscort 验证 paid → selecting_escort（生成候选陪诊师）。
+func TestCanTransition_Paid_ToSelectingEscort(t *testing.T) {
+	assert.True(t, CanTransition(StatusPaid, StatusSelectingEscort))
+}
+
+// TestCanTransition_SelectingEscort_ToEscortPendingAcceptance 验证患者选人后进入陪诊师确认窗口。
+func TestCanTransition_SelectingEscort_ToEscortPendingAcceptance(t *testing.T) {
+	assert.True(t, CanTransition(StatusSelectingEscort, StatusEscortPendingAcceptance))
+}
+
+// TestCanTransition_EscortPendingAcceptance_ToAccepted 验证陪诊师 30s 内 confirm → accepted。
+func TestCanTransition_EscortPendingAcceptance_ToAccepted(t *testing.T) {
+	assert.True(t, CanTransition(StatusEscortPendingAcceptance, StatusAccepted))
+}
+
+// TestCanTransition_EscortPendingAcceptance_ToSelectingEscort 验证陪诊师拒接 / 30s 超时 → 回退 selecting_escort。
+func TestCanTransition_EscortPendingAcceptance_ToSelectingEscort(t *testing.T) {
+	assert.True(t, CanTransition(StatusEscortPendingAcceptance, StatusSelectingEscort))
+}
+
+// TestCanTransition_SelectingEscort_ToCanceled 验证患者在选人阶段取消订单（v1 允许）。
+func TestCanTransition_SelectingEscort_ToCanceled(t *testing.T) {
+	assert.True(t, CanTransition(StatusSelectingEscort, StatusCanceled))
+}
+
+// TestIsValid_NewStates_NotEqualOldOnes 验证新状态与旧状态枚举值不同（防止字符串冲突）。
+func TestIsValid_NewStates_NotEqualOldOnes(t *testing.T) {
+	assert.NotEqual(t, string(StatusSelectingEscort), string(StatusMatching))
+	assert.NotEqual(t, string(StatusEscortPendingAcceptance), string(StatusPendingAcceptance))
+	assert.NotEqual(t, string(StatusSelectingEscort), string(StatusPendingAcceptance))
+}
