@@ -77,3 +77,37 @@ func TestTopicConstants(t *testing.T) {
 	assert.Equal(t, "escort.available", TopicEscortAvailable)
 	assert.Equal(t, "payment.completed", TopicPaymentCompleted)
 }
+// TestEscortSummary_IsAvailable 验证 IsAvailable 边界。
+func TestEscortSummary_IsAvailable(t *testing.T) {
+	now := time.Now()
+	e := EscortSummary{
+		Status:         "available",
+		AvailableFrom:  now.Add(-time.Hour),
+		AvailableUntil: now.Add(time.Hour),
+	}
+	assert.True(t, e.IsAvailable(now))
+
+	// 窗口之前
+	e2 := EscortSummary{
+		Status:         "available",
+		AvailableFrom:  now.Add(time.Hour),
+		AvailableUntil: now.Add(2 * time.Hour),
+	}
+	assert.False(t, e2.IsAvailable(now))
+
+	// 窗口之后
+	e3 := EscortSummary{
+		Status:         "available",
+		AvailableFrom:  now.Add(-2 * time.Hour),
+		AvailableUntil: now.Add(-time.Hour),
+	}
+	assert.False(t, e3.IsAvailable(now))
+
+	// Status 不对
+	e4 := EscortSummary{
+		Status:         "busy",
+		AvailableFrom:  now.Add(-time.Hour),
+		AvailableUntil: now.Add(time.Hour),
+	}
+	assert.False(t, e4.IsAvailable(now))
+}

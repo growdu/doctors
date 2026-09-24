@@ -13,15 +13,15 @@ import (
 
 	"github.com/growdu/doctors/services/match/internal/handler"
 	"github.com/growdu/doctors/services/match/internal/pool"
-	"github.com/growdu/doctors/services/match/internal/scorer"
 	"github.com/growdu/doctors/services/match/internal/service"
+	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/httpx"
 )
 
 // stubLoader 返回固定 escort list。
 type stubLoader struct{}
 
-func (stubLoader) ListAvailable(ctx context.Context, city string) ([]scorer.Escort, error) {
+func (stubLoader) ListAvailable(ctx context.Context, city string) ([]contracts.EscortSummary, error) {
 	return nil, nil
 }
 

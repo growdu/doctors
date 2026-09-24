@@ -9,14 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/services/match/internal/pool"
-	"github.com/growdu/doctors/services/match/internal/scorer"
 	"github.com/growdu/doctors/services/match/internal/service"
 	"github.com/growdu/doctors/shared/contracts"
 )
 
 type nilLoader struct{}
 
-func (nilLoader) ListAvailable(ctx context.Context, city string) ([]scorer.Escort, error) {
+func (nilLoader) ListAvailable(ctx context.Context, city string) ([]contracts.EscortSummary, error) {
 	return nil, nil
 }
 

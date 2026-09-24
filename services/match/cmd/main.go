@@ -16,10 +16,10 @@ import (
 
 	"github.com/growdu/doctors/services/match/internal/handler"
 	"github.com/growdu/doctors/services/match/internal/pool"
-	"github.com/growdu/doctors/services/match/internal/scorer"
 	"github.com/growdu/doctors/services/match/internal/server"
 	"github.com/growdu/doctors/services/match/internal/service"
 	"github.com/growdu/doctors/shared/config"
+	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/logger"
 )
 
@@ -64,6 +64,6 @@ func parseLevel(s string) zapcore.Level {
 // nilEscortLoader 是占位实现；任何调用返回 nil。
 type nilEscortLoader struct{}
 
-func (nilEscortLoader) ListAvailable(ctx context.Context, city string) ([]scorer.Escort, error) {
+func (nilEscortLoader) ListAvailable(ctx context.Context, city string) ([]contracts.EscortSummary, error) {
 	return nil, nil
 }
