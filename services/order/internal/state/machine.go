@@ -11,33 +11,44 @@ package state
 type Status string
 
 const (
-	StatusCreated    Status = "created"
-	StatusPaid       Status = "paid"
-	StatusMatching   Status = "matching"
-	StatusAccepted   Status = "accepted"
-	StatusInService  Status = "in_service"
-	StatusCompleted  Status = "completed"
-	StatusReviewed   Status = "reviewed"
-	StatusRefunding  Status = "refunding"
-	StatusRefunded   Status = "refunded"
-	StatusClosed     Status = "closed"
-	StatusCanceled   Status = "canceled"
+	StatusCreated           Status = "created"
+	StatusPaid              Status = "paid"
+	StatusMatching          Status = "matching"
+	StatusPendingAcceptance Status = "pending_acceptance"
+	StatusAccepted          Status = "accepted"
+	StatusInService         Status = "in_service"
+	StatusCompleted         Status = "completed"
+	StatusReviewed          Status = "reviewed"
+	StatusRefunding         Status = "refunding"
+	StatusRefunded          Status = "refunded"
+	StatusSettling          Status = "settling"
+	StatusDisputed          Status = "disputed"
+	StatusClosed            Status = "closed"
+	StatusCanceled          Status = "canceled"
 )
 
 // transitions 是合法转换的白名单。
 // key = 当前状态；value = 可去的下一状态。
+//
+// 2026-09-24 状态机统一 plan：
+//   - pending_acceptance：抢单锁单期（30s），超时回退 matching 或陪诊师确认 → accepted。
+//   - settling：账单核对中（结算），所有"关闭"订单必经 settling → closed。
+//   - disputed：争议中，可从活动态任意时段进入，处理后回流到 completed/refunding/closed。
 var transitions = map[Status][]Status{
-	StatusCreated:   {StatusPaid, StatusCanceled},
-	StatusPaid:      {StatusMatching, StatusCanceled},
-	StatusMatching:  {StatusAccepted, StatusCanceled},
-	StatusAccepted:  {StatusInService, StatusCanceled, StatusMatching}, // 5 分钟未签到回退
-	StatusInService: {StatusCompleted},
-	StatusCompleted: {StatusReviewed, StatusRefunding},
-	StatusReviewed:  {StatusClosed},
-	StatusRefunding: {StatusRefunded},
-	StatusRefunded:  {StatusClosed},
-	StatusClosed:    {},
-	StatusCanceled:  {},
+	StatusCreated:           {StatusPaid, StatusCanceled},
+	StatusPaid:              {StatusMatching, StatusCanceled},
+	StatusMatching:          {StatusPendingAcceptance, StatusAccepted, StatusCanceled},
+	StatusPendingAcceptance: {StatusAccepted, StatusMatching, StatusCanceled}, // 30s 锁单 / 超时回退 / 拒接
+	StatusAccepted:          {StatusInService, StatusMatching, StatusCanceled, StatusDisputed},
+	StatusInService:         {StatusCompleted, StatusDisputed},
+	StatusCompleted:         {StatusReviewed, StatusRefunding, StatusSettling, StatusDisputed},
+	StatusReviewed:          {StatusClosed},
+	StatusRefunding:         {StatusRefunded, StatusSettling},
+	StatusRefunded:          {StatusSettling},
+	StatusSettling:          {StatusClosed},
+	StatusDisputed:          {StatusCompleted, StatusRefunding, StatusClosed},
+	StatusClosed:            {},
+	StatusCanceled:          {},
 }
 
 // CanTransition 判定 from → to 是否合法。
