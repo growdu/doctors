@@ -13,6 +13,8 @@
 //   - OpenAPI codegen 注入 types。
 
 import { getToken, clearToken } from './auth.js';
+// newTraceId 已统一收敛到 src/utils/trace.js（v1.1 增量）。
+import { newTraceId } from '../src/utils/trace.js';
 
 // 默认 baseURL；后续可改读 env / manifest.json。
 const DEFAULT_BASE_URL = 'https://api.dev.doctors.example.com/api/v1';
@@ -22,14 +24,9 @@ const CODE_NO_TOKEN = 11001;
 // 业务码：服务端正常但业务失败（统一 reject 的兜底码）
 const CODE_OK = 0;
 
-/**
- * 生成 trace_id，格式 mp-<timestamp13>-<random6>，与后端 / 日志约定一致。
- */
-export function newTraceId(now) {
-  const ts = typeof now === 'number' ? now : Date.now();
-  const rand = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
-  return `mp-${ts}-${rand}`;
-}
+// `newTraceId` 已收敛到 utils/trace.js（v1.1 增量），此处从 './trace.js' 导入再 re-export，
+// 保留对外 API 兼容（utils/request.js 的旧调用方仍能 `import { newTraceId } from '@/utils/request'`）。
+export { newTraceId };
 
 /**
  * 构造请求头：X-Trace-Id + Authorization（按需）。
