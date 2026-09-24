@@ -292,6 +292,82 @@ func TestCancel_PublishesOrderCancelled(t *testing.T) {
 	assert.Equal(t, 1, pub.cancelled)
 }
 
+// fakeRefundSvc 满足 service.RefundService 接口。
+type fakeRefundSvc struct {
+	called   int
+	orderID  int64
+	reason   string
+	res      *contracts.RefundResult
+	err      error
+}
+
+func (f *fakeRefundSvc) Refund(ctx context.Context, orderID int64, reason string) (*contracts.RefundResult, error) {
+	f.called++
+	f.orderID = orderID
+	f.reason = reason
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.res != nil {
+		return f.res, nil
+	}
+	return &contracts.RefundResult{ID: 1, Amount: 200, Status: "completed"}, nil
+}
+
+// TestCancel_TriggersRefund 验证 Cancel 后调 RefundService.Refund（user_cancel）。
+func TestCancel_TriggersRefund(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	rf := &fakeRefundSvc{}
+	svc.WithRefundService(rf)
+
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	require.NoError(t, svc.Cancel(context.Background(), o.ID, o.PatientID, "changed mind"))
+
+	assert.Equal(t, 1, rf.called)
+	assert.Equal(t, o.ID, rf.orderID)
+	assert.Equal(t, "user_cancel", rf.reason, "患者主动取消 → user_cancel")
+}
+
+// TestCancel_AdminCancel_TriggersRefund 验证非患者取消 → admin_cancel。
+func TestCancel_AdminCancel_TriggersRefund(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	rf := &fakeRefundSvc{}
+	svc.WithRefundService(rf)
+
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	// actorID != PatientID → admin_cancel
+	require.NoError(t, svc.Cancel(context.Background(), o.ID, 99999, "admin force"))
+	assert.Equal(t, "admin_cancel", rf.reason)
+}
+
+// TestCancel_RefundSvcFailure_DoesNotBlockCancel 验证 refund 失败不影响 Cancel 成功。
+func TestCancel_RefundSvcFailure_DoesNotBlockCancel(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	rf := &fakeRefundSvc{err: errors.New("refund service down")}
+	svc.WithRefundService(rf)
+
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	// Cancel 仍应成功（refund 失败仅 log）
+	require.NoError(t, svc.Cancel(context.Background(), o.ID, o.PatientID, "x"))
+	assert.Equal(t, 1, rf.called, "即使 refund 失败也应被调用一次")
+}
+
+// TestCancel_NoRefundService_NilSafe 验证 refund=nil 时 Cancel 不 panic。
+func TestCancel_NoRefundService_NilSafe(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	// 不调 WithRefundService
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	require.NoError(t, svc.Cancel(context.Background(), o.ID, o.PatientID, "x"))
+}
+
 // TestNoPublisher_NilSafe 验证 publisher=nil 时业务能跑。
 func TestNoPublisher_NilSafe(t *testing.T) {
 	uRepo := seedVerifiedPatient(newFakeUserRepo())

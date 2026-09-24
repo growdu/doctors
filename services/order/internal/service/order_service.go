@@ -24,6 +24,12 @@ import (
 	"github.com/growdu/doctors/shared/lock"
 )
 
+// RefundService 是 order 包定义的接口（避免反向依赖 payment/refund）。
+// 实现方（refund.Service）负责按策略计算金额 + 落 refunds 表 + 发 PaymentRefundedEvent。
+type RefundService interface {
+	Refund(ctx context.Context, orderID int64, reason string) (*contracts.RefundResult, error)
+}
+
 // OrderRepo 是仓储最小契约。
 type OrderRepo interface {
 	Create(ctx context.Context, o *repo.Order) error
@@ -58,6 +64,7 @@ type Service struct {
 	publisher events.Publisher // 可选；nil 时不发布事件
 	clockNow  func() time.Time // 用于测试注入时间
 	locker    lock.Locker     // 可选；nil = 降级为 NopLocker
+	refund    RefundService  // 可选；nil = 不触发退款（v1 默认）
 }
 
 // New 装配一个 Service。
@@ -95,6 +102,13 @@ func (s *Service) WithLocker(l lock.Locker) *Service {
 		l = lock.NopLocker{}
 	}
 	s.locker = l
+	return s
+}
+
+// WithRefundService 注入退款服务（refund plan：触发 refund.Service.Refund）。
+// nil = 不触发退款（v1 默认；后续 main 装配 refund.Service 后调用即可）。
+func (s *Service) WithRefundService(r RefundService) *Service {
+	s.refund = r
 	return s
 }
 
@@ -214,6 +228,18 @@ func (s *Service) Cancel(ctx context.Context, orderID, actorID int64, reason str
 			Reason:      reason,
 			CancelledAt: s.clockNow(),
 		})
+	}
+
+	// 触发退款（best-effort；失败仅 log，不阻塞主流程）
+	if s.refund != nil {
+		refundReason := "user_cancel"
+		if actorID > 0 && o.PatientID != actorID {
+			refundReason = "admin_cancel"
+		}
+		if _, err := s.refund.Refund(ctx, orderID, refundReason); err != nil {
+			// log 但不返回 error；Cancel 已成功（DB 已写），refund 失败可走对账补单
+			_ = err
+		}
 	}
 	return nil
 }
