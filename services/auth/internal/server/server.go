@@ -1,9 +1,9 @@
 // Package server 负责启动与停止 auth-service HTTP 服务。
 //
 // 设计要点：
-//   - 构造时只做依赖装配，不读配置；启动时由 main 调 Run。
-//   - Run 内部用 http.Server 包装 gin，支持优雅停机。
-//   - 后续阶段会在 NewServer 中注入 DB / Redis / Kafka / 各业务 service。
+//   - New 接受完整依赖（handler + jwtSecret），构造时只装配不读外部资源。
+//   - Run 内部用 http.Server 包装 gin，支持优雅停机（10s 超时）。
+//   - 后续阶段会在 main 里注入 DB / Redis / Kafka。
 package server
 
 import (
@@ -13,8 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
+	"github.com/growdu/doctors/services/auth/internal/handler"
 	"github.com/growdu/doctors/services/auth/internal/router"
 )
 
@@ -23,9 +22,9 @@ type Server struct {
 	httpSrv *http.Server
 }
 
-// New 创建 Server；addr 是监听地址（如 ":8080"）。
-func New(addr string) *Server {
-	engine := router.New()
+// New 创建 Server；addr 监听地址，h 是业务 handler，jwtSecret 用于鉴权中间件。
+func New(addr string, h *handler.Handler, jwtSecret string) *Server {
+	engine := router.New(h, jwtSecret)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,
@@ -38,7 +37,7 @@ func New(addr string) *Server {
 	}
 }
 
-// Engine 暴露内部 gin engine，仅供测试构造请求使用。
+// Engine 暴露内部 handler，仅供测试构造请求使用。
 func (s *Server) Engine() http.Handler { return s.httpSrv.Handler }
 
 // Run 阻塞直到 ctx 取消；ctx 取消后等待 in-flight 请求完成再返回。
@@ -64,6 +63,3 @@ func (s *Server) Run(ctx context.Context) error {
 		return nil
 	}
 }
-
-// ensure gin import is used by future middleware injection.
-var _ = gin.New

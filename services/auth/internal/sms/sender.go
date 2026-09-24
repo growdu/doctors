@@ -66,6 +66,12 @@ func (s *LogSender) LookupCode(phone string) (string, bool) {
 	return c, ok
 }
 
+// VerifyCode 是 LookupCode 的布尔别名，让 LogSender 同时实现 service.SMSSender。
+func (s *LogSender) VerifyCode(phone, code string) bool {
+	got, ok := s.LookupCode(phone)
+	return ok && got == code
+}
+
 // 全局 writer，默认 stderr；测试可替换以捕获输出。
 var (
 	swMu sync.RWMutex
