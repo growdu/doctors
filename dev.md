@@ -621,6 +621,60 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - CandidatesLookup / AvailabilityLookup 接口实现（main.go 注入 gRPC stub）
 - escort-app setup plan v1.1 实施：Invitations 页面 + 我的时段页面 + 30s 倒计时确认按钮（Phase 5 任务）
 
+### 10.9.4 escort-availability plan v1.1 实施落地（2026-09-24 escort-availability plan）
+
+按 plan §3.2 + §4.1 escort_availabilities 子包落地；order-lock plan §6 + escort-order-ext plan §4.1 配套。
+
+**架构选择**：作为 `services/escort/internal/availability/` 子包（**选项 A** —— 与 plan §8.1 推荐一致，避免新增独立 service）。
+
+**子包结构**（新建）：
+- `types.go`：Availability struct + 3 Status（available/booked/canceled）+ 5 sentinel errs + Validate / Overlaps helper
+- `repo.go`：pgx 直写 CRUD + 7 方法（Create/FindByID/Delete/ListByEscort/ListAvailableByTime/BookByOrder/ReleaseByOrder）+ 时段冲突检测
+- `service.go`：业务校验（owner / 时间合法性 / 状态）+ HasAvailabilityFor / BookForOrder / ReleaseForOrder（order-service 集成接口）
+- `handler.go`：4 API（PUT/DELETE/GET /me/availability + GET /:id/availabilities）+ respondError 含 5 sentinel → 业务码映射
+- `service_test.go`：9 个单测（Add OK/NotOwner/TimeInvalid/InPast/Conflict + Remove OK/BookedRejected + HasAvailabilityFor OK/False + BookAndRelease）
+- `handler_test.go`：8 个 handler 测试（含 200 OK 验证 + body.code !=0 业务码验证；httpx 规范）
+
+**关键设计决策**：
+
+1. **Service.repo 用 AvailabilityRepo 接口**（不是具体 *Repo）：
+   - 业务层接口独立于具体实现，测试用 fakeRepo 即可注入
+   - `*Repo` 实现 `AvailabilityRepo` 接口（编译期断言 `var _ AvailabilityRepo = (*Repo)(nil)`）
+   - 与 escort-order-ext plan 的 CandidatesLookup / AvailabilityLookup 模式一致
+
+2. **时段冲突在 repo 层检查**：Create 时查 `WHERE escort_id=$1 AND status!='canceled' AND start_at<$3 AND end_at>$2`；service 层不重复检查（信任 repo）
+
+3. **Release 恢复 available 而非删除**：escort 拒接 / 超时后，时段恢复 available（让陪诊师可重新接其他订单）；与 escort-business plan §3.3 一致
+
+4. **HasAvailabilityFor window = [t-1h, t+24h)**：v1 简化窗口；具体时段筛选（min/max）由 plan §4.1 决定，v2 可加更精确算法
+
+5. **httpx 业务码优先**：HTTP 状态恒 200（项目约束），业务码在 body.code；handler.respondError 先 `errs.As(*Error)` 再 `errors.Is(sentinel)`
+
+6. **公开端点单独 RegisterPublicRoutes**：`/escorts/:id/availabilities` 不需要 token（patient-miniapp 渲染"该 escort 在 X 时段可服务"用）；与 authed 注册解耦
+
+7. **escort 端 5 业务码映射**：
+   - ErrAvailabilityNotFound → CodeNotFound (12001)
+   - ErrAvailabilityConflict / ErrTimeInvalid → CodeUnprocessable (14001)
+   - ErrNotOwner → CodeForbidden (11002)
+   - ErrBookedAlready / ErrNotBookable → CodeConflict (12002)
+
+**测试矩阵**（17 个全过）：
+- `services/escort/internal/availability/service_test.go`：9 个（Add OK/NotOwner/TimeInvalid/InPast/Conflict + Remove OK/BookedRejected + HasAvailabilityFor OK/False + BookAndRelease）
+- `services/escort/internal/availability/handler_test.go`：8 个（Add OK/NonEscort/TimeInvalid/Conflict + ListMine + ListByEscort Public + RemoveMine OK/NotOwner）
+- `services/escort/internal/availability/repo.go` 集成测试：**未在本 commit**（需 docker compose up；plan §3.3 列了 13 个场景，留 v1.0.1 增量）
+- `services/escort/internal/availability/` 编译通过：`go build ./services/escort/...` 无错
+
+**pre-existing 优化**：
+- `itoa` helper：handler_test 写了自己的 itoa（避免依赖 strconv.Itoa 而 fmt.Sprintf 太啰嗦）
+- `signTestToken` 对齐 `auth.Claims` 结构（`uid` JSON key，不是 `sub`）
+
+**未做 / 留后续**：
+- repo 集成测试（13 场景；需 docker）
+- handler wire 到 main.go（cmd/escort/main.go 装配 handler.RegisterRoutes + handler.RegisterPublicRoutes）
+- escort-business plan v1.1：现有 escort_profiles 11 态基础上加 availability 5 API 集成（profile 状态派生 available/busy/off-line）
+- order-service main 装配 AvailabilityLookup 接口（service.WithAvailabilityLookup）—— 阶段 3.6 接通 gRPC stub
+- 删除/废弃 `services/escort/internal/handler/escort.go` 旧的 POST /escorts/:id/availability（与新 availability 子包 endpoint 冲突；保留 v1.1 兼容路径）
+
 ### 10.10 抢单锁单 30s（2026-09-24 order-lock plan，已被 §10.9.2 替换为选人流程）
 
 解决评审 C-04（抢单并发"先到先得 30s 锁单"无落地）+ 实现三道防线。
