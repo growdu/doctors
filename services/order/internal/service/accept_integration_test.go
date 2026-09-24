@@ -44,6 +44,7 @@ func setupAcceptPool(t *testing.T) (*pgxpool.Pool, int64, int64) {
 	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `
+		DROP TABLE IF EXISTS refunds CASCADE;
 		DROP TABLE IF EXISTS order_events;
 		DROP TABLE IF EXISTS orders;
 		DROP TABLE IF EXISTS users;

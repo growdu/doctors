@@ -32,6 +32,7 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 	require.NoError(t, err, "connect pg")
 
 	_, err = pool.Exec(ctx, `
+		DROP TABLE IF EXISTS refunds CASCADE;
 		DROP TABLE IF EXISTS order_events;
 		DROP TABLE IF EXISTS orders;
 		DROP TABLE IF EXISTS users;
