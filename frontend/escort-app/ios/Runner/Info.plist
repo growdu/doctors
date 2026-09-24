@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  iOS 主清单 —— v1 骨架（Task 1）。需 `flutter create` 生成完整模板后保留此权限段。
+  用法说明（用于到院签到 GPS 校验 / 上传健康证 / 选择图片）。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>用于到院签到 GPS 校验</string>
+    <key>NSCameraUsageDescription</key>
+    <string>用于上传健康证 / 头像</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>用于选择健康证 / 头像</string>
+</dict>
+</plist>

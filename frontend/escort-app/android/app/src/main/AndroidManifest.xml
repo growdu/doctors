@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 主清单（release 默认 usesCleartextTraffic=false）。
+  v1 骨架（Task 1）—— 后续 `flutter create` 会生成完整模板；此处仅声明权限。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- GPS 定位（到院签到） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
+    <!-- 相机（健康证 / 头像） -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- 图片读取（健康证 / 头像） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+
+    <application
+        android:label="陪诊师端"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <!-- release 留 false（默认）；debug-only cleartext 由 android/app/src/debug/AndroidManifest.xml 声明 -->
+    </application>
+</manifest>
