@@ -962,3 +962,60 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 
 - patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → 状态流转 → admin-web 监控
 - 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
+
+---
+
+## 15. admin-web v1 缺失骨架补齐（2026-09-24 admin-web setup plan §A1-A11）
+
+**目标**：在 admin-web 骨架（§11 commit `925cc9d`）+ v2 增量 6 task（§12 commit `4caefbb` ~ `a2fda5b`）基础上，补齐 v1 缺失的核心组件：authStore + AuthGuard + RBAC + 5 公共组件 + 18 P0 页面骨架 + 4 MSW handlers（除已做的 orders）+ seed 12 模块 fixture + main.tsx 装配。
+
+**11 个 commit（按底座→守卫→组件→handlers→seed→main 顺序）**：
+
+| commit | 内容 | 文件 |
+| :-- | :-- | :-- |
+| `eb4d965` | `feat(admin-web)` authStore (Zustand 4.5 + persist, 6 roles + 4 actions + 11003 RBAC) | stores/{authStore.ts, authStore.test.ts} |
+| `5efd3f2` | `feat(admin-web)` AuthGuard + RequireRole RBAC 路由守卫 | router/{guards.tsx, guards.test.tsx} |
+| `ccc6c47` | `feat(admin-web)` ProTable 公共组件（5 props 封装） | components/ProTable/{ProTable.tsx, index.ts, ProTable.test.tsx} |
+| `af45ca4` | `feat(admin-web)` 4 公共组件 (ErrorBoundary + PageHeader + TraceId + AuditAction) | components/{ErrorBoundary,PageHeader,TraceId,AuditAction}/* |
+| `b2951a0` | `feat(admin-web)` 18 P0 页面骨架 | pages/{patients,escorts,refunds,wallets,work-orders,reviews,messages,sos,settings,profile,login,audit,finance,reports,coupons,hospitals,dashboard-detail}/* |
+| `0eeec2d` | `feat(admin-web)` MSW handlers users | mocks/handlers/admin/{users.ts, users.test.ts} |
+| `7f3b831` | `feat(admin-web)` MSW handlers escorts | mocks/handlers/admin/{escorts.ts, escorts.test.ts} |
+| `c0764e4` | `feat(admin-web)` MSW handlers refunds | mocks/handlers/admin/{refunds.ts, refunds.test.ts} |
+| `1c730b3` | `feat(admin-web)` MSW handlers wallets | mocks/handlers/admin/{wallets.ts, wallets.test.ts} |
+| `cf00383` | `feat(admin-web)` seed.ts 增 9 类目 fixture (30+ 条) + handlers 汇总 | mocks/{data/seed.ts, handlers/index.ts} |
+| `73314b2` | `feat(admin-web)` main.tsx 装配 + router 挂载 22 路由 + RBAC 联动 | main.tsx + router/index.tsx |
+
+**关键设计**：
+
+1. **authStore**：Zustand 4.5 + `persist` 中间件（localStorage key=`doctors-admin-auth`），含 6 roles（`super_admin / order_admin / refund_admin / audit_admin / cs / viewer`）+ 4 actions（`login / bootstrap / logout / onUnauthorized`）。
+2. **AuthGuard**：`<Outlet>` 包裹；未登录跳 `/login`；role 不足显示 403 页（与 `RequireRole` 子组件配合）。
+3. **RBAC**：守卫读 `useAuthStore`，role 不在白名单 → 业务码 `11003 admin_forbidden`（已映射到 errs）。
+4. **5 公共组件**：ProTable（antd Table 5 props 二次封装 + data-testid）/ ErrorBoundary（class + getDerivedStateFromError + reset 按钮）/ PageHeader（title + subtitle + extra slot）/ TraceId（X-Trace-Id 展示 + clipboard 复制）/ AuditAction（Timeline list + actor + action + 颜色）。
+5. **18 P0 页面骨架**：每个页面 `export default function XxxPage() { return (<div><PageHeader .../>...</div>) }`，含 PageHeader + Card 占位 + TODO 提示文案。
+6. **MSW handlers**：users（3 端点）/ escorts（4 端点）/ refunds（4 端点）/ wallets（2 端点），与 v2 orders handlers 同样的响应形态 `{ code: 0, data: ..., trace_id: "..." }`。
+7. **seed.ts 30+ fixture**：覆盖 12 模块（users / escorts / refunds / wallets / patients / work_orders / reviews / messages / sos / hospitals / packages / coupons / audit_logs + 原 orders / overview 保留）。
+8. **main.tsx 装配**：QueryClientProvider / ConfigProvider(zhCN + 主题) / AntdApp / BrowserRouter / AppRouter + AuthGuard 包裹 + RequireRole 在 admin 子路由挂载。
+
+**测试覆盖**：11 个 commit 内含测试代码（按 brief 约束未运行 vitest，留用户本地 `npm install` 后跑）。
+
+**Plan 偏差（重要）**：
+
+1. **路由总数 18 → 22**：brief 列了 18 个顶层 + 3 详情 = 21，加 `/login` + `/dashboard-detail` 单独页 = 22。
+2. **EscortsPage 覆盖**：v2 scaffold 留有原占位版（10 行），本批次覆盖为 v1 风格骨架（含 PageHeader + Card）。git diff 显示 rewrite 82%。
+3. **handlers/index.ts 扩展**：v2 阶段只有 order/reports，本批次扩展为 6 模块合集（order/report/user/escort/refund/wallet）。原文件 rewritten 71%。
+4. **App.tsx 残留**：原 v1 scaffold 的 App.tsx（44 行）已不被 main.tsx 引用，处于游离态未删除（保留作为 fallback）。
+5. **未跑 vitest**：按 brief "不要 npm install / vitest 跑测试"，本批次所有 `.test.ts(x)` 文件为契约 + 验收脚本式样，文件就绪待用户本地 `npm install` 后 `vitest run`。
+
+**未做（留给后续）**：
+
+1. **12 类目 MSW handlers**：本批次按 brief 范围只建了 4 大块（users/escorts/refunds/wallets），剩余 12 类目只建 seed.ts fixture，handler 文件后续按需追加。
+2. **API client 函数**：12 类目的 `@/api/admin/*.ts` 客户端函数未建（仅 orders.ts / reports.ts 由 v2 提供），下批次按"每 handler 配一 API client"原则补齐。
+3. **AdminLayout 菜单扩展**：侧边栏 Menu 仍只显示 dashboard/escorts/orders 3 项（v2 既有），新增 18 路由的菜单项未挂载（brief 未要求；菜单 RBAC 过滤是后续 Task）。
+4. **QueryClient + Axios 401 拦截器**：queryClient 已 v2 装配，但 axios 401 → authStore.onUnauthorized() 联动尚未在 api client 中接入（v2 也是用 fetch，未引入 axios client）。
+5. **vitest + msw/node + @testing-library/react**：未安装（保持 brief 约束），所有测试为契约样。
+6. **跨工程一致性**：patient-miniapp / escort-app 端 `frontend/{patient-miniapp,escort-app}/openapi/contracts.yaml` 也应加对应字段（selected_escort_id / escort_pending_expire_at / escort_reject_reason），由对应 worker 收口。
+
+**端到端联通（v1.1 目标）**：
+
+- patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → 状态流转 → admin-web 22 路由覆盖监控（dashboard / orders / escorts / refunds / wallets / 等 12 类目）
+- 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
