@@ -30,6 +30,7 @@ const (
 	TopicPaymentCreated   = "payment.created"
 	TopicPaymentCompleted = "payment.completed"
 	TopicPaymentRefunded  = "payment.refunded"
+	TopicRefundCompleted  = "refund.completed"
 
 	TopicSOSRaised = "sos.raised"
 	TopicMessageSent = "message.sent"
@@ -151,6 +152,23 @@ type PaymentRefundedEvent struct {
 	OrderID   int64    `json:"order_id"`
 	Amount    float64  `json:"amount"`
 	RefundedAt time.Time `json:"refunded_at"`
+}
+
+// RefundResult 是退款单据的简化视图（refund-service → order-service）。
+// 放在 contracts 是为了避免 order / payment 包互相引用。
+type RefundResult struct {
+	ID     int64   `json:"id"`
+	Amount float64 `json:"amount"`
+	Status string  `json:"status"` // created/processing/completed/failed/rejected
+}
+
+// RefundCompletedEvent 退款完成（refund-service → notification + audit）。
+type RefundCompletedEvent struct {
+	RefundID     int64     `json:"refund_id"`
+	OrderID      int64     `json:"order_id"`
+	Amount       float64   `json:"amount"`
+	RefundedAt   time.Time `json:"refunded_at"`
+	ExternalTxID string    `json:"external_tx_id,omitempty"`
 }
 
 // ---------- SOS / 消息事件 ----------

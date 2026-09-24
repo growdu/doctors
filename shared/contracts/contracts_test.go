@@ -77,6 +77,7 @@ func TestTopicConstants(t *testing.T) {
 	assert.Equal(t, "user.registered", TopicUserRegistered)
 	assert.Equal(t, "escort.available", TopicEscortAvailable)
 	assert.Equal(t, "payment.completed", TopicPaymentCompleted)
+	assert.Equal(t, "refund.completed", TopicRefundCompleted)
 }
 
 // TestOrderMatchingEvent_RoundTrip 验证 OrderMatchingEvent 序列化可逆。
@@ -91,6 +92,33 @@ func TestOrderMatchingEvent_RoundTrip(t *testing.T) {
 	data, err := json.Marshal(ev)
 	require.NoError(t, err)
 	var got OrderMatchingEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestRefundCompletedEvent_RoundTrip 验证 RefundCompletedEvent 序列化可逆。
+func TestRefundCompletedEvent_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ev := RefundCompletedEvent{
+		RefundID:     200,
+		OrderID:      100,
+		Amount:       95.50,
+		RefundedAt:   now,
+		ExternalTxID: "mock-tx-200",
+	}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got RefundCompletedEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestRefundResult_RoundTrip 验证 RefundResult 序列化可逆。
+func TestRefundResult_RoundTrip(t *testing.T) {
+	ev := RefundResult{ID: 5, Amount: 95.0, Status: "completed"}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got RefundResult
 	require.NoError(t, json.Unmarshal(data, &got))
 	assert.Equal(t, ev, got)
 }
