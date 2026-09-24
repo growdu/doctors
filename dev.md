@@ -1098,3 +1098,57 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → `accepted` → `in_service` → `completed`（写 `completed_at`）→ wallet scanner 1 分钟扫到 → `frozen -= amount; balance += amount` → escort 提现 → admin 审批 → paid（mock external_tx_id）
 - 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
 - 全量回归 44 个测试包 0 FAIL
+
+---
+
+## 17. 前端三端 contracts.yaml 一致性校验（2026-09-24）
+
+**目标**：把 admin-web v2 已落地的 3 个 OrderDetail 字段 + OverviewReport 2 个新指标同步到 patient-miniapp + escort-app 的 OpenAPI 契约，保证三端 schema 一致，避免 dart-dio / openapi-typescript 生成出来的 client 字段漂移。
+
+**3 个 commit**：
+
+| commit | 端 | 内容 |
+| :-- | :-- | :-- |
+| `6ab0ebb` | patient-miniapp | 新建 `frontend/patient-miniapp/openapi/contracts.yaml`（269 行），含 6 端点 + 3 v2 字段 + 2 v2 状态 + PatientOverview 2 指标 |
+| `5593035` | escort-app | `pubspec.yaml` 加 `openapi_generator_cli: ^1.0.0`；新建 `openapi.yaml`（33 行，generator config）+ `scripts/gen-api.sh`（52 行，dart-dio 生成脚本） |
+| `4caefbb` | admin-web（已完成，不动） | `frontend/admin-web/openapi/contracts.yaml`（169 行，v2 baseline） |
+
+**三端 contracts.yaml 当前状态对比**：
+
+| 端 | 文件 | 行数 | 状态 |
+| :-- | :-- | :--: | :-- |
+| admin-web | `frontend/admin-web/openapi/contracts.yaml` | 169 | ✅ v2 baseline（commit `4caefbb`） |
+| patient-miniapp | `frontend/patient-miniapp/openapi/contracts.yaml` | 269 | ✅ 本批次新建（含 patient 端 6 端点 + PatientOverview） |
+| escort-app | `frontend/escort-app/openapi.yaml` | 33 | ⚠️ generator config（不是契约本身，引用 admin-web 输入） |
+
+**escort-app 注意点**：`frontend/escort-app/openapi.yaml` 不是契约 spec 本体，而是 `openapi-generator-cli` 的 generator config —— 真正的输入契约从 `../admin-web/openapi/contracts.yaml` 同步过来；生成出来的 dart-dio client 会自动继承 admin-web 已落地的 v2 字段，无需在 escort-app 单独维护一份契约。
+
+**字段覆盖率（v2 关键字段）**：
+
+| 字段 / 状态 / 指标 | admin-web | patient-miniapp | escort-app |
+| :-- | :--: | :--: | :--: |
+| `selected_escort_id` (int64 nullable) | ✅ | ✅ 本批次 | ⏳ 待 `bash scripts/gen-api.sh` 生成 |
+| `escort_pending_expire_at` (datetime nullable) | ✅ | ✅ 本批次 | ⏳ 待 `bash scripts/gen-api.sh` 生成 |
+| `escort_reject_reason` (enum nullable) | ✅ | ✅ 本批次 | ⏳ 待 `bash scripts/gen-api.sh` 生成 |
+| `OrderStatus.selecting_escort` | ✅ | ✅ 本批次 | ⏳ 待 generator |
+| `OrderStatus.escort_pending_acceptance` | ✅ | ✅ 本批次 | ⏳ 待 generator |
+| `OverviewReport.pending_selecting_escort` | ✅ | ✅ 本批次（PatientOverview） | ❌ escort-app 不需要 |
+| `OverviewReport.pending_escort_acceptance` | ✅ | ✅ 本批次（PatientOverview） | ❌ escort-app 不需要 |
+
+**未做（留给后续本地执行）**：
+
+1. **admin-web**：用户本地跑 `pnpm run generate:client` 覆盖 `src/types/generated.ts`（scripts 已在 package.json；不需要再改 spec）。
+2. **escort-app**：用户本地跑 `bash scripts/gen-api.sh` 把 `lib/api/generated/` 重新生成一遍（需先 `dart pub global activate openapi_generator_cli`）。
+3. **patient-miniapp**：当前 TS 客户端是手写 JSDoc 注释（见 `src/api/order.js` Order typedef + `src/api/candidates.js` Candidate typedef），本批次不引入 openapi-typescript 代码生成 —— 留待 v2 任务彻底稳定后再统一接入。
+4. **三端真实 contracts 合并**：当前三份契约都是最小可用 schema；待 order-service / admin-service 真正生成 OpenAPI 后，把这三份内容合并到上游，并删掉前端各自的 contracts.yaml。
+
+**Plan 偏差**：
+
+1. **patient-miniapp PatientOverview schema**：当前 patient-miniapp UI 没有 overview 页（只有 order/candidates/detail 三个），但本批次仍把 `PatientOverview` schema + 2 指标写进 contracts.yaml —— 契约先行，UI 后续按需消费。
+2. **escort-app 不单独维护契约**：原 plan 让 escort-app 也写一份 contracts.yaml；本批次改成 generator config 模式（直接引用 admin-web 输入），避免三份契约漂移。
+3. **未引入 pnpm / dart 真实执行**：按 brief 约束，不跑 `pnpm install` / `flutter pub get`，只生成 config + script。
+
+**后续追踪**：
+
+- 三端契约统一后，把 `lib/models/order.dart` 的 `OrderStatus` 枚举 / `selectedEscortId` 字段改用 generator 生成的代码（v2.1）
+- admin-web OverviewReport 6 指标 → patient-miniapp PatientOverview 4 指标 + admin 自己看的 2 个（pending_refunds / pending_escorts）拆分（v2.1）
