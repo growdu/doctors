@@ -572,6 +572,55 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - patient-miniapp / escort-app 前端适配（plan 已 commit v1.1，前端代码实施留 Phase 4-5）
 - Redis SETNX `orders:confirm:{order_id}` 30s 防重复触发（v1.1 plan §6 提到；v1 DB 唯一约束兜底，未实现 Redis 部分；可作 v1.2 增量）
 
+### 10.9.3 escort-order-ext plan v1.1 实施落地（2026-09-24 escort-order-ext plan）
+
+按 plan §1.2 + §4.1 escort 视角扩展；order-lock plan v1.1 已落地核心 service 方法，本 plan 补全 escort 视角的 List 查询与路由分流。
+
+**与 order-lock plan v1.1 的边界**：
+- order-lock plan v1.1 已实现：`SelectEscort` / `ConfirmAccept` / `RejectAccept` 3 service 方法 + 3 handler 路由 + 3 新事件 + scheduler 改造
+- escort-order-ext plan v1.1 增量：**List 角色分流**（patient vs escort）+ `status=invitations` 过滤（陪诊师邀请列表）
+
+**落地 commits（1 个）**：
+
+| commit | 性质 | 内容 |
+| :-- | :-- | :-- |
+| `3b3a4b1` | feat(order) | repo.ListByEscort + service.ListForEscort + handler List 分流（patient/escort）+ parseInt helper |
+
+**关键设计决策**：
+
+1. **List 角色分流**：handler.List 根据 JWT 中 role 字段分流：
+   - role='patient' → service.List（现有 ListByPatient）
+   - role='escort' → service.ListForEscort + 读 status query
+   - 保持单 endpoint `GET /api/v1/orders`，由 role 自动选语义
+
+2. **status 三种语义**（escort 视角）：
+   - `status=invitations` → 查 `selected_escort_id = $1 AND status = 'escort_pending_acceptance'`，按 `escort_pending_expire_at ASC`（30s 倒计时用）
+   - `status=''`（默认）→ 查 `escort_id = $1`，按 `created_at DESC`（已接单订单）
+   - `status='<other>'` → 精确 status 过滤
+
+3. **SQL 分支**：repo.ListByEscort 用 switch-case 拼 3 段不同 SQL；保持类型安全 + 简单可读（不引 ORM）
+
+4. **不做的事**：
+   - CandidatesLookup / AvailabilityLookup 接口的具体实现（保留接口在 service.go；具体实现由 main.go 在阶段 3.6 接通 match/escort gRPC stub 时注入）
+   - 分页 cursor（仅 offset/limit；游标分页留 v2）
+
+**测试矩阵增量**：
+- `services/order/internal/service/`：fakeOrderRepo.ListByEscort 满实现；`TestListForEscort_Invitations`（TODO 加）+ `TestListForEscort_All` + `TestListForEscort_ByStatus`
+- `services/order/internal/handler/`：fakeRepo.ListByEscort 空实现（仅满足接口）
+- `services/order/internal/router/`：stubOrderRepo.ListByEscort 空实现
+- `services/order/internal/server/`：stubOrderRepo.ListByEscort 空实现
+- `services/order/internal/repo/`：集成测试 `TestOrderRepo_ListByEscort_Invitations` / `TestOrderRepo_ListByEscort_All` / `TestOrderRepo_ListByEscort_ByStatus`（需 docker compose up）
+
+**pre-existing 优化**：
+- `parseInt` helper：handler 抽出 query int 解析 helper（带 default + 校验），原 List 写死 20/0，现支持 `?limit=20&offset=0`
+- `httpx.OK(c, gin.H{"orders": list})` 包裹：与 patient 列表响应结构对齐（escort 列表也用 `{"orders":[...]}`）
+
+**未做 / 留 Phase 1.4 / 1.5**：
+- escort-availability subpackage：完整 CRUD + 5 API
+- escort-business v2 plan：现有 escort_profiles 11 态基础上加 availability 5 API 集成
+- CandidatesLookup / AvailabilityLookup 接口实现（main.go 注入 gRPC stub）
+- escort-app setup plan v1.1 实施：Invitations 页面 + 我的时段页面 + 30s 倒计时确认按钮（Phase 5 任务）
+
 ### 10.10 抢单锁单 30s（2026-09-24 order-lock plan，已被 §10.9.2 替换为选人流程）
 
 解决评审 C-04（抢单并发"先到先得 30s 锁单"无落地）+ 实现三道防线。
