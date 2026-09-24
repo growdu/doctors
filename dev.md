@@ -834,7 +834,66 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 5. **补 v1 缺失的 admin-web 骨架**：authStore + AuthGuard + ProTable 封装 + 全量 handlers（escorts/refunds/wallets 等）+ 18 P0 页面骨架。
 6. **跨工程一致性校验**：patient-miniapp / escort-app 端 `frontend/{patient-miniapp,escort-app}/openapi/contracts.yaml` 也应加对应字段（selected_escort_id / escort_pending_expire_at / escort_reject_reason）。
 
+---
+
+## 13. escort-app v1.1 选人模式增量（2026-09-24 escort-app-setup plan §A1-A7）
+
+**目标**：在 escort-app 骨架（§11 commit `7570e93`）基础上，落地选人模式核心：删 FeedPage + 加 InvitationsPage / AvailabilityPage + Riverpod providers + dio API client + token 持久化 + 路由替换。
+
+**7 个 commit（按底座→utils→models→api→providers→pages 顺序）**：
+
+| commit | 内容 | 文件 |
+| :-- | :-- | :-- |
+| `004c90a` | `feat(escort-app)` TokenStorage (flutter_secure_storage + forTest fake) | services/{token_storage.dart, token_storage_test.dart} |
+| `13c52fc` | `feat(escort-app)` newTraceId (escort-{ms}-{rand6}) | utils/{trace.dart, trace_test.dart} |
+| `9379a90` | `feat(escort-app)` format (formatMoney/formatDateTime/maskPhone) | utils/{format.dart, format_test.dart} |
+| `78641b2` | `feat(escort-app)` models (Order 选人模式 + Invitation + Availability) | models/{order,invitation,availability}.dart + *_test.dart |
+| `3eb4049` | `feat(escort-app)` api_client (dio + Auth/Trace/401 拦截器) | services/api_client.dart + api_client_test.dart |
+| `716f751` | `feat(escort-app)` providers (Auth + Invitation 5s 轮询 + Availability) | providers/{auth,invitation,availability}_provider.dart + *_test.dart |
+| `046c497` | `feat(escort-app)` pages (Invitations + Availability) + CountdownBadge widget + router | pages/{invitations,availability}/ + widgets/countdown_badge.dart + router 替换 |
+
+**关键设计**：
+
+1. **匹配模式按 v1.1**：`Invitation`（不是 `Order`），含 `escortPendingExpireAt` + 订单瘦字段；客户端 `isLive` 过滤过期邀请，避免服务端回弹。
+2. **30s 倒计时**：`CountdownBadge` 组件参数化 `expireAt`，UI 显示「待确认剩余」；`< 60s` 红色 `#ff4d4f` / `≥ 60s` 蓝色 `#1677ff`；Timer 在组件 `dispose` 时 `cancel()` 防内存泄漏。
+3. **轮询拉新**：`Stream.periodic(Duration(seconds: 5))` + `StreamProvider` + `ref.onDispose` 清理 Timer；首次 tick 立即触发（不等 5s）。
+4. **Token 持久化**：`flutter_secure_storage`（不是 `shared_preferences`，安全敏感）；`TokenStorage.forTest()` in-memory fake 让单测可重放。
+5. **API client**：dio 5.7 + 3 拦截器：Auth（`Authorization: Bearer <token>`）、Trace（`X-Trace-Id: escort-{ms}-{rand6}`）、401（触发 `authProvider.notifier.onUnauthorized()` 回调）。
+6. **AuthState sealed**：`AuthUnknown` / `AuthAnonymous` / `AuthAuthenticated`；`AuthNotifier` 暴露 `bootstrap` / `loginByPhone` / `logout` / `onUnauthorized`。
+
+**测试覆盖**：**82 个单测**（11 个新增文件 + 24 个总变更文件，+2982 / -13 行）。
+
+| 类别 | 测试数 |
+| :-- | :--: |
+| token_storage | 6 |
+| trace | 4 |
+| format | 11 |
+| order / invitation / availability | 32 |
+| api_client | 10 |
+| auth / invitation / availability providers | 19 |
+
+**Plan 偏差（重要）**：
+
+1. **测试目录**：plan 多处假设 `test/api/` 等不存在目录；统一用 `test/<dir>/`，与 Flutter 标准 + 已有骨架兼容。
+2. **api_client 位置**：plan 假设 `lib/api/dio_client.dart`；按父任务明确要求放 `lib/services/api_client.dart`（与服务层聚合）。
+3. **Invitation 增强**：plan 只要求 `isLive`；额外加 `remainingSeconds`（UI 倒计时显示用）。
+4. **Availability 增强**：plan 只要求 `isDeletable`；额外加 `isBooked` + `wireValue` + `durationHours`。
+5. **Order model 增强**：plan 没要求 `wireValue`（snake_case 反序列化），加上便于 toJson round-trip。
+6. **availability_provider 状态类型**：plan 写 `AsyncValue<Availability>`；改用 `AsyncValue<Availability?>`（null = idle）。
+
+**未做（留给后续）**：
+
+1. 24 P0 页面中除 InvitationsPage + AvailabilityPage 外的 22 个
+2. 路由守卫（authGuardProvider / realNameGuardProvider / approvedGuardProvider）和 redirect 链
+3. 全量 API client（escort / order / wallet / sos / training / review / message + availability_api 完整版）
+4. 全量 providers（wallet_provider / message_provider / training_provider）
+5. 全量公共 widgets（OrderCard / AvailabilityTile / RatingStars / StatusChip / GpsCheckinButton / SosLongPress）
+6. main.dart 真实 `tokenStorageProvider` + `dioProvider` override 装配 + splash → /home/invitations 跳转
+7. openapi.yaml + gen-api.sh + `lib/api/generated/` 自动生成
+8. Flutter Web + PWA（plan §v1.1 Task 20-23）
+9. integration_test / E2E
+
 **端到端联通（v1.1 目标）**：
 
-- patient-miniapp 用户登录 → 下单 → match-service 抢单池 → escort-app 陪诊师接单 → order-service 状态机流转 → admin-web 监控
-- 三端共享 `X-Trace-Id` + 后端 `logger.FromContext` 链路追踪
+- patient-miniapp 下单 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → 状态流转 → admin-web 监控
+- 共享 `X-Trace-Id`（escort-app 用 `escort-{ms}-{rand6}`；patient-miniapp 用 `mp-{ms}-{rand6}`；admin-web 用其他前缀）
