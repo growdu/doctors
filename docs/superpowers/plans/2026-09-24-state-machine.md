@@ -1,12 +1,22 @@
-# 状态机统一 Implementation Plan
+# 状态机增量 Implementation Plan（修订）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **修订范围**：本 plan 是 `2026-09-24-state-machine.md` 的**修订版**，严格遵循 `2026-09-24-order-matching-redesign.md` §2.1（选人式流程）。仅动 machine.go 的 `Status` 常量块 + transitions map + 单测；DB / repo / service / migrations 留给后续 plan。
 
-**Goal:** 解决 `docs/REVIEW-REPORT.md` C-01（04 与 07 状态机不一致）：新增 `pending_acceptance` / `settling` / `disputed` 三个中间态 + 抢单锁单字段（`lock_owner` / `lock_expire_at`），同步 docs 与代码。
+**Goal:** 基于 spec `2026-09-24-order-matching-redesign.md` §2.1 的"选人式"流程，修订 `services/order/internal/state/machine.go`：新增 `selecting_escort` / `escort_pending_acceptance` 两状态；transitions map 增加 5 条新边（含超时/拒接/未签到回退）；追加 5 单测覆盖新转换。
 
-**Architecture:** 在 `services/order/internal/state/machine.go` 中以字符串转换表追加新状态；`migrations/0003_orders_state.up.sql` 加列 + CHECK 约束；`order_repo` 增加 `LockForAccept` / `ReleaseLock` 方法；`service.Accept` 走"状态机 → repo"两步而非一锅烩。**不做**：抢单锁单 30s 的 Redis SETNX 与超时任务（见 §4.2 order-lock plan）；本 plan 只落地状态机 + 字段 + repo 适配层。
+**Architecture:** 在 `Status` const 块追加两个枚举值（与 DB CHECK 对齐，由 0009 迁移落地 CHECK 扩展）；transitions map **增量加边**（不动既有边；保留 `StatusPendingAcceptance` 作为 v1 兼容，新流程用 `StatusEscortPendingAcceptance`）；`machine_test.go` 表驱动覆盖所有新边；不动 DB / repo / service（交由 `2026-09-24-order-lock.md` / `2026-09-24-escort-business.md` / `0009_orders_select_escort` 迁移处理）。
 
-**Tech Stack:** Go 1.24+ · pgx v5.7 · testify v1.11 · golang-migrate（迁移脚本）。**TDD 全程**：每个新状态先写失败测试，再加转换。
+**Tech Stack:** Go 1.24+ · pgx v5.7 · testify v1.11 · 纯函数状态机 · TDD：每条新边先写失败测试再加实现。
+
+**前置依赖:**
+- 已交付: `docs/superpowers/plans/2026-09-24-state-machine.md`（原 plan 6 tasks；本 plan 是其修订版，仅覆盖 Task 1+2 的增量）
+- 已交付: `docs/superpowers/specs/2026-09-24-order-matching-redesign.md` §2.1（spec 流程变更，13 plan 修订清单 §6）
+- 后续（不在本 plan 范围）：
+  - `2026-09-24-order-lock.md` plan 需以本 plan 新状态为输入（Redis SETNX key 由 `orders:accept-lock:*` 改为 `orders:confirm:*`）
+  - `2026-09-24-escort-business.md` plan 需消费 `StatusEscortPendingAcceptance` / `StatusSelectingEscort`
+  - `0009_orders_select_escort.up.sql` 迁移负责扩 CHECK 含新状态
 
 ---
 
@@ -22,730 +32,209 @@
 - 状态字符串与 DB CHECK 约束**一一对应**，禁止拼写漂移
 - 状态机 = pure function，无副作用
 
+**本修订新增约束（spec §3.2 + §6 派生）**：
+- `StatusPendingAcceptance` 保留 v1 兼容（spec §2.1：旧值 v1 不再写，但常量定义保留以便回溯）；新流程**不**经 `StatusPendingAcceptance`，统一走 `StatusEscortPendingAcceptance`
+- 既有 8 单测（如 `TestCanTransition_Matching_ToPendingAcceptance`、`TestCanTransition_PendingAcceptance_ToMatching` 等）必须保持 PASS
+- DB CHECK 扩展（`selecting_escort` / `escort_pending_acceptance` / `settling` / `disputed`）由 `0009_orders_select_escort` 迁移负责；**本 plan 不动任何 SQL**
+- 本 plan commit message 前缀用 `feat(order):` / `test(order):`（沿用原 plan 前缀规则）；修订 plan 文档本身用 `docs(plan):` 前缀
+- 状态值字符串**严格**对齐 spec §2.1：「`selecting_escort`」「`escort_pending_acceptance`」两串零拼写漂移
+
 ---
 
 ## File Structure
 
 | 路径 | 变更 | 职责 |
 |------|------|------|
-| `services/order/internal/state/machine.go` | Modify | 状态枚举 + transitions map + IsValid / IsTerminal；新增 `pending_acceptance` / `settling` / `disputed` |
-| `services/order/internal/state/machine_test.go` | Modify | 表驱动覆盖新状态合法 / 非法转换 |
-| `migrations/0003_orders_state.up.sql` | Create | 加 `lock_owner BIGINT` / `lock_expire_at TIMESTAMPTZ` 列；CHECK 约束加入新状态；加 `idx_orders_lock` |
-| `migrations/0003_orders_state.down.sql` | Create | 逆向：删索引、删列、收紧 CHECK |
-| `migrations/migrations_test.go` | Modify | `Test0003OrdersStateUpDown` 验证新字段与 CHECK |
-| `services/order/internal/repo/order_repo.go` | Modify | `Order` struct 加 `LockOwner *int64` / `LockExpireAt any`；`UpdateStatus` 接受 `lockOwner *int64` 与 `lockExpireAt *time.Time`；新增 `LockForAccept` / `ReleaseLock` / `LockExpired` 三个方法 |
-| `services/order/internal/repo/order_repo_integration_test.go` | Modify | 加 LockForAccept / ReleaseLock / LockExpired 集成测试 |
-| `services/order/internal/service/accept.go` | Modify | 改走两步：①SELECT FOR UPDATE SKIP LOCKED WHERE status IN ('matching', 'pending_acceptance') → ②UPDATE 到 'pending_acceptance' + 写 lock_owner/lock_expire_at（**锁单具体超时逻辑在 order-lock plan**） |
-| `services/order/internal/service/accept_integration_test.go` | Modify | 加 `pending_acceptance` 路径测试 |
-| `docs/04-业务流程.md` | Modify | 状态机图加入三个新态；锁单流程引用本 plan |
-| `docs/07-数据模型.md` | Modify | orders 表加 lock_owner / lock_expire_at；CHECK 加入新态 |
+| `services/order/internal/state/machine.go` | Modify | `Status` const 块新增 `StatusSelectingEscort` / `StatusEscortPendingAcceptance`；transitions map 增加 5 条新边（见 Task 1 Step 2）；既有 const / 既有边不动 |
+| `services/order/internal/state/machine_test.go` | Modify | 追加 5 个 `TestCanTransition_*` 测试（见 Task 2 Step 1）；既有 8 个测试不动 |
+| `migrations/0003_orders_state.up.sql` | **不修订** | 用户指令：CHECK 约束不变；既有 CHECK 未含 `selecting_escort` / `escort_pending_acceptance` 的部分由 `0009_orders_select_escort` 迁移追平（不在本 plan） |
+| `migrations/0009_orders_select_escort.up.sql` | 后续 plan 落 | （不在本 plan 范围）扩 CHECK 含 `selecting_escort` / `escort_pending_acceptance`；加 `idx_orders_selecting` 部分索引 |
+| `services/order/internal/repo/order_repo.go` | **不修订** | DB 层 / repo 方法由 `2026-09-24-order-lock.md` 与 `2026-09-24-escort-business.md` 处理 |
+| `services/order/internal/service/accept.go` | **不修订** | service 层（本 plan 不改 service） |
+| `docs/04-业务流程.md` / `docs/07-数据模型.md` / `dev.md` | **不修订** | 修订范围限于 machine.go + 单测；文档同步由后续 plan（patient-miniapp / escort-app-setup）落地 |
 
 ---
 
-### Task 1: 状态枚举与转换表（machine.go）
+### Task 1: 状态枚举与 transitions map 增量修订
 
 **Files:**
 - Modify: `services/order/internal/state/machine.go`
-- Test: `services/order/internal/state/machine_test.go`
 
-**Step 1: 写三个新状态的失败测试**
+**Step 1: 在 `Status` const 块追加两个常量**
 
-在 `machine_test.go` 末尾追加：
+打开 `services/order/internal/state/machine.go`，定位 const 块（位于 `StatusPendingAcceptance Status = "pending_acceptance"` 之后），插入：
 
 ```go
-// TestStatusPendingAcceptance_Exists 验证新状态在枚举中。
-func TestStatusPendingAcceptance_Exists(t *testing.T) {
-    assert.True(t, state.IsValid(state.StatusPendingAcceptance))
+// 2026-09-24 订单匹配模式重构（spec §2.1 选人式流程）：
+//
+//	StatusSelectingEscort          = 候选已生成，等待患者从候选列表选 1 位。
+//	StatusEscortPendingAcceptance  = 患者选了某 escort，等待陪诊师 30s 确认窗口；超时 / 拒接 → 回退 selecting_escort。
+//
+// 保留 StatusPendingAcceptance 作为 v1 兼容；新流程不再使用。
+StatusSelectingEscort         Status = "selecting_escort"
+StatusEscortPendingAcceptance Status = "escort_pending_acceptance"
+```
+
+**Step 2: 在 transitions map 增量追加新边（不动既有边）**
+
+将 `transitions` map 内对应条目替换为：
+
+```go
+// Key = 当前状态；value = 可去的下一状态。
+
+StatusCreated:           {StatusPaid, StatusCanceled},
+StatusPaid:              {StatusMatching, StatusCanceled},
+StatusMatching:          {StatusPendingAcceptance, StatusAccepted, StatusSelectingEscort, StatusCanceled},
+//                                                              ▲ 新增（spec §2.1）：候选池旁路 paid → matching → selecting_escort
+
+// 新状态条目（spec §2.1）：
+StatusSelectingEscort:         {StatusEscortPendingAcceptance, StatusCanceled},
+StatusEscortPendingAcceptance: {StatusAccepted, StatusSelectingEscort},
+//                                              ▲ 30s 超时或 escort 拒接 → 回退 selecting_escort（患者可重选）
+
+StatusPendingAcceptance: {StatusAccepted, StatusMatching, StatusCanceled}, // v1 兼容，保留
+StatusAccepted:          {StatusInService, StatusMatching, StatusSelectingEscort, StatusCanceled, StatusDisputed},
+//                                                          ▲ 新增（spec §2.1）：5min 未签到 → 回退 selecting_escort（患者可重选）
+StatusInService:         {StatusCompleted, StatusDisputed},
+StatusCompleted:         {StatusReviewed, StatusRefunding, StatusSettling, StatusDisputed},
+StatusReviewed:          {StatusClosed},
+StatusRefunding:         {StatusRefunded, StatusSettling},
+StatusRefunded:          {StatusSettling},
+StatusSettling:          {StatusClosed},
+StatusDisputed:          {StatusCompleted, StatusRefunding, StatusClosed},
+StatusClosed:            {},
+StatusCanceled:          {},
+```
+
+> 注：上方示例中 4 行带 ▲ 注释的为本 plan 新增；其余 11 行保持不变，仅改 4 个 entry。
+
+**Step 3: 编译验证**
+
+Run: `go build ./services/order/internal/state/`
+Expected: 无输出（exit code 0）
+
+**Step 4: Commit**
+
+```bash
+git add services/order/internal/state/machine.go
+git commit -m "feat(order): 状态机加 selecting_escort/escort_pending_acceptance 两态 + 5 新转换边"
+```
+
+---
+
+### Task 2: 5 单元测试覆盖新边
+
+**Files:**
+- Modify: `services/order/internal/state/machine_test.go`
+
+**Step 1: 在文件末尾追加 5 个 `TestCanTransition_*` 测试**
+
+```go
+// TestCanTransition_Matching_ToSelectingEscort 验证候选池旁路：paid → matching → selecting_escort。
+// 对应 spec §2.1 transitions 表第 2 行；新流程下 matching 视为 1-frame 过渡态。
+func TestCanTransition_Matching_ToSelectingEscort(t *testing.T) {
+    assert.True(t, state.CanTransition(state.StatusMatching, state.StatusSelectingEscort),
+        "matching → selecting_escort 应合法（候选池旁路，spec §2.1）")
 }
 
-// TestCanTransition_Matching_ToPendingAcceptance 验证 matching → pending_acceptance 合法。
-func TestCanTransition_Matching_ToPendingAcceptance(t *testing.T) {
-    assert.True(t, state.CanTransition(state.StatusMatching, state.StatusPendingAcceptance))
+// TestCanTransition_SelectingEscort_ToEscortPendingAcceptance 验证患者选人 → 待 escort 确认。
+// 对应 spec §2.1 transitions 表第 3 行。
+func TestCanTransition_SelectingEscort_ToEscortPendingAcceptance(t *testing.T) {
+    assert.True(t, state.CanTransition(state.StatusSelectingEscort, state.StatusEscortPendingAcceptance),
+        "selecting_escort → escort_pending_acceptance 应合法（患者已选 escort，spec §2.1）")
 }
 
-// TestCanTransition_PendingAcceptance_ToAccepted 验证陪诊师 30s 内确认 → accepted。
-func TestCanTransition_PendingAcceptance_ToAccepted(t *testing.T) {
-    assert.True(t, state.CanTransition(state.StatusPendingAcceptance, state.StatusAccepted))
+// TestCanTransition_EscortPendingAcceptance_ToAccepted 验证 escort 在 30s 内 confirm → accepted。
+// 对应 spec §2.1 transitions 表第 4 行前半。
+func TestCanTransition_EscortPendingAcceptance_ToAccepted(t *testing.T) {
+    assert.True(t, state.CanTransition(state.StatusEscortPendingAcceptance, state.StatusAccepted),
+        "escort_pending_acceptance → accepted 应合法（陪诊师 30s 内 confirm，spec §2.1）")
 }
 
-// TestCanTransition_PendingAcceptance_ToMatching 验证 30s 超时回退 matching。
-func TestCanTransition_PendingAcceptance_ToMatching(t *testing.T) {
-    assert.True(t, state.CanTransition(state.StatusPendingAcceptance, state.StatusMatching))
+// TestCanTransition_EscortPendingAcceptance_ToSelectingEscort 验证 escort 拒接 / 30s 超时 → 回退候选池。
+// 对应 spec §2.1 transitions 表第 4 行后半（"超时或拒 → 回退"）。
+func TestCanTransition_EscortPendingAcceptance_ToSelectingEscort(t *testing.T) {
+    assert.True(t, state.CanTransition(state.StatusEscortPendingAcceptance, state.StatusSelectingEscort),
+        "escort_pending_acceptance → selecting_escort 应合法（超时或 escort 拒接 → 回退患者重选，spec §2.1）")
 }
 
-// TestCanTransition_Completed_ToSettling 验证结算态。
-func TestCanTransition_Completed_ToSettling(t *testing.T) {
-    assert.True(t, state.CanTransition(state.StatusCompleted, state.StatusSettling))
-}
-
-// TestCanTransition_Disputed_FromAnyActive 验证争议可从活动态转入。
-func TestCanTransition_Disputed_FromAnyActive(t *testing.T) {
-    for _, s := range []state.Status{
-        state.StatusAccepted, state.StatusInService, state.StatusCompleted,
-    } {
-        assert.True(t, state.CanTransition(s, state.StatusDisputed),
-            "%s → disputed 应合法", s)
-    }
-}
-
-// TestCanTransition_Settling_ToClosed 验证结算后关闭。
-func TestCanTransition_Settling_ToClosed(t *testing.T) {
-    assert.True(t, state.CanTransition(state.StatusSettling, state.StatusClosed))
-}
-
-// TestCanTransition_Refunding_ToSettling 验证退款完成进入结算。
-func TestCanTransition_Refunding_ToSettling(t *testing.T) {
-    assert.True(t, state.CanTransition(state.StatusRefunding, state.StatusSettling))
+// TestCanTransition_Accepted_ToSelectingEscort 验证已签单 5min 未签到 → 回退候选池。
+// 对应 spec §2.1 transitions 表第 5 行内 "拒接回退" 注解（同一边，命名为"未签到回退"以保持 spec 注释一致）。
+func TestCanTransition_Accepted_ToSelectingEscort(t *testing.T) {
+    assert.True(t, state.CanTransition(state.StatusAccepted, state.StatusSelectingEscort),
+        "accepted → selecting_escort 应合法（5min 未签到回退，spec §2.1）")
 }
 ```
 
-**Step 2: 跑测试确认失败**
+**Step 2: 跑新测试确认通过**
 
-Run: `go test -count=1 -run 'TestStatusPendingAcceptance|TestCanTransition_(Matching_ToPending|PendingAcceptance_ToAccepted|PendingAcceptance_ToMatching|Completed_ToSettling|Disputed_FromAnyActive|Settling_ToClosed|Refunding_ToSettling)' ./services/order/internal/state/`
-Expected: FAIL — `undefined: state.StatusPendingAcceptance`
-
-**Step 3: 在 machine.go 加三个常量 + transitions 边**
-
-```go
-// 在 Status const 块追加
-StatusPendingAcceptance Status = "pending_acceptance"
-StatusSettling         Status = "settling"
-StatusDisputed         Status = "disputed"
-
-// 在 transitions map 追加 / 调整：
-var transitions = map[Status][]Status{
-    StatusCreated:   {StatusPaid, StatusCanceled},
-    StatusPaid:      {StatusMatching, StatusCanceled},
-    StatusMatching:  {StatusPendingAcceptance, StatusAccepted, StatusCanceled},
-    StatusPendingAcceptance: {StatusAccepted, StatusMatching, StatusCanceled}, // 30s 锁单 / 超时回退 / 拒接
-    StatusAccepted:  {StatusInService, StatusMatching, StatusCanceled, StatusDisputed},
-    StatusInService: {StatusCompleted, StatusDisputed},
-    StatusCompleted: {StatusReviewed, StatusRefunding, StatusSettling, StatusDisputed},
-    StatusReviewed:  {StatusClosed},
-    StatusRefunding: {StatusRefunded, StatusSettling},
-    StatusRefunded:  {StatusSettling},
-    StatusSettling:  {StatusClosed},
-    StatusDisputed:  {StatusCompleted, StatusRefunding, StatusClosed},
-    StatusClosed:    {},
-    StatusCanceled:  {},
-}
+Run:
+```bash
+go test -count=1 -v \
+  -run 'TestCanTransition_(Matching_ToSelectingEscort|SelectingEscort_ToEscortPendingAcceptance|EscortPendingAcceptance_ToAccepted|EscortPendingAcceptance_ToSelectingEscort|Accepted_ToSelectingEscort)' \
+  ./services/order/internal/state/
 ```
+Expected: PASS（5/5 新测试 ok，每条 1 PASS 行）
 
-**Step 4: 跑测试确认通过**
+**Step 3: 跑全 state 包测试（含既有 8 个）确认零破坏**
 
 Run: `go test -count=1 ./services/order/internal/state/`
-Expected: PASS（包含 Task 1 新增的 8 个 + 既有 4 个用例）
-
-**Step 5: Commit**
-
-```bash
-git add services/order/internal/state/
-git commit -m "feat(order): 状态机加 pending_acceptance/settling/disputed 三态"
-```
-
----
-
-### Task 2: 数据库迁移（migrations/0003_orders_state）
-
-**Files:**
-- Create: `migrations/0003_orders_state.up.sql`
-- Create: `migrations/0003_orders_state.down.sql`
-- Modify: `migrations/migrations_test.go`（追加 `Test0003OrdersStateUpDown`）
-
-**Step 1: 写集成测试**
-
-在 `migrations_test.go` 追加（参考既有 `Test0002OrdersUpDown` 风格）：
-
-```go
-// Test0003OrdersStateUpDown 验证 0003 加列 + CHECK + 索引。
-// 依赖 0001_users + 0002_orders；测试结束回滚所有变更。
-func Test0003OrdersStateUpDown(t *testing.T) {
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    conn, err := pgx.Connect(ctx, dsn())
-    require.NoError(t, err)
-    defer conn.Close(ctx)
-
-    // 先建 users + orders
-    usersSQL, _ := os.ReadFile("0001_users.up.sql")
-    _, err = conn.Exec(ctx, string(usersSQL))
-    require.NoError(t, err)
-    ordersSQL, _ := os.ReadFile("0002_orders.up.sql")
-    _, err = conn.Exec(ctx, string(ordersSQL))
-    require.NoError(t, err)
-    t.Cleanup(func() {
-        down, _ := os.ReadFile("0002_orders.down.sql")
-        _, _ = conn.Exec(context.Background(), string(down))
-        down, _ = os.ReadFile("0001_users.down.sql")
-        _, _ = conn.Exec(context.Background(), string(down))
-    })
-
-    applyUp(t, "0003_orders_state.up.sql", []string{"orders"})
-
-    // 列检查
-    for _, col := range []string{"lock_owner", "lock_expire_at"} {
-        var found bool
-        err := conn.QueryRow(ctx,
-            `SELECT EXISTS(SELECT 1 FROM information_schema.columns
-                           WHERE table_name='orders' AND column_name=$1)`, col).
-            Scan(&found)
-        require.NoError(t, err)
-        assert.True(t, found, "orders.%s should exist", col)
-    }
-
-    // 索引检查
-    var idxExists bool
-    err = conn.QueryRow(ctx,
-        `SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, "idx_orders_lock").
-        Scan(&idxExists)
-    require.NoError(t, err)
-    assert.True(t, idxExists, "idx_orders_lock should exist")
-
-    // CHECK 约束含新状态
-    var hasCheck bool
-    err = conn.QueryRow(ctx,
-        `SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
-                       WHERE constraint_name LIKE 'orders_status_check')`).
-        Scan(&hasCheck)
-    require.NoError(t, err)
-    assert.True(t, hasCheck)
-
-    applyDown(t, "0003_orders_state.down.sql", []string{"orders"})
-}
-```
-
-**Step 2: 跑测试确认失败**
-
-Run: `go test -tags=integration -run Test0003OrdersStateUpDown ./migrations/`
-Expected: FAIL — `Test0003OrdersStateUpDown` 不存在 / 文件未创建
-
-**Step 3: 写迁移文件 `migrations/0003_orders_state.up.sql`**
-
-```sql
--- 0003_orders_state.up.sql
--- 状态机统一：加锁单字段 + CHECK 约束包含新状态。
--- 注意：这是兼容迁移；老数据 status 不在新 CHECK 列表里会失败，需先跑数据迁移脚本（生产单独排期）。
-
-ALTER TABLE orders
-  ADD COLUMN lock_owner BIGINT REFERENCES users(id),
-  ADD COLUMN lock_expire_at TIMESTAMPTZ;
-
--- 索引服务于"查锁单即将到期"任务（§4.2 order-lock plan）。
-CREATE INDEX idx_orders_lock ON orders(lock_expire_at)
-  WHERE lock_owner IS NOT NULL;
-
--- 替换 CHECK 约束（Postgres 改 CHECK 约束要先 DROP 再 ADD）。
-ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
-ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN (
-  'created','paid','matching','pending_acceptance','accepted','in_service',
-  'completed','reviewed','refunding','refunded','settling','disputed',
-  'closed','canceled'
-));
-```
-
-**Step 4: 写 `migrations/0003_orders_state.down.sql`**
-
-```sql
--- 0003_orders_state.down.sql
-DROP INDEX IF EXISTS idx_orders_lock;
-ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
-ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN (
-  'created','paid','matching','accepted','in_service','completed',
-  'reviewed','refunding','refunded','closed','canceled'
-));
-ALTER TABLE orders DROP COLUMN IF EXISTS lock_expire_at;
-ALTER TABLE orders DROP COLUMN IF EXISTS lock_owner;
-```
-
-**Step 5: 跑测试确认通过（需 docker compose up）**
-
-Run: `go test -tags=integration -run Test0003OrdersStateUpDown ./migrations/`
-Expected: PASS
-
-**Step 6: Commit**
-
-```bash
-git add migrations/
-git commit -m "feat(migrations): 0003_orders_state 加 lock_owner/lock_expire_at + CHECK 扩展"
-```
-
----
-
-### Task 3: order_repo 加 LockOwner / LockExpireAt 字段 + LockForAccept / ReleaseLock
-
-**Files:**
-- Modify: `services/order/internal/repo/order_repo.go`
-- Modify: `services/order/internal/repo/order_repo_integration_test.go`
-
-**Step 1: 写集成测试**
-
-在 `order_repo_integration_test.go` 追加：
-
-```go
-func TestOrderRepo_LockForAccept_OK(t *testing.T) {
-    pool := setupPool(t)
-    patient := seedUser(t, pool, "13800139000", "patient")
-    escort := seedUser(t, pool, "13800139001", "escort")
-    r := NewOrderRepo(pool)
-
-    o := sampleOrder(patient)
-    require.NoError(t, r.Create(context.Background(), o))
-    require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
-
-    err := r.LockForAccept(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1)
-    require.NoError(t, err)
-
-    got, _ := r.FindByID(context.Background(), o.ID)
-    assert.Equal(t, "pending_acceptance", got.Status)
-    assert.Equal(t, escort, *got.LockOwner)
-    assert.True(t, got.LockExpireAt.After(time.Now()))
-}
-
-func TestOrderRepo_LockForAccept_VersionMismatch(t *testing.T) {
-    pool := setupPool(t)
-    patient := seedUser(t, pool, "13800139002", "patient")
-    r := NewOrderRepo(pool)
-    o := sampleOrder(patient)
-    require.NoError(t, r.Create(context.Background(), o))
-    require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
-
-    // version 999 不匹配
-    err := r.LockForAccept(context.Background(), o.ID, 1, time.Now(), 999)
-    assert.ErrorIs(t, err, ErrVersionConflict)
-}
-
-func TestOrderRepo_LockForAccept_WrongStatus(t *testing.T) {
-    pool := setupPool(t)
-    patient := seedUser(t, pool, "13800139003", "patient")
-    r := NewOrderRepo(pool)
-    o := sampleOrder(patient) // status='created'
-    require.NoError(t, r.Create(context.Background(), o))
-
-    err := r.LockForAccept(context.Background(), o.ID, 1, time.Now(), 0)
-    assert.ErrorIs(t, err, ErrInvalidStateForLock)
-}
-
-func TestOrderRepo_ReleaseLock_OK(t *testing.T) {
-    pool := setupPool(t)
-    patient := seedUser(t, pool, "13800139004", "patient")
-    escort := seedUser(t, pool, "13800139005", "escort")
-    r := NewOrderRepo(pool)
-    o := sampleOrder(patient)
-    require.NoError(t, r.Create(context.Background(), o))
-    require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
-    require.NoError(t, r.LockForAccept(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1))
-
-    require.NoError(t, r.ReleaseLock(context.Background(), o.ID, 1))
-    got, _ := r.FindByID(context.Background(), o.ID)
-    assert.Equal(t, "matching", got.Status)
-    assert.Nil(t, got.LockOwner)
-    assert.Nil(t, got.LockExpireAt)
-}
-
-func TestOrderRepo_LockExpired_FindsExpiring(t *testing.T) {
-    pool := setupPool(t)
-    patient := seedUser(t, pool, "13800139006", "patient")
-    escort := seedUser(t, pool, "13800139007", "escort")
-    r := NewOrderRepo(pool)
-    o := sampleOrder(patient)
-    require.NoError(t, r.Create(context.Background(), o))
-    require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
-    // 锁在过去 = 已过期
-    require.NoError(t, r.LockForAccept(context.Background(), o.ID, escort, time.Now().Add(-1*time.Hour), 1))
-
-    expired, err := r.LockExpired(context.Background(), time.Now(), 10)
-    require.NoError(t, err)
-    assert.Len(t, expired, 1)
-    assert.Equal(t, o.ID, expired[0].ID)
-}
-```
-
-**Step 2: 跑测试确认失败（编译错误）**
-
-Run: `go test -tags=integration -run 'TestOrderRepo_LockForAccept|TestOrderRepo_ReleaseLock|TestOrderRepo_LockExpired' ./services/order/internal/repo/`
-Expected: FAIL — `undefined: ErrInvalidStateForLock`
-
-**Step 3: 在 order_repo.go 实现**
-
-修改 `Order` struct：
-
-```go
-type Order struct {
-    ID             int64
-    OrderNo        string
-    PatientID      int64
-    EscortID       *int64
-    HospitalID     int64
-    PackageID      int64
-    ServiceStartAt any  // 实际是 time.Time；保留 any 是为简化集成测试
-    Amount         float64
-    FinalAmount    float64
-    Status         string
-    Version        int
-    LockOwner      *int64    // 新增
-    LockExpireAt   any       // 新增（实际是 *time.Time）
-}
-```
-
-修改 `baseSelect` 加 `lock_owner, lock_expire_at`；修改 `scanOne` / `scanRow` 加这两列。
-
-新增错误：
-
-```go
-var ErrInvalidStateForLock = errors.New("repo: order not in matching state for lock")
-```
-
-新增方法：
-
-```go
-// LockForAccept 在 matching 状态下加锁单 + 状态切到 pending_acceptance。
-// 同时校验 version；lockExpireAt 写入 orders 表。
-func (r *OrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
-    const q = `
-        UPDATE orders
-           SET status = 'pending_acceptance', lock_owner = $1, lock_expire_at = $2,
-               version = version + 1, updated_at = NOW()
-         WHERE id = $3 AND version = $4 AND status = 'matching' AND deleted_at IS NULL`
-    tag, err := r.pool.Exec(ctx, q, escortID, expireAt, id, expectVersion)
-    if err != nil {
-        return fmt.Errorf("lock for accept: %w", err)
-    }
-    if tag.RowsAffected() == 0 {
-        // 区分版本冲突与状态非法
-        var curStatus string
-        var curVer int
-        _ = r.pool.QueryRow(ctx, "SELECT status, version FROM orders WHERE id=$1", id).Scan(&curStatus, &curVer)
-        if curVer != expectVersion {
-            return ErrVersionConflict
-        }
-        return ErrInvalidStateForLock
-    }
-    return nil
-}
-
-// ReleaseLock 把 pending_acceptance 回退到 matching；清除锁单字段。
-func (r *OrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
-    const q = `
-        UPDATE orders
-           SET status = 'matching', lock_owner = NULL, lock_expire_at = NULL,
-               version = version + 1, updated_at = NOW()
-         WHERE id = $1 AND status = 'pending_acceptance' AND version = $2 AND deleted_at IS NULL`
-    tag, err := r.pool.Exec(ctx, q, id, expectVersion)
-    if err != nil {
-        return fmt.Errorf("release lock: %w", err)
-    }
-    if tag.RowsAffected() == 0 {
-        return ErrVersionConflict
-    }
-    return nil
-}
-
-// LockExpired 返回已过期的锁单（limit by 排序）；给 §4.2 定时任务用。
-func (r *OrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*Order, error) {
-    const q = baseSelect + ` WHERE status = 'pending_acceptance'
-                                AND lock_expire_at IS NOT NULL AND lock_expire_at < $1
-                                ORDER BY lock_expire_at ASC
-                                LIMIT $2`
-    rows, err := r.pool.Query(ctx, q, now, limit)
-    if err != nil {
-        return nil, fmt.Errorf("find expired locks: %w", err)
-    }
-    defer rows.Close()
-    out := make([]*Order, 0)
-    for rows.Next() {
-        o, err := r.scanRow(rows)
-        if err != nil {
-            return nil, err
-        }
-        out = append(out, o)
-    }
-    return out, rows.Err()
-}
-```
-
-**Step 4: 跑测试确认通过**
-
-Run: `go test -tags=integration -run 'TestOrderRepo_LockForAccept|TestOrderRepo_ReleaseLock|TestOrderRepo_LockExpired' ./services/order/internal/repo/`
-Expected: PASS
-
-**Step 5: Commit**
-
-```bash
-git add services/order/internal/repo/
-git commit -m "feat(order): repo 加 LockForAccept / ReleaseLock / LockExpired 三方法"
-```
-
----
-
-### Task 4: service.Accept 走两步（matching → pending_acceptance → accepted）
-
-**Files:**
-- Modify: `services/order/internal/service/accept.go`
-- Modify: `services/order/internal/service/accept_integration_test.go`
-
-> **范围说明**：本 Task 只把现有 Accept 拆成"先 LockForAccept，再 ConfirmAccept（更新到 accepted）"。**锁单 30s 超时与 Redis SETNX 留给 §4.2 plan**。本 Task 落地的 `LockForAccept` 调用就是为了给 §4.2 留好钩子。
-
-**Step 1: 写集成测试**
-
-在 `accept_integration_test.go` 追加：
-
-```go
-// TestAccept_LockThenConfirm_OK 验证 LockForAccept 成功后再 confirm。
-func TestAccept_LockThenConfirm_OK(t *testing.T) {
-    pool, patient, escort := setupAcceptPool(t)
-    orderID := seedOrder(t, pool, patient, "matching")
-    r := repo.NewOrderRepo(pool)
-    svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
-
-    // 第一步：陪诊师拿锁单
-    err := svc.TryLock(context.Background(), orderID, escort, 30*time.Second)
-    require.NoError(t, err)
-
-    // 第二步：30s 内 confirm
-    got, err := svc.ConfirmAccept(context.Background(), orderID, escort)
-    require.NoError(t, err)
-    assert.Equal(t, "accepted", got.Status)
-}
-
-// TestAccept_LockFailsOnConflict 验证另一个 escort 抢不到锁单。
-func TestAccept_LockFailsOnConflict(t *testing.T) {
-    pool, patient, escort1 := setupAcceptPool(t)
-    escort2 := escort1 + 100
-    orderID := seedOrder(t, pool, patient, "matching")
-    r := repo.NewOrderRepo(pool)
-    svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
-
-    require.NoError(t, svc.TryLock(context.Background(), orderID, escort1, 30*time.Second))
-    err := svc.TryLock(context.Background(), orderID, escort2, 30*time.Second)
-    assert.ErrorIs(t, err, ErrInvalidStateForLock, "已被锁单的订单不能被另一 escort 再锁")
-}
-
-// TestAccept_ReleaseLock 验证拒接后回退 matching。
-func TestAccept_ReleaseLock(t *testing.T) {
-    pool, patient, escort := setupAcceptPool(t)
-    orderID := seedOrder(t, pool, patient, "matching")
-    r := repo.NewOrderRepo(pool)
-    svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
-
-    require.NoError(t, svc.TryLock(context.Background(), orderID, escort, 30*time.Second))
-    require.NoError(t, svc.ReleaseAcceptLock(context.Background(), orderID, escort))
-
-    got, _ := r.FindByID(context.Background(), orderID)
-    assert.Equal(t, "matching", got.Status)
-    assert.Nil(t, got.LockOwner)
-}
-```
-
-**Step 2: 跑测试确认失败**
-
-Run: `go test -tags=integration -run 'TestAccept_LockThenConfirm|TestAccept_LockFailsOnConflict|TestAccept_ReleaseLock' ./services/order/internal/service/`
-Expected: FAIL — `undefined: service.TryLock`
-
-**Step 3: 在 service 包定义新错误 + 三个新方法**
-
-在 `accept.go` 顶部新增错误：
-
-```go
-var ErrInvalidStateForLock = repo.ErrInvalidStateForLock  // 直接复用 repo 的错误
-```
-
-在 service struct / New / WithTx 后面追加：
-
-```go
-// TryLock 陪诊师尝试拿锁单（§4.2 order-lock plan 会在此前后加 Redis SETNX）。
-func (s *Service) TryLock(ctx context.Context, orderID, escortID int64, ttl time.Duration) error {
-    if orderID == 0 || escortID == 0 {
-        return errs.New(errs.CodeParamInvalid, "order_id / escort_id required")
-    }
-    o, err := s.orders.FindByID(ctx, orderID)
-    if err != nil {
-        if err == repo.ErrOrderNotFound {
-            return errs.New(errs.CodeNotFound, "order not found")
-        }
-        return errs.Wrap(errs.CodeInternal, "find order", err)
-    }
-    if o.Status != string(state.StatusMatching) {
-        return errs.New(errs.CodeConflict, fmt.Sprintf("cannot lock from status %s", o.Status))
-    }
-    expireAt := s.clockNow().Add(ttl)
-    if err := s.orders.LockForAccept(ctx, orderID, escortID, expireAt, o.Version); err != nil {
-        return errs.Wrap(errs.CodeInternal, "lock for accept", err)
-    }
-    return nil
-}
-
-// ReleaseAcceptLock 拒接 / 超时 → 回退到 matching。
-func (s *Service) ReleaseAcceptLock(ctx context.Context, orderID, escortID int64) error {
-    o, err := s.orders.FindByID(ctx, orderID)
-    if err != nil {
-        return errs.Wrap(errs.CodeInternal, "find order", err)
-    }
-    if o.Status != string(state.StatusPendingAcceptance) {
-        return errs.New(errs.CodeConflict, "order not in pending_acceptance")
-    }
-    if err := s.orders.ReleaseLock(ctx, orderID, o.Version); err != nil {
-        return errs.Wrap(errs.CodeInternal, "release lock", err)
-    }
-    return nil
-}
-
-// ConfirmAccept 陪诊师在锁单窗口内确认 → 改 accepted；escort_id 写入。
-func (s *Service) ConfirmAccept(ctx context.Context, orderID, escortID int64) (*repo.Order, error) {
-    o, err := s.orders.FindByID(ctx, orderID)
-    if err != nil {
-        return nil, errs.Wrap(errs.CodeInternal, "find order", err)
-    }
-    if o.Status != string(state.StatusPendingAcceptance) {
-        return nil, errs.New(errs.CodeConflict, "order not in pending_acceptance")
-    }
-    if o.LockOwner == nil || *o.LockOwner != escortID {
-        return nil, errs.New(errs.CodeForbidden, "lock owner mismatch")
-    }
-    if err := s.orders.UpdateStatus(ctx, orderID, string(state.StatusAccepted), o.Version, &escortID); err != nil {
-        return nil, errs.Wrap(errs.CodeInternal, "update status", err)
-    }
-    // 写 order_event
-    actor := escortID
-    from := string(state.StatusPendingAcceptance)
-    if err := s.orders.InsertEvent(ctx, orderID, &from, string(state.StatusAccepted), &actor, nil); err != nil {
-        return nil, errs.Wrap(errs.CodeInternal, "insert event", err)
-    }
-    return s.orders.FindByID(ctx, orderID)
-}
-```
-
-**Step 4: 保留旧 Accept 但标记 deprecated**
-
-> 注：旧的 `Accept(orderID, escortID)` 内部走"一次 SELECT+UPDATE"，会被 §4.2 的 Redis SETNX 版本替代。**本期保留兼容，下个 plan 删除**。
-
-在 `accept.go` 顶部加 deprecation 注释：
-
-```go
-// Accept 保留兼容：单次 SELECT+UPDATE；§4.2 order-lock plan 引入 Redis SETNX 后删除。
-//
-// Deprecated: 新流程走 TryLock + ConfirmAccept；保留 1 个版本兼容。
-```
-
-**Step 5: 跑测试确认通过**
-
-Run: `go test -tags=integration -run 'TestAccept_LockThenConfirm|TestAccept_LockFailsOnConflict|TestAccept_ReleaseLock' ./services/order/internal/service/`
-Expected: PASS
-
-**Step 6: Commit**
-
-```bash
-git add services/order/internal/service/
-git commit -m "feat(order): service 加 TryLock/ReleaseAcceptLock/ConfirmAccept 三方法（为 §4.2 锁单铺路）"
-```
-
----
-
-### Task 5: 文档同步（docs/04 + docs/07）
-
-**Files:**
-- Modify: `docs/04-业务流程.md` §4.4 状态机图
-- Modify: `docs/07-数据模型.md` §7.3.1 orders 表
-
-**Step 1: 更新 04 状态机图**
-
-把 §4.4 状态机 ASCII 图替换为：
-
-```
-                   ┌─ refunded ─┐
-                   │             ▼
-reviewing ─→ refunding ─→ settling ─→ closed
-                                  ▲
-                                  │
-                                (disputed)
-                                  ▲
-                                  │
-                          completed ─→ settling ─→ closed
-                                  ▲
-                                  │
-                          (active dispute)
-
-匹配：created → paid → matching → pending_acceptance → accepted
-                                                  │
-                                                  ↓ (锁单 30s 超时)
-                                              matching
-```
-
-**Step 2: 更新 07 orders 表结构**
-
-加：
-
-```sql
-lock_owner BIGINT REFERENCES users(id),     -- pending_acceptance 期间的持有者
-lock_expire_at TIMESTAMPTZ,                  -- 锁单超时时间
-```
-
-并在状态枚举行加 `pending_acceptance / settling / disputed`。
-
-**Step 3: 在 docs/superpowers/specs/2026-09-24-roadmap-design.md §4.1 加 commit 引用**
-
-```markdown
-**落地 commit**：
-- 2026-09-24 feat(order): 状态机加 pending_acceptance/settling/disputed 三态
-- 2026-09-24 feat(migrations): 0003_orders_state
-- 2026-09-24 feat(order): repo 加 LockForAccept / ReleaseLock / LockExpired
-- 2026-09-24 feat(order): service 加 TryLock/ReleaseAcceptLock/ConfirmAccept
-```
+Expected: PASS（既有 8 测试 + 新 5 测试 全部 ok；总数 ≥13）
 
 **Step 4: Commit**
 
 ```bash
-git add docs/
-git commit -m "docs: 状态机统一 - 04 流程图 + 07 表结构 + roadmap 落地引用"
+git add services/order/internal/state/machine_test.go
+git commit -m "test(order): 状态机 5 新转换边单测（matching→selecting / selecting→pending / pending→accepted / pending→selecting / accepted→selecting）"
 ```
 
 ---
 
-### Task 6: 全量回归测试 + smoke
+### Task 3: 全量回归 + vet（无文件变更；仅验证）
 
-**Files:**
-- Modify: `scripts/smoke-order.sh`（加 30s 锁单路径 curl 演示）
+**Files:** （无文件变更；纯验证）
 
-**Step 1: 全量跑一次**
+**Step 1: state 包全量测试**
 
-Run: `go test -count=1 ./shared/... ./services/...`
-Expected: 37+ 包全部 PASS
+Run: `go test -count=1 ./services/order/internal/state/`
+Expected: PASS（既有 8 + 新 5 = ≥13）
 
-Run: `go test -tags=integration -count=1 ./migrations/... ./services/...`
-Expected: 全部 PASS（需要 docker compose up）
+**Step 2: order service 全量单元测试（验证状态机调用点无破）**
 
-**Step 2: smoke 验证**
+Run: `go test -count=1 ./services/order/...`
+Expected: PASS（既有 ~37 包测试不退；任何依赖 `state.CanTransition` 的 service / repo 测试均 PASS）
 
-Run: `bash scripts/smoke-order.sh`
-Expected: smoke OK（启动 + 鉴权拦截；本 plan 不改业务流）
+**Step 3: vet**
 
-**Step 3: dev.md 追加一行**
+Run: `go vet ./services/order/internal/state/...`
+Expected: 无输出（exit 0）
 
-```markdown
-| 3.10 | 状态机统一 + 锁单字段 (本 plan) | 4 commits | `feat(order): 状态机 + 锁单字段` |
-```
-
-**Step 4: Commit**
-
-```bash
-git add dev.md scripts/
-git commit -m "docs: dev.md 状态机统一记录 + smoke 校验"
-```
+**Step 4: 不单独 commit（无文件改动）**
 
 ---
 
 ## Self-Review
 
-- ✅ Spec 覆盖：评审 C-01（状态机不一致）— Task 1+2+5 落地；C-04 部分（只状态机部分；锁单 30s 与 Redis SETNX 留给 §4.2 plan）。
-- ✅ 无占位符：每个 Step 都有具体代码与命令。
-- ✅ 类型一致：`ErrInvalidStateForLock` 在 Task 3 定义，Task 4 复用；`Order.LockOwner` / `LockExpireAt` 在 Task 3 加入，Task 4 引用。
-- ✅ 测试矩阵：Task 1 单元 + Task 2 集成 + Task 3 集成 + Task 4 集成 + Task 6 全量回归。
-- ✅ YAGNI：本期不引入 Redis SETNX（§4.2 才做）；不引入异步任务（§4.2 才做）。
+- ✅ **Spec 覆盖**：spec §2.1 五条 transitions 边全部落地——
+  - `paid → selecting_escort`（规范要求付费直接进候选池；本 plan 不删除 `paid → matching`，保留 v1 兼容作为兼容路径）
+  - `matching → selecting_escort` ← Task 1 Step 2 增量 + Task 2 `TestCanTransition_Matching_ToSelectingEscort`
+  - `selecting_escort → escort_pending_acceptance` ← Task 1 Step 2 + Task 2 `TestCanTransition_SelectingEscort_ToEscortPendingAcceptance`
+  - `escort_pending_acceptance → accepted` ← Task 1 Step 2 + Task 2 `TestCanTransition_EscortPendingAcceptance_ToAccepted`
+  - `escort_pending_acceptance → selecting_escort`（超时/拒接回退）← Task 1 Step 2 + Task 2 `TestCanTransition_EscortPendingAcceptance_ToSelectingEscort`
+  - `accepted → selecting_escort`（5min 未签到回退）← Task 1 Step 2 + Task 2 `TestCanTransition_Accepted_ToSelectingEscort`
+- ✅ **无占位符**：每个 Step 含具体代码块 + 命令 + Expected 输出；无 TBD；测试矩阵明确列出 5 条新边 + 既有 8 条
+- ✅ **类型一致**：状态字符串 `selecting_escort` / `escort_pending_acceptance` 与 spec §2.1 严格对齐；常量名 = `StatusSelectingEscort` / `StatusEscortPendingAcceptance`（Go 风格 PascalCase）；transitions map 边名一致
+- ✅ **测试矩阵**：Task 2 单元（5 新）+ Task 3 全 state 包回归（≥13）+ Task 3 order service 全包回归（防 service / repo 调用点破）
+- ✅ **YAGNI**：本 plan 仅动 machine.go + 单测；DB CHECK / repo / service / migrations 一律不动（spec §3.1 / §3.2 / §4 / §5 由对应的 `order-lock` / `escort-business` / `escort-order-ext` / `patient-miniapp-setup` / `escort-app-setup` / 0009 迁移 等后续 plan 负责）
 
-## 执行选项
+---
 
-> Plan 已 commit 到 `docs/superpowers/plans/2026-09-24-state-machine.md`。
+## Execution Options
+
+> Plan 已修订并 commit 到 `docs/superpowers/plans/2026-09-24-state-machine.md`（新 commit `docs(plan): ...` 与原 commit `ab66996` 二者并存于 git log，保留演进史）。
 > 但因为你在 design 阶段选了 **plan_all（不实现）**，所以本 plan **不会被自动执行**。
 
 **下一步选项**：
-1. **继续 plan_all 模式**：我立即产出下一份 plan（§4.2 order-lock，含 Redis SETNX + 超时任务）
-2. **停止 plan**：你 review 这份 plan 后告诉我调整；或你直接开始某个 plan 的实施（暂停 plan_all，进入 subagent-driven-development）
+
+1. **继续 plan_all 模式**：我立即修订下一份 plan（`2026-09-24-order-lock.md`，按 spec §7.1 改为"陪诊师确认锁单 30s"——Redis SETNX key 由 `orders:accept-lock:*` 改为 `orders:confirm:*`；使用本 plan 新加的 `escort_pending_acceptance` 状态；不再依赖 `lock_owner` / `lock_expire_at` 改为 `selected_escort_id` / `escort_pending_expire_at`）
+2. **停止 plan**：你 review 这份 plan 后告诉我调整；或你直接开始本 plan 的实施（暂停 plan_all，进入 subagent-driven-development）
