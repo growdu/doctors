@@ -14,7 +14,7 @@ import (
 	"github.com/growdu/doctors/shared/contracts"
 )
 
-// fakeRepo 提供一个最小的 order_repo（只实现 LockExpired）。
+// fakeRepo 提供一个最小的 order_repo（v1.1 只实现 PendingExpired）。
 type fakeRepo struct {
 	mu     sync.Mutex
 	orders map[int64]*repo.Order
@@ -26,15 +26,15 @@ func newFakeRepo() *fakeRepo {
 
 func int64Ptr(v int64) *int64 { return &v }
 
-func (f *fakeRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+func (f *fakeRepo) PendingExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make([]*repo.Order, 0)
 	for _, o := range f.orders {
-		if o.Status != string(state.StatusPendingAcceptance) || o.LockExpireAt == nil {
+		if o.Status != string(state.StatusEscortPendingAcceptance) || o.SelectedEscortID == nil || o.EscortPendingExpireAt == nil {
 			continue
 		}
-		if o.LockExpireAt.Before(now) {
+		if o.EscortPendingExpireAt.Before(now) {
 			out = append(out, o)
 		}
 		if len(out) >= limit {
@@ -44,11 +44,11 @@ func (f *fakeRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([
 	return out, nil
 }
 
-// fakePublisher 记录最近一次发布的 OrderMatchingEvent。
+// fakePublisher 记录最近一次发布的 OrderEscortRejectedEvent（v1.1）。
 type fakePublisher struct {
-	mu      sync.Mutex
-	last    *contracts.OrderMatchingEvent
-	allEvs  []contracts.OrderMatchingEvent
+	mu     sync.Mutex
+	last   *contracts.OrderEscortRejectedEvent
+	allEvs []contracts.OrderEscortRejectedEvent
 }
 
 func (f *fakePublisher) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
@@ -60,7 +60,16 @@ func (f *fakePublisher) PublishOrderAccepted(ctx context.Context, ev contracts.O
 func (f *fakePublisher) PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error {
 	return nil
 }
-func (f *fakePublisher) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
+func (f *fakePublisher) PublishOrderSelectingEscort(ctx context.Context, ev contracts.OrderSelectingEscortEvent) error {
+	return nil
+}
+func (f *fakePublisher) PublishOrderEscortSelected(ctx context.Context, ev contracts.OrderEscortSelectedEvent) error {
+	return nil
+}
+func (f *fakePublisher) PublishOrderEscortConfirmed(ctx context.Context, ev contracts.OrderEscortConfirmedEvent) error {
+	return nil
+}
+func (f *fakePublisher) PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cp := ev
@@ -70,59 +79,62 @@ func (f *fakePublisher) PublishOrderMatching(ctx context.Context, ev contracts.O
 }
 func (f *fakePublisher) Close() error { return nil }
 
-// fakeReleaseSvc 记录被调用的 orderID + actorID。
-type fakeReleaseSvc struct {
+// fakeRejectSvc 记录被调用的 orderID + escortID + reason（v1.1）。
+type fakeRejectSvc struct {
 	mu     sync.Mutex
 	called []int64
 	actor  []int64
+	reason []string
 }
 
-func (f *fakeReleaseSvc) ReleaseAcceptLock(ctx context.Context, orderID, actorID int64) error {
+func (f *fakeRejectSvc) RejectAccept(ctx context.Context, orderID, escortID int64, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.called = append(f.called, orderID)
-	f.actor = append(f.actor, actorID)
-	// 模拟 service：把订单 status 回退 matching
+	f.actor = append(f.actor, escortID)
+	f.reason = append(f.reason, reason)
 	return nil
 }
 
-// TestScanner_ScanOnce_PublishesOnExpire 验证扫描到过期锁单后发布事件并调 ReleaseAcceptLock。
+// TestScanner_ScanOnce_PublishesOnExpire 验证扫描到过期 escort_pending_acceptance 后发布 OrderEscortRejectedEvent 并调 RejectAccept。
 func TestScanner_ScanOnce_PublishesOnExpire(t *testing.T) {
 	expire := time.Now().Add(-1 * time.Hour)
 	fr := newFakeRepo()
 	fr.orders[100] = &repo.Order{
-		ID:           100,
-		Status:       string(state.StatusPendingAcceptance),
-		LockExpireAt: &expire,
-		LockOwner:    int64Ptr(7),
+		ID:                    100,
+		Status:                string(state.StatusEscortPendingAcceptance),
+		EscortPendingExpireAt: &expire,
+		SelectedEscortID:      int64Ptr(7),
+		PatientID:             50,
 	}
 	pub := &fakePublisher{}
-	svc := &fakeReleaseSvc{}
+	svc := &fakeRejectSvc{}
 	s := NewExpiredLockScanner(fr, svc, pub, time.Second)
 	s.ScanOnce(context.Background())
 
-	require.NotNil(t, pub.last, "应发布 OrderMatchingEvent")
+	require.NotNil(t, pub.last, "应发布 OrderEscortRejectedEvent")
 	assert.Equal(t, int64(100), pub.last.OrderID)
 	assert.Equal(t, int64(7), pub.last.EscortID)
 	assert.Equal(t, "lock_expired", pub.last.Reason)
 
-	require.Len(t, svc.called, 1, "ReleaseAcceptLock 应被调用一次")
+	require.Len(t, svc.called, 1, "RejectAccept 应被调用一次")
 	assert.Equal(t, int64(100), svc.called[0])
-	assert.Equal(t, int64(7), svc.actor[0], "actorID 应等于 lock_owner")
+	assert.Equal(t, int64(7), svc.actor[0], "escortID 应等于 selected_escort_id")
+	assert.Equal(t, "lock_expired", svc.reason[0])
 }
 
-// TestScanner_ScanOnce_SkipsNonExpired 验证未过期的锁单不被处理。
+// TestScanner_ScanOnce_SkipsNonExpired 验证未过期的邀请不被处理。
 func TestScanner_ScanOnce_SkipsNonExpired(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 	fr := newFakeRepo()
 	fr.orders[200] = &repo.Order{
-		ID:           200,
-		Status:       string(state.StatusPendingAcceptance),
-		LockExpireAt: &future,
-		LockOwner:    int64Ptr(7),
+		ID:                    200,
+		Status:                string(state.StatusEscortPendingAcceptance),
+		EscortPendingExpireAt: &future,
+		SelectedEscortID:      int64Ptr(7),
 	}
 	pub := &fakePublisher{}
-	svc := &fakeReleaseSvc{}
+	svc := &fakeRejectSvc{}
 	s := NewExpiredLockScanner(fr, svc, pub, time.Second)
 	s.ScanOnce(context.Background())
 
@@ -130,18 +142,18 @@ func TestScanner_ScanOnce_SkipsNonExpired(t *testing.T) {
 	assert.Empty(t, svc.called)
 }
 
-// TestScanner_ScanOnce_SkipsNilLockOwner 验证 lock_owner=nil 时跳过（异常保护）。
-func TestScanner_ScanOnce_SkipsNilLockOwner(t *testing.T) {
+// TestScanner_ScanOnce_SkipsNilSelectedEscortID 验证 selected_escort_id=nil 时跳过（异常保护）。
+func TestScanner_ScanOnce_SkipsNilSelectedEscortID(t *testing.T) {
 	expire := time.Now().Add(-1 * time.Hour)
 	fr := newFakeRepo()
 	fr.orders[300] = &repo.Order{
-		ID:           300,
-		Status:       string(state.StatusPendingAcceptance),
-		LockExpireAt: &expire,
-		LockOwner:    nil, // 异常：DB 状态不一致
+		ID:                    300,
+		Status:                string(state.StatusEscortPendingAcceptance),
+		EscortPendingExpireAt: &expire,
+		SelectedEscortID:      nil, // 异常：DB 状态不一致
 	}
 	pub := &fakePublisher{}
-	svc := &fakeReleaseSvc{}
+	svc := &fakeRejectSvc{}
 	s := NewExpiredLockScanner(fr, svc, pub, time.Second)
 	s.ScanOnce(context.Background())
 
@@ -153,7 +165,7 @@ func TestScanner_ScanOnce_SkipsNilLockOwner(t *testing.T) {
 func TestScanner_Run_RespectsCtxCancel(t *testing.T) {
 	fr := newFakeRepo()
 	pub := &fakePublisher{}
-	svc := &fakeReleaseSvc{}
+	svc := &fakeRejectSvc{}
 	s := NewExpiredLockScanner(fr, svc, pub, 50*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())

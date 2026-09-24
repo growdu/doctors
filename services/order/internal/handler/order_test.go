@@ -85,14 +85,17 @@ func (r *fakeRepo) ListEvents(ctx context.Context, orderID int64) ([]*repo.Order
 	return r.events, nil
 }
 
-// 状态机统一 plan：fake 实现锁单三件套（handler 测试用不到，仅满足接口）。
-func (r *fakeRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+// v1.1：fake 实现选人 + 30s 确认窗口四件套（handler 测试用不到，仅满足接口）。
+func (r *fakeRepo) SelectForEscort(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
 	return repo.ErrVersionConflict
 }
-func (r *fakeRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+func (r *fakeRepo) ConfirmByEscort(ctx context.Context, id int64, escortID int64, now time.Time, expectVersion int) error {
 	return repo.ErrVersionConflict
 }
-func (r *fakeRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+func (r *fakeRepo) RejectByEscort(ctx context.Context, id int64, escortID int64, expectVersion int) error {
+	return repo.ErrVersionConflict
+}
+func (r *fakeRepo) PendingExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
 	return nil, nil
 }
 
@@ -234,16 +237,14 @@ func TestGet_BadID(t *testing.T) {
 func TestAccept_NonEscort(t *testing.T) {
 	r, _, _ := newTestServer()
 	tok := signTestToken(t, 1, "patient")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/accept", tok, nil)
-	assert.NotEqual(t, 0, resp.Code, "patient 不应能 accept")
+	// v1.1：accept 路由已删除；改测 confirm-accept 路由：patient 不应能 confirm-accept。
+	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/confirm-accept", tok, nil)
+	assert.NotEqual(t, 0, resp.Code, "patient 不应能 confirm-accept")
 }
 
-func TestAccept_NoTx(t *testing.T) {
-	r, fr, _ := newTestServer()
-	// 直接塞个 matching 订单
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, Status: "matching", OrderNo: "X"})
+func TestSelectEscort_NonPatient(t *testing.T) {
+	r, _, _ := newTestServer()
 	tok := signTestToken(t, 2, "escort")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/accept", tok, nil)
-	// 没注入 TxRunner → service.Accept 内部会返回错误
-	assert.NotEqual(t, 0, resp.Code, "no txRunner 应被拒")
+	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/select-escort", tok, map[string]any{"escort_id": 5})
+	assert.NotEqual(t, 0, resp.Code, "escort 不应能 select-escort")
 }

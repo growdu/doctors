@@ -69,16 +69,14 @@ func (r *fakeOrderRepo) ListEvents(ctx context.Context, orderID int64) ([]*repo.
 	return r.events, nil
 }
 
-// ===== 状态机统一 plan：fake 实现锁单三件套 =====
-// fake 不模拟并发，TryLock / ReleaseLock / LockExpired 仅满足接口；具体行为由集成测试覆盖。
-
-func (r *fakeOrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+// ===== v1.1 state machine：fake 实现选人 + 30s 确认窗口四件套 =====
+func (r *fakeOrderRepo) SelectForEscort(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
 	for _, o := range r.orders {
-		if o.ID == id && o.Version == expectVersion && o.Status == "matching" {
-			o.LockOwner = &escortID
+		if o.ID == id && o.Version == expectVersion && o.Status == "selecting_escort" {
+			o.SelectedEscortID = &escortID
 			t := expireAt
-			o.LockExpireAt = &t
-			o.Status = "pending_acceptance"
+			o.EscortPendingExpireAt = &t
+			o.Status = "escort_pending_acceptance"
 			o.Version = expectVersion + 1
 			return nil
 		}
@@ -86,12 +84,29 @@ func (r *fakeOrderRepo) LockForAccept(ctx context.Context, id int64, escortID in
 	return repo.ErrVersionConflict
 }
 
-func (r *fakeOrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+func (r *fakeOrderRepo) ConfirmByEscort(ctx context.Context, id int64, escortID int64, now time.Time, expectVersion int) error {
 	for _, o := range r.orders {
-		if o.ID == id && o.Version == expectVersion && o.Status == "pending_acceptance" {
-			o.LockOwner = nil
-			o.LockExpireAt = nil
-			o.Status = "matching"
+		if o.ID == id && o.Version == expectVersion &&
+			o.Status == "escort_pending_acceptance" &&
+			o.SelectedEscortID != nil && *o.SelectedEscortID == escortID &&
+			(o.EscortPendingExpireAt == nil || o.EscortPendingExpireAt.After(now)) {
+			o.EscortID = &escortID
+			o.SelectedEscortID = nil
+			o.EscortPendingExpireAt = nil
+			o.Status = "accepted"
+			o.Version = expectVersion + 1
+			return nil
+		}
+	}
+	return repo.ErrInvalidStateForConfirm
+}
+
+func (r *fakeOrderRepo) RejectByEscort(ctx context.Context, id int64, escortID int64, expectVersion int) error {
+	for _, o := range r.orders {
+		if o.ID == id && o.Version == expectVersion && o.Status == "escort_pending_acceptance" {
+			o.SelectedEscortID = nil
+			o.EscortPendingExpireAt = nil
+			o.Status = "selecting_escort"
 			o.Version = expectVersion + 1
 			return nil
 		}
@@ -99,10 +114,10 @@ func (r *fakeOrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion
 	return repo.ErrVersionConflict
 }
 
-func (r *fakeOrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+func (r *fakeOrderRepo) PendingExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
 	out := make([]*repo.Order, 0)
 	for _, o := range r.orders {
-		if o.Status == "pending_acceptance" && o.LockExpireAt != nil && o.LockExpireAt.Before(now) {
+		if o.Status == "escort_pending_acceptance" && o.SelectedEscortID != nil && o.EscortPendingExpireAt != nil && o.EscortPendingExpireAt.Before(now) {
 			out = append(out, o)
 			if len(out) >= limit {
 				break
@@ -242,12 +257,15 @@ func TestGet_NotFound(t *testing.T) {
 	_, err := svc.Get(context.Background(), 999)
 	assert.Error(t, err)
 }
-// fakePub 验证事件发布被调用。
+// fakePub 验证事件发布被调用（v1.1：4 新事件 + 删 OrderMatching）。
 type fakePub struct {
-	created   int
-	accepted  int
-	cancelled int
-	matching  int
+	created            int
+	accepted           int
+	cancelled          int
+	selectingEscort    int
+	escortSelected     int
+	escortConfirmed    int
+	escortRejected     int
 }
 
 func (p *fakePub) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
@@ -262,8 +280,20 @@ func (p *fakePub) PublishOrderCancelled(ctx context.Context, ev contracts.OrderC
 	p.cancelled++
 	return nil
 }
-func (p *fakePub) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
-	p.matching++
+func (p *fakePub) PublishOrderSelectingEscort(ctx context.Context, ev contracts.OrderSelectingEscortEvent) error {
+	p.selectingEscort++
+	return nil
+}
+func (p *fakePub) PublishOrderEscortSelected(ctx context.Context, ev contracts.OrderEscortSelectedEvent) error {
+	p.escortSelected++
+	return nil
+}
+func (p *fakePub) PublishOrderEscortConfirmed(ctx context.Context, ev contracts.OrderEscortConfirmedEvent) error {
+	p.escortConfirmed++
+	return nil
+}
+func (p *fakePub) PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error {
+	p.escortRejected++
 	return nil
 }
 func (p *fakePub) Close() error { return nil }

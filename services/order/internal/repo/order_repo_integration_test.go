@@ -1,7 +1,10 @@
 //go:build integration
 // +build integration
 
-// order_repo 集成测试：需要 docker compose up 起 PG。
+// order_repo 集成测试：需要 docker compose up 起 PG + apply 0009 migration。
+//
+// v1.1 适配：orders 表字段 lock_owner/lock_expire_at 替换为 selected_escort_id/escort_pending_expire_at；
+// status CHECK 新增 selecting_escort / escort_pending_acceptance 两状态。
 package repo
 
 import (
@@ -22,7 +25,7 @@ func testDSN() string {
 	return "postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable"
 }
 
-// setupPool 起连接池并准备 users + orders + order_events 表。
+// setupPool 起连接池并准备 users + orders + order_events 表（v1.1 schema）。
 func setupPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -57,12 +60,14 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 		  amount NUMERIC(10,2) NOT NULL,
 		  final_amount NUMERIC(10,2) NOT NULL,
 		  status VARCHAR(24) NOT NULL CHECK (status IN (
-		    'created','paid','matching','pending_acceptance','accepted','in_service',
+		    'created','paid','matching','pending_acceptance',
+		    'selecting_escort','escort_pending_acceptance',
+		    'accepted','in_service',
 		    'completed','reviewed','refunding','refunded','settling','disputed',
 		    'closed','canceled')),
 		  version INT NOT NULL DEFAULT 0,
-		  lock_owner BIGINT REFERENCES users(id),
-		  lock_expire_at TIMESTAMPTZ,
+		  selected_escort_id BIGINT REFERENCES users(id),
+		  escort_pending_expire_at TIMESTAMPTZ,
 		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		  deleted_at TIMESTAMPTZ
@@ -194,9 +199,9 @@ func TestOrderRepo_InsertEvent(t *testing.T) {
 	assert.Equal(t, to, events[0].ToStatus)
 }
 
-// ===== 状态机统一 plan: LockForAccept / ReleaseLock / LockExpired =====
+// ===== 2026-09-24 order-matching-redesign plan: SelectForEscort / ConfirmByEscort / RejectByEscort / PendingExpired =====
 
-func TestOrderRepo_LockForAccept_OK(t *testing.T) {
+func TestOrderRepo_SelectForEscort_OK(t *testing.T) {
 	pool := setupPool(t)
 	patient := seedUser(t, pool, "13800139000", "patient")
 	escort := seedUser(t, pool, "13800139001", "escort")
@@ -204,72 +209,104 @@ func TestOrderRepo_LockForAccept_OK(t *testing.T) {
 
 	o := sampleOrder(patient)
 	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
+	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "selecting_escort", 0, nil))
 
-	err := r.LockForAccept(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1)
+	err := r.SelectForEscort(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1)
 	require.NoError(t, err)
 
 	got, _ := r.FindByID(context.Background(), o.ID)
-	assert.Equal(t, "pending_acceptance", got.Status)
-	require.NotNil(t, got.LockOwner)
-	assert.Equal(t, escort, *got.LockOwner)
-	require.NotNil(t, got.LockExpireAt)
-	assert.True(t, got.LockExpireAt.After(time.Now()))
+	assert.Equal(t, "escort_pending_acceptance", got.Status)
+	require.NotNil(t, got.SelectedEscortID)
+	assert.Equal(t, escort, *got.SelectedEscortID)
+	require.NotNil(t, got.EscortPendingExpireAt)
+	assert.True(t, got.EscortPendingExpireAt.After(time.Now()))
 }
 
-func TestOrderRepo_LockForAccept_VersionMismatch(t *testing.T) {
+func TestOrderRepo_SelectForEscort_VersionMismatch(t *testing.T) {
 	pool := setupPool(t)
 	patient := seedUser(t, pool, "13800139002", "patient")
 	r := NewOrderRepo(pool)
 	o := sampleOrder(patient)
 	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
+	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "selecting_escort", 0, nil))
 
-	// version 999 不匹配
-	err := r.LockForAccept(context.Background(), o.ID, 1, time.Now(), 999)
+	err := r.SelectForEscort(context.Background(), o.ID, 1, time.Now(), 999)
 	assert.ErrorIs(t, err, ErrVersionConflict)
 }
 
-func TestOrderRepo_LockForAccept_WrongStatus(t *testing.T) {
+func TestOrderRepo_SelectForEscort_WrongStatus(t *testing.T) {
 	pool := setupPool(t)
 	patient := seedUser(t, pool, "13800139003", "patient")
 	r := NewOrderRepo(pool)
 	o := sampleOrder(patient) // status='created'
 	require.NoError(t, r.Create(context.Background(), o))
 
-	err := r.LockForAccept(context.Background(), o.ID, 1, time.Now(), 0)
-	assert.ErrorIs(t, err, ErrInvalidStateForLock)
+	err := r.SelectForEscort(context.Background(), o.ID, 1, time.Now(), 0)
+	assert.ErrorIs(t, err, ErrInvalidStateForSelect)
 }
 
-func TestOrderRepo_ReleaseLock_OK(t *testing.T) {
+func TestOrderRepo_ConfirmByEscort_OK(t *testing.T) {
 	pool := setupPool(t)
 	patient := seedUser(t, pool, "13800139004", "patient")
 	escort := seedUser(t, pool, "13800139005", "escort")
 	r := NewOrderRepo(pool)
 	o := sampleOrder(patient)
 	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
-	require.NoError(t, r.LockForAccept(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1))
+	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "selecting_escort", 0, nil))
+	require.NoError(t, r.SelectForEscort(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1))
 
-	require.NoError(t, r.ReleaseLock(context.Background(), o.ID, 2))
+	require.NoError(t, r.ConfirmByEscort(context.Background(), o.ID, escort, time.Now(), 2))
 	got, _ := r.FindByID(context.Background(), o.ID)
-	assert.Equal(t, "matching", got.Status)
-	assert.Nil(t, got.LockOwner)
-	assert.Nil(t, got.LockExpireAt)
+	assert.Equal(t, "accepted", got.Status)
+	require.NotNil(t, got.EscortID)
+	assert.Equal(t, escort, *got.EscortID)
+	assert.Nil(t, got.SelectedEscortID)
 }
 
-func TestOrderRepo_LockExpired_FindsExpiring(t *testing.T) {
+func TestOrderRepo_ConfirmByEscort_Expired(t *testing.T) {
 	pool := setupPool(t)
 	patient := seedUser(t, pool, "13800139006", "patient")
 	escort := seedUser(t, pool, "13800139007", "escort")
 	r := NewOrderRepo(pool)
 	o := sampleOrder(patient)
 	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 0, nil))
-	// 锁在过去 = 已过期
-	require.NoError(t, r.LockForAccept(context.Background(), o.ID, escort, time.Now().Add(-1*time.Hour), 1))
+	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "selecting_escort", 0, nil))
+	// expire 在过去 = 已超时
+	require.NoError(t, r.SelectForEscort(context.Background(), o.ID, escort, time.Now().Add(-1*time.Hour), 1))
 
-	expired, err := r.LockExpired(context.Background(), time.Now(), 10)
+	err := r.ConfirmByEscort(context.Background(), o.ID, escort, time.Now(), 2)
+	assert.ErrorIs(t, err, ErrInvitationExpired)
+}
+
+func TestOrderRepo_RejectByEscort_OK(t *testing.T) {
+	pool := setupPool(t)
+	patient := seedUser(t, pool, "13800139008", "patient")
+	escort := seedUser(t, pool, "13800139009", "escort")
+	r := NewOrderRepo(pool)
+	o := sampleOrder(patient)
+	require.NoError(t, r.Create(context.Background(), o))
+	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "selecting_escort", 0, nil))
+	require.NoError(t, r.SelectForEscort(context.Background(), o.ID, escort, time.Now().Add(30*time.Second), 1))
+
+	require.NoError(t, r.RejectByEscort(context.Background(), o.ID, escort, 2))
+	got, _ := r.FindByID(context.Background(), o.ID)
+	assert.Equal(t, "selecting_escort", got.Status)
+	assert.Nil(t, got.SelectedEscortID)
+	assert.Nil(t, got.EscortPendingExpireAt)
+}
+
+func TestOrderRepo_PendingExpired_FindsExpiring(t *testing.T) {
+	pool := setupPool(t)
+	patient := seedUser(t, pool, "13800139010", "patient")
+	escort := seedUser(t, pool, "13800139011", "escort")
+	r := NewOrderRepo(pool)
+	o := sampleOrder(patient)
+	require.NoError(t, r.Create(context.Background(), o))
+	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "selecting_escort", 0, nil))
+	// expire 在过去 = 已过期
+	require.NoError(t, r.SelectForEscort(context.Background(), o.ID, escort, time.Now().Add(-1*time.Hour), 1))
+
+	expired, err := r.PendingExpired(context.Background(), time.Now(), 10)
 	require.NoError(t, err)
 	assert.Len(t, expired, 1)
 	assert.Equal(t, o.ID, expired[0].ID)

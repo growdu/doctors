@@ -35,13 +35,16 @@ func (stubOrderRepo) InsertEvent(ctx context.Context, id int64, from *string, to
 func (stubOrderRepo) ListEvents(ctx context.Context, id int64) ([]*repo.OrderEvent, error) {
 	return nil, nil
 }
-func (stubOrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+func (stubOrderRepo) SelectForEscort(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
 	return nil
 }
-func (stubOrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+func (stubOrderRepo) ConfirmByEscort(ctx context.Context, id int64, escortID int64, now time.Time, expectVersion int) error {
 	return nil
 }
-func (stubOrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+func (stubOrderRepo) RejectByEscort(ctx context.Context, id int64, escortID int64, expectVersion int) error {
+	return nil
+}
+func (stubOrderRepo) PendingExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
 	return nil, nil
 }
 
@@ -70,14 +73,16 @@ func TestHealthz_ReturnsOK(t *testing.T) {
 	assert.Equal(t, "ok", resp.Data["status"])
 }
 
-// TestRouter_RegistersOrderRoutes 验证六个 API 路由都被注册。
+// TestRouter_RegistersOrderRoutes 验证八个 API 路由都被注册（v1.1：选人 + 确认 + 拒接 + 取消 + 结束）。
 func TestRouter_RegistersOrderRoutes(t *testing.T) {
 	r := newRouter()
 	cases := []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/orders"},
 		{http.MethodGet, "/api/v1/orders"},
 		{http.MethodGet, "/api/v1/orders/1"},
-		{http.MethodPost, "/api/v1/orders/1/accept"},
+		{http.MethodPost, "/api/v1/orders/1/select-escort"},
+		{http.MethodPost, "/api/v1/orders/1/confirm-accept"},
+		{http.MethodPost, "/api/v1/orders/1/reject-accept"},
 		{http.MethodPost, "/api/v1/orders/1/cancel"},
 		{http.MethodPost, "/api/v1/orders/1/finish"},
 	}
