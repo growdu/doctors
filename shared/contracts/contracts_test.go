@@ -82,6 +82,33 @@ func TestTopicConstants(t *testing.T) {
 	assert.Equal(t, "escort.available", TopicEscortAvailable)
 	assert.Equal(t, "payment.completed", TopicPaymentCompleted)
 	assert.Equal(t, "refund.completed", TopicRefundCompleted)
+	assert.Equal(t, "order.completed", TopicOrderCompleted)
+}
+
+// TestOrderCompletedEvent_RoundTrip 验证 OrderCompletedEvent 序列化可逆。
+func TestOrderCompletedEvent_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ev := OrderCompletedEvent{
+		OrderID:     7,
+		EscortID:    100,
+		Amount:      300.00,
+		CompletedAt: now,
+	}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got OrderCompletedEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestOrderCompletedEvent_NoEscort 验证无 escort 也能序列化（如 paid 后直接取消的场景；v1 仍能落账 0 元）。
+func TestOrderCompletedEvent_NoEscort(t *testing.T) {
+	ev := OrderCompletedEvent{OrderID: 8, EscortID: 0, Amount: 0, CompletedAt: time.Unix(0, 0)}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got OrderCompletedEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
 }
 
 // TestOrderSelectingEscortEvent_RoundTrip 验证 OrderSelectingEscortEvent 序列化可逆（v1.1 新增）。

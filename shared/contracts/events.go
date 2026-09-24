@@ -18,6 +18,7 @@ const (
 	TopicOrderAccepted                = "order.accepted"
 	TopicOrderCancelled               = "order.cancelled"
 	TopicOrderReviewed                = "order.reviewed"
+	TopicOrderCompleted               = "order.completed" // order-service → wallet-service（入 frozen + billings）
 	TopicOrderSelectingEscort         = "order.selecting_escort"          // 进入选人阶段
 	TopicOrderEscortSelected            = "order.escort_selected"           // 患者已选 1 位
 	TopicOrderEscortConfirmed         = "order.escort_confirmed"          // 陪诊师 30s 内 confirm → accepted
@@ -67,6 +68,17 @@ type OrderCancelledEvent struct {
 	CancelledBy int64     `json:"cancelled_by"`
 	Reason      string    `json:"reason,omitempty"`
 	CancelledAt time.Time `json:"cancelled_at"`
+}
+
+// OrderCompletedEvent 订单完成（order-service → wallet-service 入 frozen + billings）。
+// 与 OrderReviewedEvent 区分：reviewed 是评价完成事件，completed 是服务完成事件；wallet 听 completed。
+// EscortID 为 0 表示异常单（无接单陪诊师），wallet 消费时跳过；Amount 单位元。
+// CompletedAt 写回 orders.completed_at；scanner 用作 T+7 起算点。
+type OrderCompletedEvent struct {
+	OrderID     int64     `json:"order_id"`
+	EscortID    int64     `json:"escort_id"`
+	Amount      float64   `json:"amount"`
+	CompletedAt time.Time `json:"completed_at"`
 }
 
 // OrderReviewedEvent 评价完成（review-service → order-service 关闭订单 + 通知 escort）。
