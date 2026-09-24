@@ -1,0 +1,126 @@
+{
+  "name": "陪诊患者端",
+  "appid": "TOURIST_APPID",
+  "description": "患者陪诊全链路小程序（uni-app + Vue 3 + uView Plus + Pinia）",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {},
+    "safearea": {
+      "bottom": {
+        "offset": "auto"
+      }
+    },
+    "distribute": {
+      "android": {
+        "minSdkVersion": 21,
+        "targetSdkVersion": 34,
+        "abiFilters": ["armeabi-v7a", "arm64-v8a"],
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.READ_PHONE_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+          "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
+          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>"
+        ]
+      },
+      "ios": {
+        "dSYMs": false,
+        "idfa": false,
+        "privacyDescription": {
+          "NSLocationWhenInUseUsageDescription": "用于显示附近医院与服务范围",
+          "NSCameraUsageDescription": "用于拍照上传身份证与实名认证",
+          "NSPhotoLibraryUsageDescription": "用于选择图片上传",
+          "NSContactsUsageDescription": "用于紧急联系人 SOS 报警",
+          "NSMicrophoneUsageDescription": "用于与服务方语音沟通",
+          "NSUserTrackingUsageDescription": "用于改进推荐与服务质量"
+        }
+      },
+      "sdkConfigs": {},
+      "icons": {
+        "android": {
+          "hdpi": "static/icons/Icon-192.png",
+          "xhdpi": "static/icons/Icon-192.png",
+          "xxhdpi": "static/icons/Icon-192.png",
+          "xxxhdpi": "static/icons/Icon-192.png"
+        },
+        "ios": {
+          "appstore": "static/icons/Icon-512.png",
+          "ipad": {
+            "app": "static/icons/Icon-192.png",
+            "app@2x": "static/icons/Icon-192.png",
+            "notification": "static/icons/Icon-192.png",
+            "notification@2x": "static/icons/Icon-192.png",
+            "proapp@2x": "static/icons/Icon-192.png",
+            "settings": "static/icons/Icon-192.png",
+            "settings@2x": "static/icons/Icon-192.png",
+            "spotlight": "static/icons/Icon-192.png",
+            "spotlight@2x": "static/icons/Icon-192.png"
+          }
+        }
+      },
+      "splashscreen": {
+        "androidStyle": "common",
+        "iosStyle": "common",
+        "useOriginalMsgbox": true
+      }
+    }
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "TOURIST_WX_APPID",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true,
+      "postcss": true
+    },
+    "usingComponents": true
+  },
+  "mp-alipay": {
+    "usingComponents": true
+  },
+  "mp-baidu": {
+    "usingComponents": true
+  },
+  "mp-toutiao": {
+    "usingComponents": true
+  },
+  "uniStatistics": {
+    "enable": false
+  },
+  "vueVersion": "3",
+  "h5": {
+    "title": "陪诊患者端",
+    "router": {
+      "mode": "hash",
+      "base": "/"
+    },
+    "devServer": {
+      "port": 5173,
+      "https": false,
+      "proxy": {
+        "/api": {
+          "target": "http://127.0.0.1:8080",
+          "changeOrigin": true,
+          "secure": false
+        }
+      }
+    },
+    "sdkConfigs": {}
+  }
+}
