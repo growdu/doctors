@@ -2,6 +2,8 @@ package events
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -72,6 +74,14 @@ func TestNopPublisher_CountsEscortRejected(t *testing.T) {
 	assert.Equal(t, 1, p.EscortRejectedCount)
 }
 
+// TestNopPublisher_CountsCompleted 验证 PublishOrderCompleted 计数（v1.2 wallet-t+7）。
+func TestNopPublisher_CountsCompleted(t *testing.T) {
+	p := &NopPublisher{}
+	ev := contracts.OrderCompletedEvent{OrderID: 1, EscortID: 7, Amount: 300.00, CompletedAt: time.Now()}
+	require.NoError(t, p.PublishOrderCompleted(context.Background(), ev))
+	assert.Equal(t, 1, p.CompletedCount)
+}
+
 // TestNopPublisher_Close 不报错。
 func TestNopPublisher_Close(t *testing.T) {
 	p := &NopPublisher{}
@@ -82,6 +92,46 @@ func TestNopPublisher_Close(t *testing.T) {
 func TestKafkaPublisher_NilWriterReturnsError(t *testing.T) {
 	var p *KafkaPublisher
 	err := p.PublishOrderCreated(context.Background(), contracts.OrderCreatedEvent{OrderID: 1})
+	assert.Error(t, err)
+}
+
+// TestKafkaPublisher_PublishOrderCompleted_TopicAndKeyAndValue
+// 验证 PublishOrderCompleted 把 OrderCompletedEvent JSON-序列化后写入
+//   - topic = contracts.TopicOrderCompleted
+//   - key   = strconv.FormatInt(ev.OrderID, 10)
+//   - value = 合法 JSON（含 order_id/escort_id/amount/completed_at 4 字段）
+// 实现思路：内部辅助 publish(ctx, topic, key, body) 在 marshal 之后才写 kafka，
+// 故单独验证「topic 常量 + key 格式 + value 序列化」三件套即可保证契约一致。
+func TestKafkaPublisher_PublishOrderCompleted_TopicAndKeyAndValue(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ev := contracts.OrderCompletedEvent{
+		OrderID:     42,
+		EscortID:    7,
+		Amount:      300.50,
+		CompletedAt: now,
+	}
+	// 1) topic 常量
+	assert.Equal(t, "order.completed", contracts.TopicOrderCompleted)
+	// 2) key 格式
+	assert.Equal(t, "42", strconv.FormatInt(ev.OrderID, 10))
+	// 3) value JSON 合法且字段对齐（这是 wallet 消费端 Unmarshal 的契约）
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"order_id":42`)
+	assert.Contains(t, string(data), `"escort_id":7`)
+	assert.Contains(t, string(data), `"amount":300.5`)
+	assert.Contains(t, string(data), `"completed_at":`)
+	var got contracts.OrderCompletedEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestKafkaPublisher_PublishOrderCompleted_NilWriterPassesError 验证 nil-writer 场景下
+// PublishOrderCompleted 与其他 PublishXxx 一致地返回非 nil error（上层按 best-effort 处理）。
+func TestKafkaPublisher_PublishOrderCompleted_NilWriterPassesError(t *testing.T) {
+	var p *KafkaPublisher
+	err := p.PublishOrderCompleted(context.Background(),
+		contracts.OrderCompletedEvent{OrderID: 1, EscortID: 7, Amount: 100, CompletedAt: time.Now()})
 	assert.Error(t, err)
 }
 

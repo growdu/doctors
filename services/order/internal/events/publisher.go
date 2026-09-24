@@ -28,6 +28,9 @@ import (
 //   - PublishOrderEscortSelected：selecting_escort → escort_pending_acceptance
 //   - PublishOrderEscortConfirmed：escort_pending_acceptance → accepted
 //   - PublishOrderEscortRejected：escort_pending_acceptance → selecting_escort（拒接或 30s 超时）
+//
+// v1.2（wallet-t+7）：新增 PublishOrderCompleted，accepted → completed 时触发；
+//   wallet-service 消费后入 frozen + billings，T+7 由 scanner 释放冻结。
 type Publisher interface {
 	PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error
 	PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error
@@ -36,6 +39,7 @@ type Publisher interface {
 	PublishOrderEscortSelected(ctx context.Context, ev contracts.OrderEscortSelectedEvent) error
 	PublishOrderEscortConfirmed(ctx context.Context, ev contracts.OrderEscortConfirmedEvent) error
 	PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error
+	PublishOrderCompleted(ctx context.Context, ev contracts.OrderCompletedEvent) error
 	Close() error
 }
 
@@ -112,6 +116,12 @@ func (p *KafkaPublisher) PublishOrderEscortRejected(ctx context.Context, ev cont
 	return p.publish(ctx, contracts.TopicOrderEscortRejected, strconv.FormatInt(ev.OrderID, 10), ev)
 }
 
+// PublishOrderCompleted 发布 order.completed 事件（v1.2 wallet-t+7）。
+// 触发时机：accepted → completed；wallet 消费后入 frozen + billings。
+func (p *KafkaPublisher) PublishOrderCompleted(ctx context.Context, ev contracts.OrderCompletedEvent) error {
+	return p.publish(ctx, contracts.TopicOrderCompleted, strconv.FormatInt(ev.OrderID, 10), ev)
+}
+
 // NopPublisher 是测试或 dev 占位实现。
 type NopPublisher struct {
 	CreatedCount            int
@@ -121,6 +131,7 @@ type NopPublisher struct {
 	EscortSelectedCount     int
 	EscortConfirmedCount    int
 	EscortRejectedCount     int
+	CompletedCount          int // v1.2 wallet-t+7
 }
 
 // PublishOrderCreated 计数 + 返回。
@@ -162,6 +173,12 @@ func (p *NopPublisher) PublishOrderEscortConfirmed(ctx context.Context, ev contr
 // PublishOrderEscortRejected 计数 + 返回。
 func (p *NopPublisher) PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error {
 	p.EscortRejectedCount++
+	return nil
+}
+
+// PublishOrderCompleted 计数 + 返回（v1.2 wallet-t+7）。
+func (p *NopPublisher) PublishOrderCompleted(ctx context.Context, ev contracts.OrderCompletedEvent) error {
+	p.CompletedCount++
 	return nil
 }
 
