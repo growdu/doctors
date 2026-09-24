@@ -12,6 +12,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -63,10 +64,13 @@ func setupAcceptPool(t *testing.T) (*pgxpool.Pool, int64, int64) {
 		  service_start_at TIMESTAMPTZ NOT NULL,
 		  amount NUMERIC(10,2) NOT NULL,
 		  final_amount NUMERIC(10,2) NOT NULL,
-		  status VARCHAR(16) NOT NULL CHECK (status IN (
-		    'created','paid','matching','accepted','in_service','completed',
-		    'reviewed','refunding','refunded','closed','canceled')),
+		  status VARCHAR(24) NOT NULL CHECK (status IN (
+		    'created','paid','matching','pending_acceptance','accepted','in_service',
+		    'completed','reviewed','refunding','refunded','settling','disputed',
+		    'closed','canceled')),
 		  version INT NOT NULL DEFAULT 0,
+		  lock_owner BIGINT REFERENCES users(id),
+		  lock_expire_at TIMESTAMPTZ,
 		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		  deleted_at TIMESTAMPTZ
@@ -74,8 +78,8 @@ func setupAcceptPool(t *testing.T) (*pgxpool.Pool, int64, int64) {
 		CREATE TABLE order_events (
 		  id BIGSERIAL PRIMARY KEY,
 		  order_id BIGINT NOT NULL REFERENCES orders(id),
-		  from_status VARCHAR(16),
-		  to_status VARCHAR(16) NOT NULL,
+		  from_status VARCHAR(24),
+		  to_status VARCHAR(24) NOT NULL,
 		  actor_id BIGINT,
 		  payload JSONB,
 		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -87,6 +91,15 @@ func setupAcceptPool(t *testing.T) (*pgxpool.Pool, int64, int64) {
 	escort := int64(0)
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (phone, role) VALUES ('p', 'patient') RETURNING id`).Scan(&patient))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (phone, role) VALUES ('e', 'escort') RETURNING id`).Scan(&escort))
+
+	// 2026-09-24 fix：TestAccept_OnlyOneWins 用 50 个不同 escortID（1000+i），
+	// 但 orders.escort_id 是 FK；提前批量建 50 个 escort 用户，避免 FK 违反。
+	for i := 0; i < 50; i++ {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO users (phone, role) VALUES ($1, 'escort') ON CONFLICT DO NOTHING`,
+			fmt.Sprintf("e-bulk-%d", i))
+		require.NoError(t, err)
+	}
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `
@@ -143,6 +156,21 @@ func TestAccept_OnlyOneWins(t *testing.T) {
 	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
 
 	const N = 50 // 50 并发（PG 默认 max_conns 在 docker compose 里是 100，足够）
+
+	// 2026-09-24 fix：orders.escort_id 是 FK，concurrent test 必须用真实 user ids。
+	// setupAcceptPool 已批量建 50 个 bulk 用户，id 从 ~3 开始递增；这里再查一次取 ids。
+	rows, err := pool.Query(context.Background(),
+		`SELECT id FROM users WHERE phone LIKE 'e-bulk-%' ORDER BY id LIMIT $1`, N)
+	require.NoError(t, err)
+	defer rows.Close()
+	escortIDs := make([]int64, 0, N)
+	for rows.Next() {
+		var id int64
+		require.NoError(t, rows.Scan(&id))
+		escortIDs = append(escortIDs, id)
+	}
+	require.Len(t, escortIDs, N, "setupAcceptPool 必须预建 50 个 bulk 用户")
+
 	var wg sync.WaitGroup
 	wg.Add(N)
 	var successCount, lockCount, otherErrs int32
@@ -158,9 +186,9 @@ func TestAccept_OnlyOneWins(t *testing.T) {
 				atomic.AddInt32(&lockCount, 1)
 			default:
 				atomic.AddInt32(&otherErrs, 1)
-				t.Logf("unexpected err: %v", err)
+				t.Logf("unexpected err [%d]: %v", escortID, err)
 			}
-		}(int64(1000 + i))
+		}(escortIDs[i])
 	}
 	wg.Wait()
 
@@ -186,4 +214,51 @@ func TestAccept_InvalidState(t *testing.T) {
 	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
 	_, err := svc.Accept(context.Background(), orderID, escort)
 	assert.ErrorIs(t, err, ErrInvalidState)
+}
+
+// ===== 状态机统一 plan: TryLock + ConfirmAccept + ReleaseAcceptLock =====
+
+// TestAccept_LockThenConfirm_OK 验证 LockForAccept 成功后再 confirm。
+func TestAccept_LockThenConfirm_OK(t *testing.T) {
+	pool, patient, escort := setupAcceptPool(t)
+	orderID := seedOrder(t, pool, patient, "matching")
+	r := repo.NewOrderRepo(pool)
+	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
+
+	// 第一步：陪诊师拿锁单
+	err := svc.TryLock(context.Background(), orderID, escort, 30*time.Second)
+	require.NoError(t, err)
+
+	// 第二步：30s 内 confirm
+	got, err := svc.ConfirmAccept(context.Background(), orderID, escort)
+	require.NoError(t, err)
+	assert.Equal(t, "accepted", got.Status)
+}
+
+// TestAccept_LockFailsOnConflict 验证另一个 escort 抢不到锁单。
+func TestAccept_LockFailsOnConflict(t *testing.T) {
+	pool, patient, escort1 := setupAcceptPool(t)
+	escort2 := escort1 + 100
+	orderID := seedOrder(t, pool, patient, "matching")
+	r := repo.NewOrderRepo(pool)
+	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
+
+	require.NoError(t, svc.TryLock(context.Background(), orderID, escort1, 30*time.Second))
+	err := svc.TryLock(context.Background(), orderID, escort2, 30*time.Second)
+	assert.ErrorIs(t, err, ErrInvalidStateForLock, "已被锁单的订单不能被另一 escort 再锁")
+}
+
+// TestAccept_ReleaseLock 验证拒接后回退 matching。
+func TestAccept_ReleaseLock(t *testing.T) {
+	pool, patient, escort := setupAcceptPool(t)
+	orderID := seedOrder(t, pool, patient, "matching")
+	r := repo.NewOrderRepo(pool)
+	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool})
+
+	require.NoError(t, svc.TryLock(context.Background(), orderID, escort, 30*time.Second))
+	require.NoError(t, svc.ReleaseAcceptLock(context.Background(), orderID, escort))
+
+	got, _ := r.FindByID(context.Background(), orderID)
+	assert.Equal(t, "matching", got.Status)
+	assert.Nil(t, got.LockOwner)
 }
