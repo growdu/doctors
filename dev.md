@@ -750,3 +750,43 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - 真实微信支付 V3 退款 API
 - `refunds` 表 `payment_id` 真实关联（v1 留 NULL 占位）
 - refund.Service 接到 main 装配（v1 main 仍是骨架 nil pool；接 DB 后再接 refund）
+
+---
+
+## 11. 前端三端骨架（2026-09-24 三 worker 并行）
+
+**目标**：按 `docs/superpowers/plans/2026-09-24-{patient-miniapp,escort-app,admin-web}-setup.md` 的 setup plan（Task 1~3 范围），并行启动三个前端工程骨架。
+
+**3 个 worker 并行交付**：
+
+| 工程 | 框架 | commit | 文件数 | 关键能力 |
+| :-- | :-- | :-- | :--: | :-- |
+| **patient-miniapp** | uni-app 3 + Vue 3.4 + Pinia 2 + uView Plus 0.1 | `8daff2e` | 11 | manifest 含 appid + app-plus 4 端 + 9 Android 权限 + 6 iOS 用途；utils/auth.js token 持久化；utils/request.js 请求拦截（X-Trace-Id + Authorization）+ 响应拦截（401/11001 清 token reLaunch login）；main.js createSSRApp + createPinia + uView Plus |
+| **escort-app** | Flutter + flutter_riverpod 2.5 + go_router 14 + dio 5 + geolocator 13 + permission_handler 11 | `7570e93` | 11 | pubspec 含全部 plan 依赖；lib/core 三件套（router / theme / constants）；lib/main.dart ProviderScope + MaterialApp.router + DoctorsEscortApp；Android/iOS 权限清单（GPS / CAMERA / READ_MEDIA_IMAGES）；kInvitationTimeoutSeconds=30 / kGpsCheckinToleranceMeters=200 |
+| **admin-web** | Vite 5 + React 18 + TS 5 + Ant Design 5.21 + Zustand 4.5 + TanStack Query 5.51 + axios + MSW 2.4 | `925cc9d` | 16 | ConfigProvider(zhCN + 主题token) → QueryClientProvider → AntdApp → BrowserRouter → AppRouter；AdminLayout（Header + Sider + Content + Outlet）；占位路由 /dashboard /escorts /orders + Navigate 回退；DashboardPage 4 个 Statistic 卡片雏形 |
+
+**Plan 偏差汇总**：
+
+1. **escort-app 未装 Flutter CLI**：worker 在 `E:\flutter\bin` 不存在的情况下手工脚手架；`flutter create .` 需在装好 Flutter 的环境补跑生成 `ios/Runner.xcodeproj` / `android/gradle/` / `pubspec.lock` / `lib/api/generated/`。已在 README 提示。
+2. **patient-miniapp 目录**：plan 写 `web/patient-miniapp/`，实际落地 `frontend/patient-miniapp/`（任务契约显式指定 frontend/，与 escort-app / admin-web 保持一致）。
+3. **patient-miniapp JS vs TS**：plan 全量 `.ts`，任务契约写 `main.js` / `utils/request.js`——按契约走 JS；package.json 仍装 TS 工具链便于后续平滑迁移。
+4. **manifest 图标 PNG**：plan Task 16 才生成二进制 icon；Task 2 已在 manifest.json 的 `distribute.icons` 写引用路径但未提供 PNG——属预期偏差，Task 16 落地时把 PNG 写到 `static/icons/` 即可。
+5. **Commit 数量**：3 个 setup Task 因文件互相依赖（main.js ↔ request.js ↔ auth.js），各 worker 选择合并 1 个 commit 更简洁可回溯；如需拆 3 commit 可 `git reset` 后重做。
+6. **未跑 npm install / dev server**：按任务限制跳过；package.json scripts 完整可用。
+
+**统一约定**：
+
+- 三个工程目录统一在 `frontend/` 下
+- commit 前缀：`feat(patient-miniapp):` / `feat(escort-app):` / `feat(admin-web):`
+- 全部未 push（SSH 在本机不通，留给用户手动 push）
+
+**下一步建议（每个工程）**：
+
+- **patient-miniapp**: Task 4 utils 层（trace/format/wx/uni-mock + 单测）→ Task 5 utils/auth.js 扩展 → Task 7 Pinia store（authStore/userStore/orderStore/escalStore/messageStore）→ Task 10~13 5 个核心页面（首页 / 医院列表 / 下单 / 订单详情 / 评价）
+- **escort-app**: Task 4 utils（format/trace/error_handler + 单测）→ Task 5 ProviderScope/GoRouter 完整装配 → Task 7 Riverpod providers → Task 8+ 5 个核心页面（splash / login / invitations / my-availability / 服务端）
+- **admin-web**: Task 4 装配登录页 + authStore + AuthGuard → Task 5 ProTable / StatusBadge / AuditAction 等组件 → Task 6 MSW mock 全集 → Task 7+ 18 个 P0 页面（patients / escorts / orders / refunds / wallets / 系统设置 等）
+
+**端到端联通（v1.1 目标）**：
+
+- patient-miniapp 用户登录 → 下单 → match-service 抢单池 → escort-app 陪诊师接单 → order-service 状态机流转 → admin-web 监控
+- 三端共享 `X-Trace-Id` + 后端 `logger.FromContext` 链路追踪
