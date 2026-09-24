@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,6 +30,8 @@ type Order struct {
 	FinalAmount    float64
 	Status         string
 	Version        int
+	LockOwner      *int64     // pending_acceptance 锁单持有者；nil 表示未锁
+	LockExpireAt   *time.Time // 锁单超时时间；nil 表示未锁
 }
 
 // OrderEvent 映射 order_events 表行。
@@ -46,6 +49,9 @@ var ErrOrderNotFound = errors.New("repo: order not found")
 
 // ErrVersionConflict 是乐观锁冲突（version 不匹配）。
 var ErrVersionConflict = errors.New("repo: order version conflict")
+
+// ErrInvalidStateForLock 是 LockForAccept 时订单状态不在 matching 的哨兵。
+var ErrInvalidStateForLock = errors.New("repo: order not in matching state for lock")
 
 // OrderRepo 是 orders + order_events 表的仓储。
 type OrderRepo struct {
@@ -100,7 +106,7 @@ func (r *OrderRepo) UpdateStatus(ctx context.Context, id int64, toStatus string,
 		UPDATE orders
 		   SET status = $1, version = version + 1, updated_at = NOW(),
 		       escort_id = COALESCE($2, escort_id)
-		 WHERE id = $3 AND version = $5 AND deleted_at IS NULL`
+		 WHERE id = $3 AND version = $4 AND deleted_at IS NULL`
 	tag, err := r.pool.Exec(ctx, q, toStatus, escortID, id, expectVersion)
 	if err != nil {
 		return fmt.Errorf("update status: %w", err)
@@ -144,10 +150,75 @@ func (r *OrderRepo) ListEvents(ctx context.Context, orderID int64) ([]*OrderEven
 	return out, rows.Err()
 }
 
+// LockForAccept 在 matching 状态下加锁单 + 状态切到 pending_acceptance。
+// 同时校验 version；lockExpireAt 写入 orders 表。
+func (r *OrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+	const q = `
+		UPDATE orders
+		   SET status = 'pending_acceptance', lock_owner = $1, lock_expire_at = $2,
+		       version = version + 1, updated_at = NOW()
+		 WHERE id = $3 AND version = $4 AND status = 'matching' AND deleted_at IS NULL`
+	tag, err := r.pool.Exec(ctx, q, escortID, expireAt, id, expectVersion)
+	if err != nil {
+		return fmt.Errorf("lock for accept: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// 区分版本冲突与状态非法
+		var curStatus string
+		var curVer int
+		_ = r.pool.QueryRow(ctx, "SELECT status, version FROM orders WHERE id=$1", id).Scan(&curStatus, &curVer)
+		if curVer != expectVersion {
+			return ErrVersionConflict
+		}
+		return ErrInvalidStateForLock
+	}
+	return nil
+}
+
+// ReleaseLock 把 pending_acceptance 回退到 matching；清除锁单字段。
+func (r *OrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+	const q = `
+		UPDATE orders
+		   SET status = 'matching', lock_owner = NULL, lock_expire_at = NULL,
+		       version = version + 1, updated_at = NOW()
+		 WHERE id = $1 AND status = 'pending_acceptance' AND version = $2 AND deleted_at IS NULL`
+	tag, err := r.pool.Exec(ctx, q, id, expectVersion)
+	if err != nil {
+		return fmt.Errorf("release lock: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrVersionConflict
+	}
+	return nil
+}
+
+// LockExpired 返回已过期的锁单（按 lock_expire_at 升序）；给 §4.2 定时任务用。
+func (r *OrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*Order, error) {
+	const q = baseSelect + ` WHERE status = 'pending_acceptance'
+	                              AND lock_expire_at IS NOT NULL AND lock_expire_at < $1
+	                              ORDER BY lock_expire_at ASC
+	                              LIMIT $2`
+	rows, err := r.pool.Query(ctx, q, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("find expired locks: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*Order, 0)
+	for rows.Next() {
+		o, err := r.scanRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // baseSelect 是 SELECT 子句。
 const baseSelect = `
 	SELECT id, order_no, patient_id, escort_id, hospital_id, package_id,
-	       service_start_at, amount, final_amount, status, version
+	       service_start_at, amount, final_amount, status, version,
+	       lock_owner, lock_expire_at
 	FROM orders`
 
 // scanOne 把单行扫描为 *Order。
@@ -156,6 +227,7 @@ func (r *OrderRepo) scanOne(row pgx.Row) (*Order, error) {
 	if err := row.Scan(
 		&o.ID, &o.OrderNo, &o.PatientID, &o.EscortID, &o.HospitalID, &o.PackageID,
 		&o.ServiceStartAt, &o.Amount, &o.FinalAmount, &o.Status, &o.Version,
+		&o.LockOwner, &o.LockExpireAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrOrderNotFound
@@ -171,6 +243,7 @@ func (r *OrderRepo) scanRow(rows pgx.Rows) (*Order, error) {
 	if err := rows.Scan(
 		&o.ID, &o.OrderNo, &o.PatientID, &o.EscortID, &o.HospitalID, &o.PackageID,
 		&o.ServiceStartAt, &o.Amount, &o.FinalAmount, &o.Status, &o.Version,
+		&o.LockOwner, &o.LockExpireAt,
 	); err != nil {
 		return nil, err
 	}
