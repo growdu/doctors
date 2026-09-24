@@ -114,6 +114,17 @@ created → paid → matching → pending_acceptance → accepted → in_service
 - `services/order/internal/service/accept.go`：引入 30s 锁单窗口
 - `services/match/internal/pool/pool.go`：候选 TopN 与抢单状态联动
 
+**落地 commit（2026-09-24 状态机统一 plan）**：
+
+- `afe7517` feat(order): 状态机加 pending_acceptance/settling/disputed 三态
+- `f629c69` fix(migrations): Test0002/Test0003 cleanup 用新 conn（defer conn.Close 后旧 conn 已关）
+- `73da081` feat(migrations): 0003_orders_state 加 lock_owner/lock_expire_at + CHECK 扩展
+- `1cde7c7` fix(order): UpdateStatus $5 → $4（pre-existing；参数列表只 4 个但 SQL 引用 $5）
+- `fc0e434` feat(order): repo 加 LockForAccept / ReleaseLock / LockExpired 三方法（Order 加 LockOwner/LockExpireAt + setupPool 扩展新状态 CHECK 与锁单字段）
+- `8ab21fd` fix(order): fake/stub OrderRepo 补全 LockForAccept/ReleaseLock/LockExpired（状态机统一 plan 接口扩展）
+- `9c45ea9` fix(test): setupAcceptPool 预建 50 个 bulk 用户 + TestAccept_OnlyOneWins 用真实 ids（pre-existing FK 违反）
+- `eb9ccbd` feat(order): service 加 TryLock/ReleaseAcceptLock/ConfirmAccept 三方法 + 旧 Accept deprecation
+
 ### 4.2 抢单锁单 30s（解决 C-04）
 
 **目的**：高并发 N 个陪诊师抢同一单，恰好 1 个胜出 + 锁单 30s，期间其它人不能抢；超时回退 matching。
