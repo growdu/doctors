@@ -1,16 +1,27 @@
-import { Typography } from 'antd';
-
-const { Title } = Typography;
-
 /**
- * Escorts 占位页（Task 3 雏形）：
- * 后续 Task 会按 spec §3.1 拆分为：escort_list / escort_detail / escort_audit 三个子页。
+ * EscortsPage：陪诊师列表页骨架（v1 Task 12 占位）。
+ *
+ * 范围：
+ *   - 列出所有陪诊师（含审核状态筛选）；
+ *   - 行操作：详情 / 审核。
+ *
+ * TODO: 实现页面（来自 plan v1 Task 12）
  */
+import { Card } from 'antd';
+import { PageHeader } from '@/components/PageHeader';
+
 export default function EscortsPage() {
   return (
-    <div>
-      <Title level={3}>陪诊师管理</Title>
-      <p>陪诊师列表 / 详情 / 审核队列占位（v1 后续实现）。</p>
+    <div data-testid="escorts-page">
+      <PageHeader
+        title="陪诊师管理"
+        subtitle="陪诊师列表 · 审核队列 · 详情"
+      />
+      <Card>
+        <p style={{ color: '#999' }}>
+          TODO: 接入 MSW GET /api/v1/admin/escorts + ProTable 渲染 + 状态筛选 + 跳详情
+        </p>
+      </Card>
     </div>
   );
 }
