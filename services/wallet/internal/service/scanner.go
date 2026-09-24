@@ -17,21 +17,18 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
+	"github.com/growdu/doctors/services/wallet/internal/repo"
 	"github.com/growdu/doctors/shared/logger"
 )
 
 // RepoScanner 是 scanner 需要的 repo 最小子集。
 type RepoScanner interface {
-	ListCompletedOrdersBefore(ctx context.Context, cutoff time.Time, limit int) ([]CompletedOrder, error)
+	ListCompletedOrdersBefore(ctx context.Context, cutoff time.Time, limit int) ([]repo.CompletedOrder, error)
 	UnfreezeToBalance(ctx context.Context, userID, orderID int64, amount decimal.Decimal) error
 }
 
-// CompletedOrder 是 scanner 用的一条已完成订单信息（与 repo.CompletedOrder 同义；避免跨包 import）。
-type CompletedOrder struct {
-	OrderID int64
-	UserID  int64
-	Amount  decimal.Decimal
-}
+// CompletedOrder 别名（与 repo.CompletedOrder 同义；让 scanner_test 不用 import repo）。
+type CompletedOrder = repo.CompletedOrder
 
 // Scanner T+7 冻结释放扫描器。
 type Scanner struct {

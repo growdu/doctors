@@ -1,0 +1,25 @@
+# wallet-service 本地配置示例
+# DOCTORS_WALLET_HTTP_ADDR=:8088 等环境变量可覆盖同名字段
+service: wallet
+
+http:
+  addr: ":8088"
+  read_timeout_sec: 30
+  write_timeout_sec: 30
+
+db:
+  dsn: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+  max_conns: 10
+  min_conns: 2
+
+kafka:
+  brokers:
+    - 127.0.0.1:9092
+  group_id: wallet-service
+
+auth:
+  jwt_secret: dev-secret-change-me
+  jwt_ttl: 3600000000000  # 1h
+
+logging:
+  level: info
