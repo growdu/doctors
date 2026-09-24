@@ -1101,6 +1101,55 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 
 ---
 
+## 17.5 order-service 发布 OrderCompletedEvent（解锁 wallet T+7 链路）
+
+**目标**：wallet 服务（§16 commit `bb28b83`）已能消费 `OrderCompletedEvent` 并在 T+7 时释放冻结；但 order-service **从未发布**此事件，导致 scanner 永远等不到触发。补上 publish 调用 + 全链路联通。
+
+**3 个 commit（按 O3 → O1 → O2 顺序，每 commit 后树都可编译）**：
+
+| commit | 内容 | 文件 |
+| :-- | :-- | :-- |
+| `57fa551` | `feat(order-tests)` sync fakePublisher / fakePub 加 PublishOrderCompleted | services/order/internal/scheduler/expired_lock_scanner_test.go + service/order_service_test.go |
+| `29616b1` | `feat(order-events)` add PublishOrderCompleted (Kafka + Nop 双实现 + 3 测试) | services/order/internal/events/{publisher.go, publisher_test.go} |
+| `f95fee3` | `feat(order-service)` Finish 写库成功后 best-effort 发布 OrderCompletedEvent | services/order/internal/service/{order_service.go, order_service_test.go} |
+
+**关键设计**：
+
+1. **Publisher interface 扩 1 个方法**：`PublishOrderCompleted(ctx, ev contracts.OrderCompletedEvent) error`
+2. **KafkaPublisher 实现**：与 `PublishOrderAccepted` 同模式（`TopicOrderCompleted` + OrderID 作 key + JSON value）
+3. **NopPublisher 实现**：计数 + nil（用于测试）
+4. **service.Finish 触发**：状态机推进 `accepted → in_service → completed` 后，`o.publisher.PublishOrderCompleted(ctx, ...)` best-effort
+5. **事件 schema 沿用现有**：`OrderID / EscortID / Amount / CompletedAt`（与 wallet consumer `cmd/main.go:121` 一致）；任务描述里的 `PatientID/HospitalID/AmountCents` 属独立 schema 演进 task
+
+**测试覆盖**：
+
+| 类别 | 测试数 |
+| :-- | :--: |
+| events publisher | 3（新增） |
+| service Finish | 2（新增） |
+| 其他既有 order 测试 | 不变 |
+| **全量回归** | **44 包 0 FAIL** |
+
+**Plan 偏差**：
+
+1. **commit 顺序**：brief 列 O1 → O2 → O3；本批次实际 O3 → O1 → O2——O1 改 Publisher interface 后，未同步的 fake 会破坏 build；O3 必须落在 O1 之后、O2 之前才能保证每 commit 后树干净。
+2. **事件字段**：任务描述里 `PatientID / HospitalID / AmountCents` 与现行 schema 不一致；遵循现行 schema（因为 wallet 消费者已绑定），修改事件 schema 属另一个独立 task。
+
+**未做（留给后续）**：
+
+1. 事件 schema 演进（加 PatientID / HospitalID / AmountCents 字段并同步 wallet 消费侧）—— 需先定 amount 精度（cents vs 元）
+2. order-service 状态机从 in_service → completed 的推进入口（admin / escort-app 操作面板）
+3. 集成测试需 docker compose up（连接真实 Kafka）
+4. T+7 触发源：当前 `CompletedAt` 写 `clockNow()`，建议统一从 `orders.completed_at` 列读（schema 已就绪，commit `b9bf7bd`），待状态机迁移后用 repo 字段替换
+
+**端到端联通（v1.2 目标）**：
+
+- patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `accepted → in_service → completed`（**写 completed_at** + **publish OrderCompletedEvent** commit `f95fee3`）→ wallet OnOrderCompleted → frozen += amount → wallet scanner 1 分钟扫到 → T+7 释放 → billings 流水
+- 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
+- 全量回归 44 个测试包 0 FAIL
+
+---
+
 ## 17. 前端三端 contracts.yaml 一致性校验（2026-09-24）
 
 **目标**：把 admin-web v2 已落地的 3 个 OrderDetail 字段 + OverviewReport 2 个新指标同步到 patient-miniapp + escort-app 的 OpenAPI 契约，保证三端 schema 一致，避免 dart-dio / openapi-typescript 生成出来的 client 字段漂移。
