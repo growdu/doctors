@@ -279,7 +279,7 @@ func TestGet_NotFound(t *testing.T) {
 	_, err := svc.Get(context.Background(), 999)
 	assert.Error(t, err)
 }
-// fakePub 验证事件发布被调用（v1.1：4 新事件 + 删 OrderMatching）。
+// fakePub 验证事件发布被调用（v1.1：4 新事件 + 删 OrderMatching；v1.2 加 completed）。
 type fakePub struct {
 	created            int
 	accepted           int
@@ -288,6 +288,8 @@ type fakePub struct {
 	escortSelected     int
 	escortConfirmed    int
 	escortRejected     int
+	completed          int
+	lastCompleted      *contracts.OrderCompletedEvent // 记录最近一次完成的字段（O2 测试用）
 }
 
 func (p *fakePub) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
@@ -316,6 +318,15 @@ func (p *fakePub) PublishOrderEscortConfirmed(ctx context.Context, ev contracts.
 }
 func (p *fakePub) PublishOrderEscortRejected(ctx context.Context, ev contracts.OrderEscortRejectedEvent) error {
 	p.escortRejected++
+	return nil
+}
+
+// PublishOrderCompleted 是 v1.2 wallet-t+7 新增接口方法。
+//   - 计数 + 记录最近一次事件，O2 的 TestFinish_PublishesOrderCompletedEvent 用于断言字段。
+func (p *fakePub) PublishOrderCompleted(ctx context.Context, ev contracts.OrderCompletedEvent) error {
+	p.completed++
+	cp := ev
+	p.lastCompleted = &cp
 	return nil
 }
 func (p *fakePub) Close() error { return nil }

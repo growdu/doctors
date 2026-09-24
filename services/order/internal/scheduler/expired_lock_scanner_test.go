@@ -77,6 +77,12 @@ func (f *fakePublisher) PublishOrderEscortRejected(ctx context.Context, ev contr
 	f.allEvs = append(f.allEvs, cp)
 	return nil
 }
+
+// PublishOrderCompleted 是 v1.2 wallet-t+7 新增接口方法；scanner 不直接发布该事件，
+// 但必须实现以满足 events.Publisher 接口（fake stub）。
+func (f *fakePublisher) PublishOrderCompleted(ctx context.Context, ev contracts.OrderCompletedEvent) error {
+	return nil
+}
 func (f *fakePublisher) Close() error { return nil }
 
 // fakeRejectSvc 记录被调用的 orderID + escortID + reason（v1.1）。
