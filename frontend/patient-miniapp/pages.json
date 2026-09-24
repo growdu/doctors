@@ -16,6 +16,15 @@
       }
     },
     {
+      "path": "pages/order/index",
+      "style": {
+        "navigationBarTitleText": "我的订单",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
       "path": "pages/order/candidates/index",
       "style": {
         "navigationBarTitleText": "选择陪诊师",
