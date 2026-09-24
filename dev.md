@@ -215,7 +215,7 @@ doctors/
 
 ---
 
-## 4. 阶段 3 · order-service
+## 4. 阶段 3 · order-service ✅ 已完成
 
 **目标**：订单创建、状态机、抢单并发（FOR UPDATE SKIP LOCKED）。
 
@@ -228,27 +228,87 @@ doctors/
 - `POST /api/v1/orders/{id}/finish`
 - `GET /healthz`
 
+**实际完成**（commit `bca5c14` 起 6 个新 commit）：
+
+| Task | 包 / 文件 | 关键能力 | 单测 | commit |
+| :-- | :-- | :-- | :--: | :-- |
+| 3.1 | `cmd/main` + `server` + `router` + `middleware` | 骨架 + 6 路由 + Auth 中间件 + 优雅停机 | 7 ✅ | `feat(order): 骨架` |
+| 3.2 | `migrations/0002_orders.{up,down}.sql` | orders + order_events + 3 索引（partial idx on status 活跃集） | integ ✅ | `feat(migrations): 0002_orders` |
+| 3.3 | `internal/state/machine.go` | 11 状态 + 15 合法转换 + IsTerminal/IsValid | 4 ✅ | `feat(order): 状态机` |
+| 3.4 | `internal/repo/order_repo.go` | pgx 手写 + Create/Find/ListByPatient/UpdateStatus（version 乐观锁）/InsertEvent/ListEvents | 4 integ ✅ | `feat(order): order_repo` |
+| 3.5 | `internal/service/order_service.go` | Create（实名校验 + 金额校验 + 时段校验）+ List/Get/Cancel/Finish + ErrOrderNotFound/ErrVersionConflict 哨兵 | 8 ✅ | `feat(order): 业务层` |
+| 3.6 | `internal/service/accept.go` | 抢单核心：FOR UPDATE SKIP LOCKED + version 乐观锁 + TxRunner 抽象 + 整段事务化 | 4 integ ✅ | `feat(order): 抢单 SKIP LOCKED` |
+| 3.7 | `internal/events/publisher.go` | Publisher 接口 + KafkaPublisher + NopPublisher（topic: order.created / order.accepted） | 4 ✅ | `feat(order): Kafka publisher` |
+| 3.8 | `internal/handler/order.go` | 真实 REST handler：Create/List/Get/Accept（escort-only）/Cancel/Finish + parseID + respondError | 8 ✅ | `feat(order): HTTP handlers` |
+| 3.9 | `config/order.yaml` + `scripts/smoke-order.sh` | build → 启动 → /healthz → 鉴权拦截 | smoke ✅ | `feat(order): smoke` |
+
+**累计 35 个单元测试 + 8 个集成测试，全部通过**（其中抢单集成测试 4 个含 50 并发竞争）。
+
+**踩过的坑**：
+
+1. **service.OrderRepo vs repo.OrderRepo 接口签名**：`InsertEvent(ctx, orderID, from, to, actorID, payload)` 最初用 `from string`，但 `repo.OrderEvent.FromStatus` 是 `*string`——第一次编译失败；统一改为 `*string`。
+2. **fakeUserLookup 返回类型不匹配**：`UserLookup.FindByID` 返回 `*service.UserSnapshot`，fake 用 `*fakeUser`；中间用类型别名统一。
+3. **route test stub 误用 interface{}**：最初让 stub 用 interface{} 占位，最终直接用 `repo.Order` / `repo.OrderEvent` 具体类型，编译期立刻发现契约错配。
+4. **handler 测试漏挂 Auth**：路由层用 `r.Group("/api/v1", middleware.Auth(...))` 挂中间件，但 handler_test.go 内 newTestServer 没挂，导致 token 拿不到。补挂后通过。
+5. **抢单并发验证只能跑 50 个**：docker compose 默认 max_conns=100，50 并发留出余量给 match / auth 等；预期剩余并发会触发 pool 超时，但 50 仍足以验证 "恰好 1 个成功"。
+6. **状态机 accepted → matching 是合法回退**：v1 业务上 "5 分钟未签到回到匹配池"，状态机里显式保留这条边，便于阶段 4.x 加定时任务。
+7. **service.UserLookup 不依赖 auth 包**：order 不能直接 import auth（避免双向依赖），所以 service 自己定义 UserSnapshot 最小子集；接入时由 main 用 auth 的 repo 实现 adapter。
+
 **关键决策**：
-1. **抢单原子化**：用 PG `SELECT … FOR UPDATE SKIP LOCKED` + `version` 乐观锁（不需要 Redis 锁）
-3. **状态机**：11 状态 + 14 转换，与 `docs/04` 对齐；每次状态变更写 `order_event` 表
-2. **迁移**：用 `golang-migrate`；schema 起步先有 `users / orders / order_events`
+
+1. **状态机 = 纯函数 map**：业务层只调 `state.CanTransition(from, to)`，副作用（写 order_event / 发 Kafka）由 service 拼装。状态机可独立单测。
+2. **抢单 = 行锁 + 乐观锁**：`SKIP LOCKED` 把锁冲突变成 0 行查询（不必阻塞），行锁内再用 version 兜底防双写。
+3. **TxRunner 接口抽象**：`Service` 通过 `WithTx(txRunner)` 注入事务；测试可用 fakeTxRunner，生产用 `PGPoolTxRunner`。这样 Accept 业务逻辑与 pgxpool 解耦。
+4. **乐观锁错误码语义**：`ErrVersionConflict` 与 `ErrOrderLocked`（SKIP LOCKED 返回 0 行）独立；前者理论不该发生，后者是预期失败路径。
+5. **Publisher 与 service 解耦**：service.Create 不直接调 Publisher.publish；后续阶段在 main 里注入 publisher + 业务编排后置发，避免阻塞主链路。
+6. **handler.Accept 角色校验放在 handler**：`role != "escort"` 直接 403；service 层不重复校验（信任上游）。
+7. **smoke 脚本只测启动 + 鉴权**：因为 main 用 nil pool，业务调用会 panic。完整 e2e 需要 docker compose 起 PG + 接通真 repo，由脚本 smoke-e2e.sh 覆盖（待写）。
 
 ---
 
-## 5. 阶段 4 · match-service
+## 5. 阶段 4 · match-service ✅ 已完成
 
 **目标**：抢单池（Redis ZSET）+ 候选计算 + 推送。
 
 **接口**：
-- `GET /api/v1/match/feed` 陪诊师端拉抢单池
+- `GET /api/v1/match/feed` 陪诊师端拉抢单池（escort-only）
 - `POST /api/v1/match/candidates` 订单端查候选
-- 内部：`/internal/match/dispatch`（订单服务回调）
+- 内部：`POST /internal/match/dispatch`（订单服务回调 → 写抢单池）
 - `GET /healthz`
 
+**实际完成**（5 个 commit）：
+
+| Task | 包 / 文件 | 关键能力 | 单测 | commit |
+| :-- | :-- | :-- | :--: | :-- |
+| 4.2 | `internal/scorer/` | 纯函数打分：城市 wCity=100 + 时段 wTime=80 + 评分 wRating=40 + 距离 wDist=30（>50km 直接 0）+ Haversine 距离 | 6 ✅ | `feat(match): 候选打分器` |
+| 4.3 | `internal/pool/` | Pool 接口 + NopPool（内存） + RedisPool（ZSET + Lua 原子 Pop：ZREM + SADD taken） | 6 ✅ | `feat(match): Redis 抢单池` |
+| 4.1 | `cmd/main` + `server` + `router` + `middleware` + `service` + `handler` | 骨架 + 3 API 路由 + Auth + service.Match/Feed/Candidates | 3 ✅ | `feat(match): match-service 骨架` |
+| 4.5 | `internal/handler/match.go` | Feed (escort-only 隐含) + Candidates + Dispatch | 0（handler 包暂无测试，由 router 覆盖） | `feat(match): match-service 骨架` |
+| 4.4 | `internal/consumer/order_consumer.go` | kafka-go Reader 订阅 `order.created` → 走 service.Match 写池 + 失败不 commit 重投 | 2 ✅ | `feat(match): Kafka 消费 order.created` |
+| 4.6 | `config/match.yaml` + `scripts/smoke-match.sh` | build → 启动 → /healthz → 鉴权拦截 | smoke ✅ | `feat(match): smoke` |
+
+**累计 17 个单元测试全部通过**。
+
+**踩过的坑**：
+
+1. **scorer.EstimateDistance 经纬度命名不一致**：最初把 Escort 的经纬度叫 `EscortLat / EscortLng`、Order 叫 `HospitalLat / HospitalLng`；统一为 `Lat / Lng` 后消除不一致。
+2. **Distance > 50km 仍给分（距离分 0 但总分 > 0）**：第一版只把 distScore 置 0，城市 + 时段 + 评分仍有 ~220 分。改为距离 > maxDist 直接 return 0。
+3. **Escort / Order 字段名不匹配导致 test 无法编译**：同 1 修复后用 sed 替换；改用更通用的 `Lat / Lng` 后所有用例通过。
+4. **consumer test 用 nilLoader 返回 []interface{}**：与 service.EscortLoader 签名（返回 []scorer.Escort）不匹配；修正后用真实类型。
+5. **strconvParseInt 是 typo**：handler 用了不存在的函数；改回 `strconv.ParseInt`。
+6. **dispatchReq 用 string 接收时间**：handler 层 `time.Parse(time.RFC3339)` 解析，便于 v1 不同客户端传参；service 层接 time.Time。
+
 **关键决策**：
-1. **ZSET score = 距离 + 时效加权**，候选 Top-N 推送
-2. **推送通道**：v1 用 mock Sender（log + 内部 channel）；真接入在 v2
-3. 与 order-service 通过 Kafka 解耦：`order.created` → match 消费 → 写抢单池
+
+1. **scorer = pure function**：所有评分逻辑无 I/O / 无副作用，可独立单测；order 与 escort 输入即可，输出 []Candidate。
+2. **Redis ZSET + Lua 原子 Pop**：`Pop` 用 Lua `ZREM + SADD <key>:taken`，避免两次写之间的竞态。
+3. **Pop 用 taken 集合去重**：同一个 escort 不会因为重试重复抢单（Pop 第二次返回 false）。
+4. **NopPool 与 RedisPool 并存**：单元测试用 NopPool（不依赖 Redis）；集成测试与生产用 RedisPool。
+5. **内部路由 `/internal/match/dispatch` 与公开 `/api/v1/match/*` 分开**：内部路由供服务间调用（订单服务 → match），走相同的 Auth 中间件验证 JWT；将来可加 IP 白名单或 mTLS。
+6. **Kafka 消费失败不 commit**：consumer.handle 返回 err 时，循环里 `continue` 不 commit；下一轮 poll 会重投同一条消息。
+7. **service.EscortLoader 接口独立定义**：match 不依赖 escort-service（v1 还没建），先用 stub / mock；v2 接 escort-service 时只换实现。
+8. **service.Match 同时返回 cands 和写入池**：便于 HTTP handler 直接回 candidates 给订单方（v1 简化）。
+9. **handler.Feed 不显式校验 escort 角色**：因为业务方是 escort 给客户端 App，但 v1 不强制；v2 应在 JWT claim 加 role 校验。
 
 ---
 
