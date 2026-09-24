@@ -1,0 +1,62 @@
+// Package state 实现订单状态机（pure function）。
+//
+// 设计要点：
+//   - Status 用 string 常量，与 DB CHECK 约束对齐。
+//   - transitions 是静态白名单；CanTransition 是纯函数，无副作用、易测试。
+//   - 状态机变更触发的副作用（写 order_events、发 Kafka）由 service 层负责，
+//     本包只回答"这个转换能不能做"。
+package state
+
+// Status 是订单状态枚举，与 orders.status CHECK 对齐。
+type Status string
+
+const (
+	StatusCreated    Status = "created"
+	StatusPaid       Status = "paid"
+	StatusMatching   Status = "matching"
+	StatusAccepted   Status = "accepted"
+	StatusInService  Status = "in_service"
+	StatusCompleted  Status = "completed"
+	StatusReviewed   Status = "reviewed"
+	StatusRefunding  Status = "refunding"
+	StatusRefunded   Status = "refunded"
+	StatusClosed     Status = "closed"
+	StatusCanceled   Status = "canceled"
+)
+
+// transitions 是合法转换的白名单。
+// key = 当前状态；value = 可去的下一状态。
+var transitions = map[Status][]Status{
+	StatusCreated:   {StatusPaid, StatusCanceled},
+	StatusPaid:      {StatusMatching, StatusCanceled},
+	StatusMatching:  {StatusAccepted, StatusCanceled},
+	StatusAccepted:  {StatusInService, StatusCanceled, StatusMatching}, // 5 分钟未签到回退
+	StatusInService: {StatusCompleted},
+	StatusCompleted: {StatusReviewed, StatusRefunding},
+	StatusReviewed:  {StatusClosed},
+	StatusRefunding: {StatusRefunded},
+	StatusRefunded:  {StatusClosed},
+	StatusClosed:    {},
+	StatusCanceled:  {},
+}
+
+// CanTransition 判定 from → to 是否合法。
+func CanTransition(from, to Status) bool {
+	for _, t := range transitions[from] {
+		if t == to {
+			return true
+		}
+	}
+	return false
+}
+
+// IsTerminal 判定该状态是否为终态（不再有出向边）。
+func IsTerminal(s Status) bool {
+	return len(transitions[s]) == 0
+}
+
+// IsValid 检查字符串是否为合法的 Status 值。
+func IsValid(s Status) bool {
+	_, ok := transitions[s]
+	return ok
+}
