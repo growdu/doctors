@@ -5,15 +5,16 @@
 **Goal:** 陪诊师全生命周期工具（注册 → 培训 → 抢单 → 服务 → 钱包），产出 iOS App Store + Android APK / aab。
 
 **Tech Stack:**
-- **框架**: Flutter 3.24+（Dart 3.5）
+- **框架**: Flutter 3.24+（Dart 3.5；**4 端构建**：iOS App Store / Android APK / aab / **Web PWA**）
 - **状态管理**: Riverpod 2.5（compile-safe + Provider 替代）
-- **路由**: go_router 14.x（声明式 + 嵌套）
-- **HTTP**: dio 5.7（拦截器 + 取消 + 重试）
-- **本地存储**: shared_preferences + flutter_secure_storage（token）
-- **地图 / 定位**: flutter_map + geolocator（OSM 不收 key）
-- **图片**: image_picker + flutter_image_compress
-- **推送**: firebase_messaging（v1 mock；v2 接极光/友盟）
-- **测试**: flutter test（unit / widget）+ integration_test（E2E）
+- **路由**: go_router 14.x（声明式 + 嵌套；4 端共用）
+- **HTTP**: dio 5.7（拦截器 + 取消 + 重试；4 端共用）
+- **本地存储**: shared_preferences + flutter_secure_storage（iOS/Android 原生）；Web 端用 `flutter_secure_storage_web` 走 `window.localStorage`（v1 mock 安全存降级，v2 加 IndexedDB 加密）
+- **地图 / 定位**: flutter_map + geolocator（iOS/Android 原生用系统 GPS；Web 用 `navigator.geolocation` 浏览器 API）
+- **图片**: image_picker + flutter_image_compress（iOS/Android 原生）；Web 用 `<input type=file>` 替代（通过 `image_picker_for_web`）
+- **推送**: firebase_messaging（iOS APNs / Android FCM；**Web 不支持 v1**，v1 mock in-app 通知；v2 接 Web Push）
+- **测试**: flutter test（unit / widget，4 端共用）+ integration_test（iOS/Android）+ Playwright（**Web PWA，v1.1 新增**）+ Lighthouse PWA（v1.1 新增）
+- **PWA**: Flutter 3.24 内置 `flutter build web --pwa` 生成 `manifest.webmanifest` + `flutter_service_worker.js` + offline shell
 
 **前置依赖:**
 - 后端：`docs/superpowers/specs/2026-09-24-l2-api-gap-design.md` P0 API
@@ -538,27 +539,32 @@ final dioProvider = Provider<Dio>((ref) {
 
 ---
 
-## 12. 构建 + CI
+## 12. 构建 + CI（v1.1：4 端构建）
 
 ```bash
 # 开发
 flutter run -d ios         # iOS 模拟器
 flutter run -d android     # Android 模拟器
+flutter run -d chrome      # Web（Chrome DevTools 调试，v1.1 新增）
 
 # 构建
 flutter build apk --release          # Android APK
-flutter build appbundle --release    # Android aab
-flutter build ios --release          # iOS
+flutter build appbundle --release    # Android aab（Google Play）
+flutter build ios --release          # iOS（App Store）
+flutter build web --pwa              # Web PWA（v1.1 新增；产物 build/web/）
 
 # 测试
-flutter test
-flutter test integration_test/
+flutter test                         # 单元 + widget（4 端共用）
+flutter test integration_test/        # iOS/Android 端 e2e
+flutter drive --target=test_driver/integration_web_test.dart  # Web 端 e2e（v1.1）
+npx playwright test                  # Playwright PWA 验证（v1.1）
+npx @lhci/cli autorun                # Lighthouse PWA ≥ 90（v1.1）
 
 # 类型 / 分析
 dart analyze
 ```
 
-CI 必跑：`flutter analyze` / `flutter test` / `integration_test` / `openapi-validate`（生成 client 与后端一致）。
+CI 必跑：`flutter analyze` / `flutter test` / `integration_test` / `openapi-validate` / `flutter build web --pwa` / `lighthouse-ci`。
 
 ---
 
@@ -566,11 +572,14 @@ CI 必跑：`flutter analyze` / `flutter test` / `integration_test` / `openapi-v
 
 | 指标 | 目标 |
 |---|---|
-| 冷启动 | < 3s |
-| 列表滚动 | 60 FPS |
+| 冷启动（iOS/Android） | < 3s |
+| 冷启动（Web PWA） | < 5s（含 service worker 激活）|
+| 列表滚动 | 60 FPS（4 端） |
 | 包体积（iOS） | < 30 MB |
 | 包体积（Android） | < 20 MB |
-| 内存占用 | < 150 MB |
+| 包体积（Web PWA gzipped） | < 3 MB（首屏 critical） |
+| Lighthouse PWA Score | ≥ 90 |
+| 内存占用（原生） | < 150 MB |
 
 ---
 
@@ -582,8 +591,93 @@ CI 必跑：`flutter analyze` / `flutter test` / `integration_test` / `openapi-v
 | 视频陪诊（远程视频） | v3 |
 | AI 抢单推荐 | v2 |
 | 国际版（i18n） | v3 |
-| 推送通道（极光/友盟） | v2（v1 firebase_messaging mock） |
+| 推送通道（极光/友盟） | v2（v1 firebase_messaging mock；Web 不支持 v1） |
 | 离线模式 | v2 |
+| Web Push 推送（FCM Web） | v2 |
+| IndexedDB 加密存储（替代 localStorage） | v2 |
+| App Store / Google Play 上架审核 | v2（v1 仅本地 debug 包 + PWA 部署到 staging 域名） |
+
+---
+
+## 15. 多端构建矩阵（v1.1 增量）
+
+| 端 | 入口命令 | 产物 | 调试方式 | 关键差异点 |
+|---|---|---|---|---|
+| **iOS** | `flutter run -d ios` / `flutter build ios --release` | `build/ios/iphoneos/Runner.app` + `.ipa`（debug 自签；release 需 Apple Developer cert）| iOS Simulator / 真机 USB | 定位：`Geolocator.getCurrentPosition` 走 CoreLocation；推送：APNs；相机：UIImagePickerController；安全存储：Keychain |
+| **Android** | `flutter run -d android` / `flutter build apk --release` | `build/app/outputs/flutter-apk/app-release.apk` | Android Emu / 真机 USB | 定位：`Geolocator` 走 Google Play Services；推送：FCM；相机：MediaStore；安全存储：EncryptedSharedPreferences |
+| **Web PWA** | `flutter run -d chrome` / `flutter build web --pwa` | `build/web/`（含 manifest.webmanifest + flutter_service_worker.js + offline shell）| Chrome DevTools（设备模式模拟手机）| 定位：`navigator.geolocation`（用户授权）；推送：无（v2 Web Push）；相机：`<input type=file capture>`；安全存储：`localStorage` 降级；**不支持 GPS 持续追踪 / 后台推送** |
+
+**4 端共用代码**：
+- `lib/**`（100% Dart 代码共用；`dart:io` / `dart:ui` 调用走 `if (kIsWeb)` 分支）
+- `pubspec.yaml`：4 端共用依赖 + 条件依赖（`dependencies` 全平台 + `dev_dependencies` 仅 test）
+- `web/index.html`：PWA 入口 + manifest 链接 + service worker 注册
+- `web/manifest.json`：PWA 安装元数据（name / short_name / icons / theme_color / display）
+
+**平台条件编译（Flutter 写法）**：
+```dart
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+// 定位
+Future<Position> getPos() async {
+  if (kIsWeb) {
+    return await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    ); // Geolocator 9.0+ 在 Web 自动用 navigator.geolocation
+  }
+  return await Geolocator.getCurrentPosition(
+    desiredAccuracy: LocationAccuracy.bestForNavigation,
+  );
+}
+
+// 推送
+Future<void> initPush() async {
+  if (kIsWeb) {
+    // Web 不接 push；in-app 通知走 SnackBar
+    return;
+  }
+  await FirebaseMessaging.instance.getToken();
+}
+
+// 安全存储
+Future<String?> readToken() async {
+  if (kIsWeb) {
+    return window.localStorage.getItem('escort_token');
+  }
+  return await const FlutterSecureStorage().read(key: 'escort_token');
+}
+```
+
+**PWA 关键配置（`web/manifest.json`）**：
+```json
+{
+  "name": "陪诊师工作台",
+  "short_name": "陪诊师",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1677ff",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icons/Icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/Icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/Icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
+```
+
+**Lighthouse PWA 验收清单**（必须 ≥ 90 分）：
+- ✅ Installable：含 manifest + icons + start_url + display（standalone）
+- ✅ PWA Optimized：含 service worker（`flutter_service_worker.js` 自动生成）
+- ✅ 注册到 HTTPS（staging 域名）
+- ✅ Splash screen：含 name + background_color
+- ✅ Theme color 与 manifest theme_color 一致
+- ✅ viewport meta 在 `web/index.html`
+
+**DevOps 说明**：
+- iOS `Runner.entitlements` + Provisioning Profile 由运维提供，存 `escort-app/ios/Runner/`（gitignore）
+- Android `android/key.properties`（keystore 路径 / 密码）由运维提供，存 `escort-app/android/key.properties`（gitignore）
+- Web PWA 部署：CI `flutter build web --pwa` → 上传到静态站 `https://escort-staging.example.com/`
+- CI Lighthouse CI：每次 PR 跑 `lhci/autorun.yml`，PWA < 90 分阻断合并
 
 ---
 
