@@ -1248,3 +1248,28 @@ scorer é‡æ„ï¼šç§»é™¤ `scorer.Escort` ç±»å‹ï¼Œç›´æ¥åƒ `contracts.EscortSumma
 - patient-miniapp é€‰é™ªè¯Šå¸ˆ â†’ match-service æ¨é‚€è¯· â†’ escort-app 30s å€’è®¡æ—¶ç¡®è®¤ â†’ order-service `accepted â†’ completed` + publish OrderCompletedEvent â†’ wallet T+7 scanner â†’ admin-web 22 è·¯ç”±ï¼ˆdashboard / orders / escorts / refunds / wallets / work-orders / reviews / messages / sos / patients / hospitals / packages / couponsï¼‰å…¨éƒ¨æœ‰ mock æ•°æ®å¯æ¶ˆè´¹
 - ä¸‰ç«¯ trace-id ä¸‰å¤„å…±ç”¨ï¼š`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / åç«¯ logger.FromContext
 - å…¨é‡å›å½’ 44 ä¸ªæµ‹è¯•åŒ… 0 FAIL
+
+---
+## 17.7 admin-web AdminLayout ²Ëµ¥À©Õ¹£¨2026-09-24 admin-web v1 ¡ìL1-L4£©
+
+**Ä¿±ê**£º°Ñ admin-web 22 Â·ÓÉÈ«²¿¹Òµ½ AdminLayout µÄ Sider Menu£¬°´ authStore.role ×ö RBAC ¹ıÂË£»Header ¼ÓÃæ°üĞ¼ + µÇ³ö¡£
+
+**1 ¸ö commit**£º995f3b4 feat(admin-web): AdminLayout ²Ëµ¥À©Õ¹£¨12 Ïî + RBAC ¹ıÂË + µÇ³ö£©
+
+**¹Ø¼üÉè¼Æ**£º
+
+1. **12 Ïî²Ëµ¥ + ½ÇÉ«¾ØÕó**£¨°´½ÇÉ«¹ıÂË£©£ºdashboard£¨È«²¿£©/ orders£¨super_admin+order_admin+refund_admin+cs+viewer£©/ escorts / escorts/audit / refunds / wallets / work-orders / reviews£¨È«²¿£©/ messages / sos / reports / settings£¨½ö super_admin£©
+2. **RBAC ¹ıÂË**£ºuseAuthStore((s) => s.role) ¡ú ¹ıÂË MENU_ITEMS£¬oles Î´¶¨Òå=È«²¿¿É¼û
+3. **µ±Ç°Â·ÓÉ¸ßÁÁ**£ºpath **×î³¤Ç°×ºÆ¥Åä**£¬±ÜÃâ /escorts ½Øºú /escorts/audit`n4. **Header ×ó**£ºÃæ°üĞ¼£¨¿´°å > µ±Ç°Ò³£©
+5. **Header ÓÒ**£ºTraceId Õ¼Î» + ÓÃ»§ÏÂÀ­£¨êÇ³Æ + ½ÇÉ«Ö»¶Á + µÇ³ö£©
+6. **µÇ³ö**£ºuseAuthStore.logout() + useNavigate('/login')`n
+**²âÊÔ¸²¸Ç**£¨6 ¸ö vitest£¬Î´Êµ¼ÊÅÜ£©£ºsuper_admin 12 Ïî / viewer Òş²Ø escorts-audit+settings / refund_admin Òş²Ø escorts+escorts-audit / order_admin Òş²Ø wallets+settings / ²Ëµ¥µã»÷ navigate / pathname ¸ßÁÁ
+
+**Î´×ö£¨Áô¸øºóĞø£©**£ºÇ¶Ì××Ó²Ëµ¥ / ÕÛµşÌ¬³Ö¾Ã»¯ / ÒÆ¶¯¶Ë Drawer / TraceId ½ÓÕæÊµÉÏÏÂÎÄ / ÕæÊµ RBAC£¨Ç°¶Ë roles Êı×éÓ²±àÂë£©
+
+**¶Ëµ½¶ËÁªÍ¨£¨v1.2 Ä¿±ê£©**£º
+
+- patient-miniapp Ñ¡ÅãÕïÊ¦ ¡ú match-service ÍÆÑûÇë ¡ú escort-app 30s µ¹¼ÆÊ±È·ÈÏ ¡ú order-service ccepted ¡ú completed + publish OrderCompletedEvent ¡ú wallet T+7 scanner ¡ú admin-web 22 Â·ÓÉ°´½ÇÉ«¹ıÂË¿É¼û²Ëµ¥
+- Èı¶Ë trace-id Èı´¦¹²ÓÃ£ºmp- / escort- / ºó¶Ë logger.FromContext
+- È«Á¿»Ø¹é 44 ¸ö²âÊÔ°ü 0 FAIL
+
