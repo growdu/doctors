@@ -1,0 +1,169 @@
+# admin-web / admin-service OpenAPI 契约（v2 增量适配）
+#
+# 说明：
+# - 真正的 admin-service OpenAPI 文档应位于 `web/openapi/contracts.yaml`
+#   （参见 v1 setup plan），本机当前未生成该文件；
+# - 为满足 v2 任务验收，本契约为最小可用 schema，只覆盖 v2 新增字段 + 既有
+#   OrderDetail / OverviewReport 必要字段；
+# - 待 v1 admin-service contracts.yaml 生成后，可把本文件内容合并过去，
+#   再跑 `pnpm run generate:client` 重生成 src/types/generated.ts。
+#
+# 对应 spec：2026-09-24-order-matching-redesign.md §4
+#           2026-09-24-admin-web-setup.md §Task 6
+openapi: 3.1.0
+info:
+  title: admin-service (v2 增量 schema)
+  version: 2.0.0
+  description: |
+    admin-web 后端契约最小集（含 v2 选人模式适配 3 字段 + OverviewReport 2 指标）。
+    完整契约待 v1 admin-service 生成后合并。
+
+paths:
+  /api/v1/admin/orders:
+    get:
+      summary: 订单列表（支持 status filter）
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderListResponse'
+
+  /api/v1/admin/orders/{id}:
+    get:
+      summary: 订单详情
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetailResponse'
+
+  /api/v1/admin/reports/overview:
+    get:
+      summary: 看板聚合指标
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverviewReportResponse'
+
+components:
+  schemas:
+    OrderStatus:
+      type: string
+      enum:
+        - created
+        - paid
+        - matching
+        - selecting_escort              # v2 新增
+        - escort_pending_acceptance     # v2 新增
+        - accepted
+        - in_service
+        - completed
+        - reviewed
+        - refunding
+        - refunded
+        - settling
+        - disputed
+        - closed
+        - canceled
+
+    EscortRejectReason:
+      type: string
+      nullable: true
+      enum:
+        - escort_declined
+        - lock_expired
+        - null
+
+    OrderListItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        hospital_name: { type: string }
+        final_amount: { type: number }
+        created_at: { type: string, format: date-time }
+        # v2 新增 ↓
+        selected_escort_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: 已选陪诊师 user_id（escort_pending_acceptance / accepted 时非空）
+        escort_pending_expire_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 陪诊师 30s 确认截止时间（仅 escort_pending_acceptance 状态时非空）
+        # v2 新增 ↑
+      required: [id, status, hospital_name, final_amount, created_at]
+
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderListItem'
+        - type: object
+          properties:
+            patient_name: { type: string }
+            patient_phone: { type: string }
+            package_name: { type: string }
+            # v2 新增 ↓
+            escort_reject_reason:
+              $ref: '#/components/schemas/EscortRejectReason'
+              description: |
+                拒接原因（订单从 escort_pending_acceptance 回退到 selecting_escort 时记录）：
+                - escort_declined：陪诊师主动拒接
+                - lock_expired：陪诊师超时未确认
+            # v2 新增 ↑
+
+    OrderListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/OrderListItem' }
+        total: { type: integer }
+
+    OrderDetailResponse:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/OrderDetail' }
+
+    OverviewReport:
+      type: object
+      properties:
+        today_orders:        { type: integer }
+        today_gmv:           { type: number }
+        pending_escorts:     { type: integer }
+        pending_refunds:     { type: integer }
+        # v2 新增 ↓
+        pending_selecting_escort:
+          type: integer
+          description: 等待患者选人的订单数（status=selecting_escort）
+        pending_escort_acceptance:
+          type: integer
+          description: 等待陪诊师确认的订单数（status=escort_pending_acceptance）
+        # v2 新增 ↑
+      required:
+        - today_orders
+        - today_gmv
+        - pending_escorts
+        - pending_refunds
+
+    OverviewReportResponse:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/OverviewReport' }
