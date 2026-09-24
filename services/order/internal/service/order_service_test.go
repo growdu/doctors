@@ -69,6 +69,49 @@ func (r *fakeOrderRepo) ListEvents(ctx context.Context, orderID int64) ([]*repo.
 	return r.events, nil
 }
 
+// ===== 状态机统一 plan：fake 实现锁单三件套 =====
+// fake 不模拟并发，TryLock / ReleaseLock / LockExpired 仅满足接口；具体行为由集成测试覆盖。
+
+func (r *fakeOrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+	for _, o := range r.orders {
+		if o.ID == id && o.Version == expectVersion && o.Status == "matching" {
+			o.LockOwner = &escortID
+			t := expireAt
+			o.LockExpireAt = &t
+			o.Status = "pending_acceptance"
+			o.Version = expectVersion + 1
+			return nil
+		}
+	}
+	return repo.ErrVersionConflict
+}
+
+func (r *fakeOrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+	for _, o := range r.orders {
+		if o.ID == id && o.Version == expectVersion && o.Status == "pending_acceptance" {
+			o.LockOwner = nil
+			o.LockExpireAt = nil
+			o.Status = "matching"
+			o.Version = expectVersion + 1
+			return nil
+		}
+	}
+	return repo.ErrVersionConflict
+}
+
+func (r *fakeOrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+	out := make([]*repo.Order, 0)
+	for _, o := range r.orders {
+		if o.Status == "pending_acceptance" && o.LockExpireAt != nil && o.LockExpireAt.Before(now) {
+			out = append(out, o)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 type fakeUserRepo struct {
 	users map[int64]*UserSnapshot
 }

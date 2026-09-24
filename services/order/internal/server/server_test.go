@@ -31,6 +31,15 @@ func (stubOrderRepo) InsertEvent(ctx context.Context, id int64, from *string, to
 func (stubOrderRepo) ListEvents(ctx context.Context, id int64) ([]*repo.OrderEvent, error) {
 	return nil, nil
 }
+func (stubOrderRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+	return nil
+}
+func (stubOrderRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+	return nil
+}
+func (stubOrderRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+	return nil, nil
+}
 
 type stubUserLookup struct{}
 

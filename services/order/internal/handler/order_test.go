@@ -85,6 +85,17 @@ func (r *fakeRepo) ListEvents(ctx context.Context, orderID int64) ([]*repo.Order
 	return r.events, nil
 }
 
+// 状态机统一 plan：fake 实现锁单三件套（handler 测试用不到，仅满足接口）。
+func (r *fakeRepo) LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error {
+	return repo.ErrVersionConflict
+}
+func (r *fakeRepo) ReleaseLock(ctx context.Context, id int64, expectVersion int) error {
+	return repo.ErrVersionConflict
+}
+func (r *fakeRepo) LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error) {
+	return nil, nil
+}
+
 type fakeUserLookup struct {
 	users map[int64]*service.UserSnapshot
 }
