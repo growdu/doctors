@@ -1,26 +1,30 @@
-# 陪诊业务实装 Implementation Plan
+# 陪诊业务实装 Implementation Plan（v2 — escort_availabilities + 邀请模式）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 解决 `docs/superpowers/specs/2026-09-24-l2-api-gap-design.md` §2.2 P0 escort 业务 API：14 个新 API（escort 实名 / 健康证 / 培训 / 上线 + 订单抢单池 + 签到 / 打卡）以及评审 §4 评审 I-03 陪诊师档案状态机。覆盖 escort-app P0 模块 1~6。**注意**：14 个 API 中，本 plan 落 11 个（其中 3 个在 order-service 扩展）；陪诊师钱包 + 提现 4 API 走 wallet plan；SOS 重复触发（patient/escort 均可）走 sos plan（已交付）。
+**Goal:** 在 escort-business v1（注册 / 实名 / 健康证 / 培训 / 审核 / 上线 / checkin-checkout / 抢单池已撤销）基础上，**新增 escort 配对的 availability 管理**：陪诊师可设置空余时段、患者可见与可选、拒接 / 超时 / 取消时自动恢复时段、邀请列表 + 状态派生。落地：
+- 共享迁移 `0009_escort_availabilities.up.sql`（同时修订 orders 表：删 `lock_owner` / `lock_expire_at`，加 `selected_escort_id` / `escort_pending_expire_at`）
+- 新增 `services/escort/internal/availability/` 子包：`AvailabilityRepo` + `AvailabilityService`
+- 5 个新 endpoint：3 个 escort 自有 (`PUT/GET/DELETE /escorts/me/availability`)、1 个公开 (`GET /escorts/:id/availabilities`)、1 个邀请列表 (`GET /escorts/me/invitations`)
+- 派生状态 `available` / `busy` / `off-line`（基于 `escort_availabilities` + manual offline）
+- 与 order-service 集成：`order-service.ConfirmAccept` 触发 `BookByOrder`，`order-service.ReleaseLockAndReject` 触发 `ReleaseByOrder`（v1 简化为共享 Go 包 / 直接 import `availability` 子包）
+
+参考 spec：`docs/superpowers/specs/2026-09-24-order-matching-redesign.md` §3.2 + §4.1 + §7。
 
 **Architecture:**
-- 复用 `services/escort/internal/service` 既有 12 个单测骨架（Register / SetAvailability / UpdateLocation 等基础方法保留；新增业务流方法）。
-- 扩展 `escort_profiles` + `health_certs` + `training_records` 3 张表。
-- service 层封装状态机：`registering → pending_real_name → pending_health_cert → pending_training → pending_agreement → pending_audit → approved/rejected → online/offline`（11 态）。
-- order-service 扩展 `GET /orders?role=escort&status=matching`（抢单池）+ `POST /orders/:id/checkin`（accepted → in_service）+ `POST /orders/:id/checkout`（in_service → completed）。
-- 实名 mock：service.RealNameAuth 直接返回成功 + 标记 users.real_name_verified=true。
-- 健康证：v1 接收 base64；repo 存 SHA256 + 文件名 + mime；不入 OSS。
-- 培训题库：service 内部 hardcode 5 道题（80% 通过 = 4/5）。
-- GPS 签到 / 打卡：v1 mock 距离校验（不调 geolocator），只接 `lat` / `lng` 入参；只校验范围合法性，校验通过即落库 `checkin_at` / `checkout_at`。
+- **共享一个迁移** (`0009_escort_availabilities.up.sql`)：orders 表的 lock_owner/lock_expire_at 删除、加 `selected_escort_id`/`escort_pending_expire_at`、CHECK 改、索引改；与 `escort_availabilities` 表共存。迁移由 order-matching-redesign spec + escort-business v2 共用。
+- **availability 子包**：纯数据层 `AvailabilityRepo`（pgx + 乐观锁）+ 业务层 `AvailabilityService`（时段冲突校验、状态机 actions、状态派生）。所有 service 方法均可在没有 order-service 依赖的情况下独立 work。
+- **状态派生**：`available` 判定 = 当前有至少一条 status='available' 且 end_at > now 的时段；`busy` = 没有 available 时段（即使有 booked/canceled）；`off-line` = escort 主动 set offline（escort_profiles.state='offline'）。
+- **集成**：v1 采用 Go 包直接 import — order-service 通过 `internal/integration` 包调用 `availability.Service.BookByOrder/ReleaseByOrder`，避免 HTTP 跨服务往返。RPC 升级留 v2。
+- **pro 通用规则**：所有响应走 `shared/httpx`；所有错误走 `shared/errs.Error`；事件 best-effort；commit 节奏按 Task 切分。
 
 **Tech Stack:** Go 1.24+ · pgx v5.7 · testify v1.11 · gin v1.10 · segmentio/kafka-go v0.4.51。
 
 **前置依赖:**
-- `2026-09-24-state-machine.md`（orders 表 + status CHECK 含 accepted/in_service/completed；本 plan 的 checkin/checkout 用此 CHECK）
-- `2026-09-24-sos.md`（sos_records 表 + POST /orders/:id/sos 已交付，escort 侧触发复用）
-- `2026-09-24-l2-api-gap-design.md` §2.2 escort-app P0 清单 + §3.1 EscortSummary entity
-- `2026-09-24-escort-app-design.md` §3.2 11 态状态机 + §5 GPS 签到
+- `2026-09-24-state-machine.md`（orders 表 + status CHECK；本 plan 的 orders 修订以其为基础）
+- `2026-09-24-order-matching-redesign.md`（spec §3.2 escort_availabilities schema、§4.1 API、§5.1 事件名）
+- `2026-09-24-l2-api-gap-design.md` §2.2 escort 端 + §3.1 EscortSummary
+- `2026-09-24-escort-app-design.md` §3.1 「我的空余时段」+ §3.1 「我的邀请」
 
 ---
 
@@ -32,15 +36,17 @@
 - Commit 节奏：每个 Task 完成立即 commit；前缀 `feat:` / `test:` / `fix:` / `docs:`
 - 所有响应走 `shared/httpx`（业务码在 body）
 - 错误统一 `shared/errs.Error`（业务码 5 位 / 系统码 6 位）
-- 陪诊师档案状态机 11 态（`registering` / `pending_real_name` / `pending_health_cert` / `pending_training` / `pending_agreement` / `pending_audit` / `approved` / `rejected` / `online` / `in_service` / `offline`）；service 暴露 `Transition(state, action) error` 严格白名单
-- 状态机转换守门：必须按 registering → pending_real_name → ... 顺序；非法转换返回 `CodeForbidden`
-- 实名 mock：service 内部直接返回成功 + 落 `users.real_name_verified=true`（不接第三方）
-- 健康证 v1：API 收 `image_base64` + `filename`；repo 算 `sha256(image_base64)` 存 hash + filename + mime；**不存原始 base64**，不入 OSS
-- 培训考核：service 内 hardcode 5 道单选题（std[2]{"A","B"}）；通过阈值 80% = 答对 ≥ 4 题
-- GPS 校验：checkin 接 `lat` ∈ [-90, 90] + `lng` ∈ [-180, 180]；范围合法即落 `checkin_at`；不调用 geolocator / 不算距离
-- 抢单池：`GET /api/v1/orders?role=escort&status=matching` 列出 `status='matching'` + `escort_id IS NULL` 的订单；`role=escort` 强制 role check（escort token 才能查）；patient 查老路径
-- 事件发布：best-effort，失败仅 log，不阻塞主流程
-- admin 审核（approve / reject）：不在本 plan，留 `2026-09-24-admin-plan.md`；状态机预留 `approved / rejected`，admin plan 用 `UPDATE escort_profiles SET state='approved' WHERE id=$1` 直接落库
+- 迁移文件唯一权威 `0009_escort_availabilities.{up,down}.sql`（order 表修订 + availability 表共存）
+- `escort_availabilities` 状态 3 态：`available` / `booked` / `canceled`（CHECK 约束；service 暴露 `CanTransition(from, action) (to, bool)` 严格白名单）
+- DB 约束：UNIQUE INDEX `(escort_id, start_at)`（防同 start_at 重复）+ 服务层时段重叠校验 `start_at < new_end AND end_at > new_start`（防区间重叠）
+- 时段 start_at 必须 `> now` 且 `end_at > start_at`，否则拒 400
+- service 写状态用乐观锁 `expected_version`（profile_repo 已有模式复用）；冲突返回 `CodeConflict`
+- 公开 endpoint `GET /escorts/:id/availabilities` 强制 `status='available'` 过滤，避免泄露 booked/canceled 数据
+- 陪诊师派生状态：`available` 当且仅当有 status='available' 且 end_at > now 的时段；`busy` 当全部时段都不是 available；`off-line` 当 escort_profiles.state='offline'（最终态优先于 availability 判定）
+- order-service 集成：`BookByOrder(slotID, orderID)` + `ReleaseByOrder(orderID)`；两者幂等；事件发布 best-effort
+- 抢单 Feed（`GET /match/feed` + `POST /orders/:id/accept`）v1 已撤销，本 plan 不包含；escort-order-ext plan 处理 select-escort + confirm-accept + reject-accept
+- admin 审核（approve/reject）走 admin plan，直接 `UPDATE escort_profiles.state`；状态机预留 `approved / rejected` 转换已 by escort-business v1 Task 2 状态机守门
+- v1 不做：时段模板（每周固定）/ 智能匹配 / ML 评分（沿用 match-service 既有 scorer）
 
 ---
 
@@ -48,63 +54,59 @@
 
 | 路径 | 变更 | 职责 |
 |---|---|---|
-| `migrations/0006_escort_profiles.up.sql` | Create | `escort_profiles` + `health_certs` + `training_records` 3 表 + 索引 |
-| `migrations/0006_escort_profiles.down.sql` | Create | 逆向 |
-| `migrations/migrations_test.go` | Modify | 加 `Test0006EscortProfilesUpDown` |
-| `services/escort/internal/state/machine.go` | Create | 陪诊师档案状态机 pure function（`CanTransition(state, action) bool`） |
-| `services/escort/internal/state/machine_test.go` | Create | 状态机单测（合法 / 非法转换矩阵） |
-| `services/escort/internal/repo/profile_repo.go` | Create | pgx 实现 `ProfileRepo`（CRUD + state 更新 + health_certs 写入 + training_records 查询） |
-| `services/escort/internal/repo/profile_repo_integration_test.go` | Create | 集成测试（建表 + 写入 + 状态推进 + 反查） |
-| `services/escort/internal/service/profile_flow.go` | Create | 业务流（`RegisterFlow` / `RealNameAuth` / `UploadHealthCert` / `CompleteTraining` / `SignAgreement` / `SetOnline` / `SetOffline`） |
-| `services/escort/internal/service/profile_flow_test.go` | Create | 业务流单测（用 fake repo；覆盖状态机非法转换 + 实名 mock + 健康证 hash + 培训通过阈值） |
-| `services/escort/internal/service/escort_service.go` | Modify | 加 `GetMyProfile(userID)` + `ListTrainingCourses()` + `ListMyReviews(userID)` |
-| `services/escort/internal/service/escort_service_test.go` | Modify | 既有 12 个测试保留；新加 3 个测试 |
-| `shared/contracts/events.go` | Modify | 加 `EscortStateChangedEvent` + `TopicEscortStateChanged` |
-| `shared/contracts/contracts_test.go` | Modify | 加 `TestEscortStateChangedEvent_RoundTrip` + topic 常量 |
-| `services/escort/internal/events/publisher.go` | Create | `EscortPublisher`（`PublishStateChanged`）+ Kafka + Nop |
-| `services/escort/internal/events/publisher_test.go` | Create | publisher 单测 |
-| `services/escort/internal/handler/escort_business.go` | Create | `Handler` 扩展：8 个 endpoint（register / real-name / health-cert / training/complete / me/profile / me/status / me/training-courses / me/reviews） |
-| `services/escort/internal/handler/escort_business_test.go` | Create | handler 单测（fake service + httptest） |
-| `services/escort/internal/handler/escort.go` | Modify | `RegisterRoutes` 增挂 8 个 route |
-| `services/escort/internal/router/router.go` | Modify | 无需改（handler.RegisterRoutes 已挂 v1 group） |
-| `services/escort/cmd/main.go` | Modify | 加 `events.NewKafkaPublisher(cfg.Kafka.Brokers)` + `repo.NewProfileRepo(nil)` 装配 |
-| `services/order/internal/repo/order_repo.go` | Modify | 加 `ListForEscort(ctx, status, limit, offset)`（查询 `status=$1 AND escort_id IS NULL AND deleted_at IS NULL`） |
-| `services/order/internal/repo/order_repo_integration_test.go` | Modify | 加 `TestOrderRepo_ListForEscort_OK` + `TestOrderRepo_ListForEscort_ExcludesAssigned` |
-| `services/order/internal/service/order_service.go` | Modify | 加 `CheckIn(ctx, orderID, escortID, lat, lng)` + `CheckOut(ctx, orderID, escortID, note)` + `ListForEscort(ctx, userID, status, limit, offset)` |
-| `services/order/internal/service/order_service.go` | Modify | `Order` struct 加 `CheckinAt *time.Time` + `CheckoutAt *time.Time` |
-| `services/order/internal/service/order_service_test.go` | Modify | 加 3 个测试（CheckIn_OK / CheckIn_InvalidLat / CheckOut_OK） |
-| `services/order/internal/handler/order.go` | Modify | `List` 支持 `role=escort` 分支；加 `CheckInHandler` + `CheckOutHandler` |
-| `services/order/internal/handler/order.go` | Modify | `RegisterRoutes` 加 `POST /:id/checkin` + `POST /:id/checkout` |
-| `services/order/internal/handler/order_test.go` | Modify | 加 `TestList_EscortRole` + `TestCheckIn_OK` + `TestCheckOut_OK` |
-| `services/order/cmd/main.go` | Modify | 无需改（service.New 已装配） |
-| `scripts/smoke-escort.sh` | Create | smoke（build + 启动 + /healthz + 11 个 endpoint 401 拦截） |
-| `docs/04-业务流程.md` | Modify | §4.7 加陪诊师档案状态机流程 |
-| `dev.md` | Modify | §10.13 加 escort-business plan 落地记录 |
+| `migrations/0009_escort_availabilities.up.sql` | Create | orders 表修订（drop lock_owner/lock_expire_at + add selected_escort_id/escort_pending_expire_at + new CHECK + drop idx_orders_lock + add idx_orders_selecting）+ `escort_availabilities` 表 |
+| `migrations/0009_escort_availabilities.down.sql` | Create | 逆向（drop table + add columns back + restore old CHECK + restore old index） |
+| `migrations/migrations_test.go` | Modify | 加 `Test0009EscortAvailabilitiesUpDown`（列检查 + 索引 + CHECK + 时段冲突 DB 级演示） |
+| `services/escort/internal/availability/types.go` | Create | `Availability` struct + 状态常量 `StatusAvailable` / `StatusBooked` / `StatusCanceled` + 哨兵 `ErrNotFound` / `ErrConflict` / `ErrForbidden` / `ErrVersionConflict` |
+| `services/escort/internal/availability/state.go` | Create | 状态机 pure function（`CanTransition(from, action)` 与 `IsValid`）；3 态流转：`available → booked` / `available → canceled` / `booked → available` |
+| `services/escort/internal/availability/state_test.go` | Create | 状态机单测（合法 / 非法转换矩阵） |
+| `services/escort/internal/availability/repo.go` | Create | pgx 实现 `AvailabilityRepo`：`Create` / `GetByID` / `Delete` / `ListByEscort` / `ListAvailableByTime` / `ListByEscortInTimeRange` / `Update` / `BookByOrder` / `ReleaseByOrder` |
+| `services/escort/internal/availability/repo_integration_test.go` | Create | 集成测试（建表 + 写入 + 时段冲突 + 状态转换 + 反查） |
+| `services/escort/internal/availability/service.go` | Create | `AvailabilityService`：业务校验 + 时段冲突检查 + 调用 repo；`DeriveStatus(ctx, escortID)` 派生 |
+| `services/escort/internal/availability/service_test.go` | Create | service 单测（fake repo；覆盖冲突校验、过期时段过滤、拒绝取消已 booked、derive status 4 情形） |
+| `services/escort/internal/handler/escort_availability.go` | Create | `Handler` 扩展：5 个 endpoint（PUT/GET/DELETE /escorts/me/availability + GET /escorts/:id/availabilities + GET /escorts/me/invitations） |
+| `services/escort/internal/handler/escort_availability_test.go` | Create | handler 单测（httptest + fake service） |
+| `services/escort/internal/handler/escort.go` | Modify | `RegisterRoutes` 加挂 5 个 route |
+| `services/escort/internal/service/escort_service.go` | Modify | `GetMyProfile` 响应加 `availability_status` 字段（来自 `availability.Service.DeriveStatus`） |
+| `services/escort/internal/service/escort_service_test.go` | Modify | 加 1 个测试（profile 含 availability_status） |
+| `services/order/internal/integration/escort_availability.go` | Create | order-service ↔ escort-availability 集成层：`BookByOrder(ctx, slotID, orderID)` / `ReleaseByOrder(ctx, orderID)`；调 `availability.Service` |
+| `services/order/internal/integration/escort_availability_test.go` | Create | 集成层单测（fake availability service；验证幂等） |
+| `services/order/internal/service/order_service.go` | Modify | `ConfirmAccept` 在状态推进后调 `escortAvailability.BookByOrder(slotID, orderID)`；`ReleaseLockAndReject` 在状态回退后调 `escortAvailability.ReleaseByOrder(orderID)` |
+| `services/order/internal/service/order_service_test.go` | Modify | 加 2 个测试（ConfirmAccept 调 BookByOrder / Reject 调 ReleaseByOrder） |
+| `services/escort/cmd/main.go` | Modify | 装配 `availability.NewRepo(pool)` + `availability.NewService(repo)` + 注入 handler |
+| `services/order/cmd/main.go` | Modify | 装配 `integration.NewEscortAvailability(escortSvc)` |
+| `scripts/smoke-availability.sh` | Create | smoke（启动 escort/order + /healthz + 5 endpoint 401 拦截 + 邀请列表 200） |
+| `docs/04-业务流程.md` | Modify | §4.7 加「选人模式 + escort_availabilities」流程图 |
+| `dev.md` | Modify | §10.14 加 escort-business v2 落地记录 |
+
+> **基线**：escort-business v1 的 `escort_profiles` 11 态状态机、`health_certs` / `training_records`、`SetOnline` / `SetOffline`、GPS mock checkin/checkout 等均按既有 v1 实现落地（git history commit `docs(plan): v1 escort-business plan`）。本 plan 假设这些已落地；如未落地，需先执行 v1 计划。
 
 ---
 
-### Task 1: 数据库迁移（escort_profiles + health_certs + training_records）
+## Task 1: 0009 迁移（orders 修订 + escort_availabilities 表 + 集成测试）
 
 **Files:**
-- Create: `migrations/0006_escort_profiles.up.sql`
-- Create: `migrations/0006_escort_profiles.down.sql`
+- Create: `migrations/0009_escort_availabilities.up.sql`
+- Create: `migrations/0009_escort_availabilities.down.sql`
 - Modify: `migrations/migrations_test.go`
 
-**Step 1: 写集成测试**
+**Step 1: 写集成测试（RED）**
 
-在 `migrations_test.go` 末尾追加（参考既有 `Test0005SosRecordsUpDown` 风格）：
+在 `migrations_test.go` 末尾追加：
 
 ```go
-// Test0006EscortProfilesUpDown 验证 escort_profiles + health_certs + training_records
-// 三表 + CHECK + 索引 + down 可逆。
-func Test0006EscortProfilesUpDown(t *testing.T) {
+// Test0009EscortAvailabilitiesUpDown 验证 orders 修订（drop lock_owner/lock_expire_at,
+// add selected_escort_id/escort_pending_expire_at, new CHECK, idx_orders_selecting）+ 
+// escort_availabilities 表 + UNIQUE + 索引 + 时段 end_at > start_at CHECK。
+// 该迁移是 escort-business v2 与 order-matching-redesign 共用。
+func Test0009EscortAvailabilitiesUpDown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	conn, err := pgx.Connect(ctx, dsn())
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	// 先建 users + orders（escort_profiles 引用 users.id）
+	// 准备前置迁移（0001 users + 0002 orders + 0003 orders_state）。
 	for _, f := range []string{"0001_users.up.sql", "0002_orders.up.sql", "0003_orders_state.up.sql"} {
 		sql, _ := os.ReadFile(f)
 		_, err = conn.Exec(ctx, string(sql))
@@ -118,371 +120,319 @@ func Test0006EscortProfilesUpDown(t *testing.T) {
 			return
 		}
 		defer cleanConn.Close(cleanCtx)
-		for _, f := range []string{"0003_orders_state.down.sql", "0002_orders.down.sql", "0001_users.down.sql"} {
+		// down 顺序：0009 → 0003 → 0002 → 0001。
+		for _, f := range []string{"0009_escort_availabilities.down.sql", "0003_orders_state.down.sql", "0002_orders.down.sql", "0001_users.down.sql"} {
 			sql, _ := os.ReadFile(f)
 			_, _ = cleanConn.Exec(cleanCtx, string(sql))
 		}
 	})
 
-	applyUp(t, "0006_escort_profiles.up.sql", []string{"escort_profiles", "health_certs", "training_records"})
+	// 应用 up。
+	applyUp(t, "0009_escort_availabilities.up.sql", []string{"escort_availabilities"})
 
-	// 列检查：escort_profiles
-	for _, col := range []string{"id", "user_id", "state", "city", "rating", "version", "created_at", "updated_at"} {
-		var found bool
-		err := conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
-			               WHERE table_name='escort_profiles' AND column_name=$1)`, col).
-			Scan(&found)
-		require.NoError(t, err)
-		assert.True(t, found, "escort_profiles.%s should exist", col)
-	}
-
-	// 列检查：health_certs
-	for _, col := range []string{"id", "user_id", "filename", "sha256", "mime", "status", "created_at", "reviewed_at"} {
-		var found bool
-		err := conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
-			               WHERE table_name='health_certs' AND column_name=$1)`, col).
-			Scan(&found)
-		require.NoError(t, err)
-		assert.True(t, found, "health_certs.%s should exist", col)
-	}
-
-	// 列检查：training_records
-	for _, col := range []string{"id", "user_id", "course_id", "score", "passed", "completed_at"} {
-		var found bool
-		err := conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
-			               WHERE table_name='training_records' AND column_name=$1)`, col).
-			Scan(&found)
-		require.NoError(t, err)
-		assert.True(t, found, "training_records.%s should exist", col)
-	}
-
-	// 索引检查
-	for _, idx := range []string{"idx_escort_profiles_user", "idx_health_certs_user_created", "idx_training_records_user"} {
-		var idxExists bool
-		err = conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, idx).
-			Scan(&idxExists)
-		require.NoError(t, err)
-		assert.True(t, idxExists, "%s should exist", idx)
-	}
-
-	// CHECK 约束：state 11 态
-	var hasCheck bool
-	err = conn.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
-		               WHERE constraint_name LIKE 'escort_profiles_state_check')`).
-		Scan(&hasCheck)
-	require.NoError(t, err)
-	assert.True(t, hasCheck)
-
-	// down 校验
-	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer downCancel()
-	downSQL, err := os.ReadFile("0006_escort_profiles.down.sql")
-	require.NoError(t, err)
-	_, err = conn.Exec(downCtx, string(downSQL))
-	require.NoError(t, err, "apply 0006_escort_profiles.down.sql")
-
-	for _, tbl := range []string{"escort_profiles", "health_certs", "training_records"} {
+	// 检查 orders：lock_owner/lock_expire_at 已删除。
+	for _, removed := range []string{"lock_owner", "lock_expire_at"} {
 		var gone bool
-		err = conn.QueryRow(downCtx,
-			`SELECT NOT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name=$1)`, tbl).
+		err := conn.QueryRow(ctx,
+			`SELECT NOT EXISTS(SELECT 1 FROM information_schema.columns
+			                   WHERE table_name='orders' AND column_name=$1)`, removed).
 			Scan(&gone)
 		require.NoError(t, err)
-		assert.True(t, gone, "%s should be gone after down", tbl)
+		assert.True(t, gone, "orders.%s should be removed by 0009", removed)
 	}
+	// 检查 orders：selected_escort_id/escort_pending_expire_at 已加。
+	for _, added := range []string{"selected_escort_id", "escort_pending_expire_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			                   WHERE table_name='orders' AND column_name=$1)`, added).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "orders.%s should exist after 0009", added)
+	}
+	// 检查 orders 新 CHECK 包含 selecting_escort + escort_pending_acceptance。
+	var hasNewStates bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
+		               WHERE constraint_name='orders_status_check'
+		                 AND check_clause LIKE '%selecting_escort%'
+		                 AND check_clause LIKE '%escort_pending_acceptance%')`).
+		Scan(&hasNewStates)
+	require.NoError(t, err)
+	assert.True(t, hasNewStates, "orders.status_check should include new states")
+
+	// 检查 escort_availabilities 列。
+	for _, col := range []string{"id", "escort_id", "start_at", "end_at", "status", "order_id", "created_at", "updated_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			                   WHERE table_name='escort_availabilities' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "escort_availabilities.%s should exist", col)
+	}
+
+	// 检查 escort_availabilities status CHECK 3 态。
+	var hasStatusCheck bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
+		               WHERE constraint_name LIKE 'escort_availabilities_status_check'
+		                 AND check_clause LIKE '%available%'
+		                 AND check_clause LIKE '%booked%'
+		                 AND check_clause LIKE '%canceled%')`).
+		Scan(&hasStatusCheck)
+	require.NoError(t, err)
+	assert.True(t, hasStatusCheck)
+
+	// 检查 end_at > start_at CHECK。
+	var hasTimeCheck bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
+		               WHERE constraint_name LIKE 'escort_availabilities%'
+		                 AND check_clause LIKE '%end_at > start_at%')`).
+		Scan(&hasTimeCheck)
+	require.NoError(t, err)
+	assert.True(t, hasTimeCheck)
+
+	// 索引：idx_escort_avail_unique + idx_escort_avail_status_start。
+	for _, idx := range []string{"idx_escort_avail_unique", "idx_escort_avail_status_start", "idx_orders_selecting"} {
+		var exists bool
+		err = conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, idx).
+			Scan(&exists)
+		require.NoError(t, err)
+		assert.True(t, exists, "%s should exist", idx)
+	}
+	// 检查 idx_orders_lock 已删除。
+	var lockIdxGone bool
+	err = conn.QueryRow(ctx,
+		`SELECT NOT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname='idx_orders_lock')`).
+		Scan(&lockIdxGone)
+	require.NoError(t, err)
+	assert.True(t, lockIdxGone, "idx_orders_lock should be dropped by 0009")
+
+	// down 校验。
+	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer downCancel()
+	downSQL, err := os.ReadFile("0009_escort_availabilities.down.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(downCtx, string(downSQL))
+	require.NoError(t, err, "apply 0009_escort_availabilities.down.sql")
+
+	var tblGone bool
+	err = conn.QueryRow(downCtx,
+		`SELECT NOT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='escort_availabilities')`).
+		Scan(&tblGone)
+	require.NoError(t, err)
+	assert.True(t, tblGone, "escort_availabilities should be gone after down")
 }
 ```
 
 **Step 2: 跑测试确认失败**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -tags=integration -count=1 -run Test0006EscortProfilesUpDown ./migrations/
-```
-Expected: FAIL — `Test0006EscortProfilesUpDown` undefined
-
-**Step 3: 写 `0006_escort_profiles.up.sql`**
-
-```sql
--- 0006_escort_profiles.up.sql
--- 陪诊师档案主表 + 健康证 + 培训记录（评审 I-03 + escort-app P0 模块 1~3）。
--- 11 态状态机：registering / pending_real_name / pending_health_cert / pending_training /
---              pending_agreement / pending_audit / approved / rejected / online / in_service / offline
--- 与 escort-app-design.md §3.2 对齐；admin 审核通过/拒绝直接 UPDATE state。
-
-CREATE TABLE escort_profiles (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL UNIQUE REFERENCES users(id),
-  state VARCHAR(24) NOT NULL DEFAULT 'registering'
-    CHECK (state IN (
-      'registering','pending_real_name','pending_health_cert','pending_training',
-      'pending_agreement','pending_audit','approved','rejected',
-      'online','in_service','offline'
-    )),
-  city VARCHAR(64),
-  rating NUMERIC(3,2) NOT NULL DEFAULT 5.00,
-  bad_rate NUMERIC(5,4) NOT NULL DEFAULT 0.0000,
-  level VARCHAR(16) NOT NULL DEFAULT 'bronze',
-  version INT NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_escort_profiles_user ON escort_profiles(user_id);
-CREATE INDEX idx_escort_profiles_state ON escort_profiles(state, updated_at)
-  WHERE state IN ('online','in_service');
-
--- 健康证表：v1 存 hash + 文件名 + mime；不入 OSS。
--- status：pending（已上传待审）/ approved / rejected
-CREATE TABLE health_certs (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id),
-  filename VARCHAR(255) NOT NULL,
-  sha256 CHAR(64) NOT NULL,
-  mime VARCHAR(64) NOT NULL,
-  status VARCHAR(16) NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','approved','rejected')),
-  rejection_reason TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  reviewed_at TIMESTAMPTZ,
-  reviewed_by BIGINT REFERENCES users(id)
-);
-
--- 同一用户最新一条健康证（审核查"这个陪诊师现在挂的是哪张"）
-CREATE INDEX idx_health_certs_user_created ON health_certs(user_id, created_at DESC);
-CREATE INDEX idx_health_certs_status ON health_certs(status, created_at) WHERE status = 'pending';
-
--- 培训记录表：每次考核落 1 行（v1 题库固定，可重考）。
-CREATE TABLE training_records (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id),
-  course_id VARCHAR(32) NOT NULL,
-  score INT NOT NULL CHECK (score >= 0 AND score <= 100),
-  passed BOOLEAN NOT NULL,
-  answers JSONB NOT NULL,            -- [{"q":1,"a":"A"},...]
-  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 同一用户同课程通过记录（admin 查"通过了没"）
-CREATE INDEX idx_training_records_user ON training_records(user_id, course_id, completed_at DESC);
+  go test -tags=integration -count=1 -run Test0009EscortAvailabilitiesUpDown ./migrations/
 ```
 
-**Step 4: 写 `0006_escort_profiles.down.sql`**
+Expected: FAIL — `Test0009EscortAvailabilitiesUpDown` undefined + migration file missing.
+
+**Step 3: 写 `0009_escort_availabilities.up.sql`**
 
 ```sql
--- 0006_escort_profiles.down.sql
--- 撤销 0006：删索引 + 删表。
+-- 0009_escort_availabilities.up.sql
+-- 共享迁移：escort-business v2 (availability 管理) + order-matching-redesign (orders 表修订)。
+-- 单文件包含 orders 表结构变更 + 新表 escort_availabilities；下游 plan 不再单独改 orders。
 
-DROP INDEX IF EXISTS idx_training_records_user;
-DROP INDEX IF EXISTS idx_health_certs_status;
-DROP INDEX IF EXISTS idx_health_certs_user_created;
-DROP INDEX IF EXISTS idx_escort_profiles_state;
-DROP INDEX IF EXISTS idx_escort_profiles_user;
+-- ========== orders 表修订 ==========
+ALTER TABLE orders
+  DROP COLUMN IF EXISTS lock_owner,
+  DROP COLUMN IF EXISTS lock_expire_at;
 
-DROP TABLE IF EXISTS training_records;
-DROP TABLE IF EXISTS health_certs;
-DROP TABLE IF EXISTS escort_profiles;
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS selected_escort_id BIGINT REFERENCES users(id),
+  ADD COLUMN IF NOT EXISTS escort_pending_expire_at TIMESTAMPTZ;
+
+-- 替换 CHECK 约束（包含新状态 selecting_escort / escort_pending_acceptance）。
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
+ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN (
+  'created','paid','matching','selecting_escort','escort_pending_acceptance','accepted',
+  'in_service','completed','reviewed','refunding','refunded','settling','disputed',
+  'closed','canceled'
+));
+
+-- 索引：候选扫描 + 待确认扫描（替代 idx_orders_lock）。
+DROP INDEX IF EXISTS idx_orders_lock;
+CREATE INDEX idx_orders_selecting ON orders(service_start_at)
+  WHERE status IN ('selecting_escort','escort_pending_acceptance');
+
+-- ========== escort_availabilities 新表 ==========
+CREATE TABLE escort_availabilities (
+  id BIGSERIAL PRIMARY KEY,
+  escort_id BIGINT NOT NULL REFERENCES users(id),
+  start_at TIMESTAMPTZ NOT NULL,
+  end_at TIMESTAMPTZ NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'available'
+    CHECK (status IN ('available','booked','canceled')),
+  order_id BIGINT REFERENCES orders(id),  -- 仅在 status='booked' 时必填
+  version INT NOT NULL DEFAULT 0,          -- 乐观锁
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (end_at > start_at)
+);
+
+-- 同 escort 不允许相同 start_at（DB 级防护）。
+CREATE UNIQUE INDEX idx_escort_avail_unique ON escort_availabilities(escort_id, start_at);
+
+-- 候选匹配查询：available 状态 + 时间窗口过滤（部分索引）。
+CREATE INDEX idx_escort_avail_status_start ON escort_availabilities(status, start_at)
+  WHERE status = 'available';
+
+-- 按 escort + 时间窗查询（公开端点 + 邀请列表）。
+CREATE INDEX idx_escort_avail_escort_time ON escort_availabilities(escort_id, start_at);
+```
+
+> **注**：时段区间重叠（`start_at < new_end AND end_at > new_start`）由 service 层校验（DB 无法用 UNIQUE 约束直接表达重叠区间）；典型做法是在 service 内 `SELECT EXISTS` 后再做 INSERT。
+
+**Step 4: 写 `0009_escort_availabilities.down.sql`**
+
+```sql
+-- 0009_escort_availabilities.down.sql
+-- 撤销 0009：删 escort_availabilities 表 + 索引；恢复 orders 旧结构。
+
+DROP INDEX IF EXISTS idx_escort_avail_escort_time;
+DROP INDEX IF EXISTS idx_escort_avail_status_start;
+DROP INDEX IF EXISTS idx_escort_avail_unique;
+DROP TABLE IF EXISTS escort_availabilities;
+
+-- 恢复 orders 旧结构（与 0003 一致）。
+DROP INDEX IF EXISTS idx_orders_selecting;
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
+ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN (
+  'created','paid','matching','pending_acceptance','accepted','in_service',
+  'completed','reviewed','refunding','refunded','settling','disputed',
+  'closed','canceled'
+));
+CREATE INDEX idx_orders_lock ON orders(lock_expire_at)
+  WHERE lock_owner IS NOT NULL;
+
+ALTER TABLE orders
+  DROP COLUMN IF EXISTS selected_escort_id,
+  DROP COLUMN IF EXISTS escort_pending_expire_at,
+  ADD COLUMN IF NOT EXISTS lock_owner BIGINT REFERENCES users(id),
+  ADD COLUMN IF NOT EXISTS lock_expire_at TIMESTAMPTZ;
 ```
 
 **Step 5: 跑测试确认通过**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -tags=integration -count=1 -run Test0006EscortProfilesUpDown ./migrations/
+  go test -tags=integration -count=1 -run Test0009EscortAvailabilitiesUpDown ./migrations/
 ```
+
 Expected: PASS
 
 **Step 6: Commit**
 
 ```bash
 git add migrations/
-git commit -m "feat(migrations): 0006 escort_profiles + health_certs + training_records (11 态 CHECK + 3 表 + 集成测试)"
+git commit -m "feat(migrations): 0009 orders 修订 (drop lock_owner/add selected_escort_id) + escort_availabilities 表 (3 态 CHECK + UNIQUE + 集成测试)"
 ```
 
 ---
 
-### Task 2: 陪诊师状态机 pure function
+## Task 2: AvailabilityRepo（pgx 数据访问 + 乐观锁 + 集成测试）
 
 **Files:**
-- Create: `services/escort/internal/state/machine.go`
-- Create: `services/escort/internal/state/machine_test.go`
+- Create: `services/escort/internal/availability/types.go`
+- Create: `services/escort/internal/availability/state.go`
+- Create: `services/escort/internal/availability/state_test.go`
+- Create: `services/escort/internal/availability/repo.go`
+- Create: `services/escort/internal/availability/repo_integration_test.go`
 
-**Step 1: 写单测（RED）**
+**Step 1: 写 types.go + state.go + 状态机单测（RED）**
 
-`services/escort/internal/state/machine_test.go`：
+`services/escort/internal/availability/types.go`：
 
 ```go
-package state
+// Package availability 实现陪诊师时段管理（escort-business v2 + order-matching-redesign 共用）。
+//
+// 职责：
+//   - state：纯函数状态机（3 态转换白名单）。
+//   - repo：pgx 数据访问（无业务校验，仅 CRUD + 乐观锁 + 时间过滤）。
+//   - service：业务校验层（时段冲突 / 时间合法性 / 状态转换守卫）+ 派生状态 DeriveStatus。
+//   - handler：HTTP 入口（5 个 endpoint）。
+package availability
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
+	"errors"
+	"time"
 )
 
-// TestCanTransition_Legal 验证所有合法转换（11 态 × 主路径）。
-func TestCanTransition_Legal(t *testing.T) {
-	legal := []struct {
-		from, action string
-	}{
-		// 注册流（注册后即转 pending_real_name）
-		{"registering", "submit_real_name"},
-		{"pending_real_name", "real_name_approved"},
-		{"pending_health_cert", "health_cert_approved"},
-		{"pending_training", "training_passed"},
-		{"pending_agreement", "agreement_signed"},
-		{"pending_audit", "audit_approved"},
-		{"pending_audit", "audit_rejected"},
-		// admin 审核后的二跳
-		{"approved", "go_online"},
-		{"approved", "go_offline"},
-		{"online", "go_offline"},
-		{"online", "in_service_start"},
-		{"in_service", "service_done"},
-		{"in_service", "go_offline"},
-		// 审核拒绝后重新提交
-		{"rejected", "resubmit_health_cert"},
-	}
-	for _, c := range legal {
-		assert.True(t, CanTransition(c.from, c.action),
-			"%s --%s--> ? should be legal", c.from, c.action)
-	}
+// Availability 映射 escort_availabilities 表行。
+type Availability struct {
+	ID        int64
+	EscortID  int64
+	StartAt   time.Time
+	EndAt     time.Time
+	Status    string // "available" | "booked" | "canceled"
+	OrderID   *int64 // 仅 booked 时非空
+	Version   int    // 乐观锁
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-// TestCanTransition_Illegal 验证非法转换被拒。
-func TestCanTransition_Illegal(t *testing.T) {
-	illegal := []struct {
-		from, action string
-	}{
-		// 跳级
-		{"registering", "go_online"},           // 不能跳过实名
-		{"pending_real_name", "go_online"},     // 不能跳过健康证
-		// 倒序
-		{"approved", "submit_real_name"},
-		// 终态再转换
-		{"offline", "go_online"}, // offline → online 需经 approved 中间，单独测
-		// 角色错位
-		{"pending_real_name", "audit_approved"}, // 没经过健康证 / 培训 / 签署
-		// 未知动作
-		{"registering", "unknown_action"},
-	}
-	for _, c := range illegal {
-		assert.False(t, CanTransition(c.from, c.action),
-			"%s --%s--> ? should be illegal", c.from, c.action)
-	}
-}
+// 3 态状态常量（与 DB CHECK 对齐）。
+const (
+	StatusAvailable = "available"
+	StatusBooked    = "booked"
+	StatusCanceled  = "canceled"
+)
 
-// TestOffline_ToOnline_RequiresApproved 验证 offline → online 必须先 approved。
-func TestOffline_ToOnline_RequiresApproved(t *testing.T) {
-	assert.True(t, CanTransition("approved", "go_online"))
-	assert.False(t, CanTransition("offline", "go_online"))
-}
+// 哨兵错误（service / handler 用 errors.Is 区分）。
+var (
+	ErrNotFound        = errors.New("availability: not found")
+	ErrSlotNotAvail    = errors.New("availability: slot not in available status")
+	ErrVersionConflict = errors.New("availability: version conflict")
+)
 
-// TestAllStates_HaveAtLeastOneTransition 验证 11 态都注册。
-func TestAllStates_HaveAtLeastOneTransition(t *testing.T) {
-	all := []string{
-		"registering", "pending_real_name", "pending_health_cert", "pending_training",
-		"pending_agreement", "pending_audit", "approved", "rejected",
-		"online", "in_service", "offline",
-	}
-	for _, s := range all {
-		assert.True(t, IsValid(s), "state %s should be valid", s)
-	}
-}
+// 业务错误（service 层返回，handler 映射业务码）。
+var (
+	ErrConflict  = errors.New("availability: time slot overlaps existing one")
+	ErrBadRange  = errors.New("availability: start_at must be in future and end_at > start_at")
+	ErrForbidden = errors.New("availability: operation forbidden by state machine")
+)
 ```
 
-**Step 2: 跑测试确认失败**
-
-Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 ./services/escort/internal/state/
-```
-Expected: FAIL — `state` package not exists
-
-**Step 3: 写 machine.go**
-
-`services/escort/internal/state/machine.go`：
+`services/escort/internal/availability/state.go`：
 
 ```go
-// Package state 实现陪诊师档案状态机（pure function）。
+package availability
+
+// 状态机：3 态白名单。
 //
-// 设计要点：
-//   - State 用 string 常量，与 DB CHECK 约束对齐。
-//   - transitions 是静态白名单；CanTransition 是纯函数，无副作用、易测试。
-//   - 状态机变更的副作用（写 order_events、发 Kafka）由 service 层负责，
-//     本包只回答"这个动作能不能做"。
+//   available → booked       （escort-business BookByOrder / 患者 confirm）
+//   available → canceled     （escort 主动取消时段）
+//   booked → available       （订单 release / canceled / 系统 cancel）
+//   canceled → available     （escort 重新启用 canceled 时段，v1 可选）
 //
-// 11 态流转：
-//   registering → pending_real_name → pending_health_cert → pending_training
-//   → pending_agreement → pending_audit → approved/rejected → online/offline
-//   online → in_service → online/offline
-package state
-
-// State 是陪诊师档案状态枚举，与 escort_profiles.state CHECK 对齐。
-type State string
-
-const (
-	StateRegistering        State = "registering"
-	StatePendingRealName    State = "pending_real_name"
-	StatePendingHealthCert  State = "pending_health_cert"
-	StatePendingTraining    State = "pending_training"
-	StatePendingAgreement   State = "pending_agreement"
-	StatePendingAudit       State = "pending_audit"
-	StateApproved           State = "approved"
-	StateRejected           State = "rejected"
-	StateOnline             State = "online"
-	StateInService          State = "in_service"
-	StateOffline            State = "offline"
-)
-
-// transitions[from][action] = to。空 map 表示"这个状态不允许此动作"。
-var transitions = map[State]map[string]State{
-	StateRegistering: {
-		"submit_real_name": StatePendingRealName,
+// booked → canceled / canceled → booked 非法；状态一旦 canceled 终态优先。
+var transitions = map[string]map[string]string{
+	StatusAvailable: {
+		"book":      StatusBooked,
+		"cancel":    StatusCanceled,
+		"reactivate": StatusAvailable, // 幂等
 	},
-	StatePendingRealName: {
-		"real_name_approved": StatePendingHealthCert,
+	StatusBooked: {
+		"release": StatusAvailable,
 	},
-	StatePendingHealthCert: {
-		"health_cert_approved": StatePendingTraining,
+	StatusCanceled: {
+		"reactivate": StatusAvailable,
 	},
-	StatePendingTraining: {
-		"training_passed": StatePendingAgreement,
-	},
-	StatePendingAgreement: {
-		"agreement_signed": StatePendingAudit,
-	},
-	StatePendingAudit: {
-		"audit_approved": StateApproved,
-		"audit_rejected": StateRejected,
-	},
-	StateRejected: {
-		"resubmit_health_cert": StatePendingHealthCert,
-	},
-	StateApproved: {
-		"go_online":  StateOnline,
-		"go_offline": StateOffline,
-	},
-	StateOnline: {
-		"go_offline":    StateOffline,
-		"in_service_start": StateInService,
-	},
-	StateInService: {
-		"service_done": StateOnline,
-		"go_offline":   StateOffline,
-	},
-	StateOffline: {}, // 终态（重新上线需先 approved，admin plan 可重置 approved）
 }
 
-// CanTransition 判定 from 下执行 action 是否合法；返回 true 时附带目标状态。
-func CanTransition(from State, action string) (State, bool) {
+// CanTransition 判定 from 下执行 action 是否合法；返回目标状态与 ok。
+func CanTransition(from, action string) (string, bool) {
 	m, ok := transitions[from]
 	if !ok {
 		return "", false
@@ -491,64 +441,314 @@ func CanTransition(from State, action string) (State, bool) {
 	return to, ok
 }
 
-// IsValid 检查字符串是否为合法的 State 值。
-func IsValid(s State) bool {
+// IsValid 检查字符串是否为合法的 3 态值。
+func IsValid(s string) bool {
 	_, ok := transitions[s]
 	return ok
 }
+```
 
-// AllStates 返回全部 11 态（调试 / 文档用）。
-func AllStates() []State {
-	return []State{
-		StateRegistering, StatePendingRealName, StatePendingHealthCert, StatePendingTraining,
-		StatePendingAgreement, StatePendingAudit, StateApproved, StateRejected,
-		StateOnline, StateInService, StateOffline,
+`services/escort/internal/availability/state_test.go`：
+
+```go
+package availability
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+// TestCanTransition_Legal 验证合法转换。
+func TestCanTransition_Legal(t *testing.T) {
+	legal := []struct{ from, action string }{
+		{StatusAvailable, "book"},
+		{StatusAvailable, "cancel"},
+		{StatusAvailable, "reactivate"}, // 幂等
+		{StatusBooked, "release"},
+		{StatusCanceled, "reactivate"},
 	}
+	for _, c := range legal {
+		_, ok := CanTransition(c.from, c.action)
+		assert.True(t, ok, "%s --%s--> should be legal", c.from, c.action)
+	}
+}
+
+// TestCanTransition_Illegal 验证非法转换被拒。
+func TestCanTransition_Illegal(t *testing.T) {
+	illegal := []struct{ from, action string }{
+		{StatusBooked, "cancel"},      // booked 不能直接 canceled（必须先 release）
+		{StatusCanceled, "book"},      // canceled 不能直接 booked（必须先 reactivate）
+		{StatusCanceled, "release"},   // canceled 无 release 语义
+		{"unknown_state", "book"},     // 未知状态
+		{StatusAvailable, "unknown"},  // 未知动作
+	}
+	for _, c := range illegal {
+		_, ok := CanTransition(c.from, c.action)
+		assert.False(t, ok, "%s --%s--> should be illegal", c.from, c.action)
+	}
+}
+
+// TestIsValid 验证 3 态字符串识别。
+func TestIsValid(t *testing.T) {
+	assert.True(t, IsValid(StatusAvailable))
+	assert.True(t, IsValid(StatusBooked))
+	assert.True(t, IsValid(StatusCanceled))
+	assert.False(t, IsValid("on_duty"))
 }
 ```
 
-> **注**：单测里 `assert.True(t, CanTransition(c.from, c.action))` 与新签名 `(State, bool)` 不匹配；实施时把单测改为：
->
-> ```go
-> _, ok := CanTransition(c.from, c.action)
-> assert.True(t, ok, ...)
-> ```
->
-> 同步调整 `TestCanTransition_Illegal` 用 `_, ok := ...; assert.False(t, ok)`。
+**Step 2: 跑测试确认失败**
 
-**Step 4: 跑测试确认通过**
-
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 ./services/escort/internal/state/
-```
-Expected: PASS（4 个测试）
-
-**Step 5: Commit**
-
-```bash
-git add services/escort/internal/state/
-git commit -m "feat(escort): 陪诊师 11 态状态机 (registering→approved→online/offline) + 4 个单测"
+  go test -count=1 ./services/escort/internal/availability/
 ```
 
----
+Expected: FAIL — package not exists.
 
-### Task 3: profile_repo（pgx 实现 + 哨兵错误 + 集成测试）
+**Step 3: 写 repo.go**
 
-**Files:**
-- Create: `services/escort/internal/repo/profile_repo.go`
-- Create: `services/escort/internal/repo/profile_repo_integration_test.go`
+`services/escort/internal/availability/repo.go`：
 
-**Step 1: 写集成测试（RED）**
+```go
+package availability
 
-`services/escort/internal/repo/profile_repo_integration_test.go`：
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// AvailabilityRepo 是 escort_availabilities 表的数据访问层。
+//
+// 设计要点：
+//   - 不做业务校验（时段冲突 / 时间合法性由 service 层负责）。
+//   - 状态推进通过专用方法（BookByOrder / ReleaseByOrder），不暴露开放 UPDATE。
+//   - 乐观锁：所有写操作要求 expected_version，冲突返回 ErrVersionConflict。
+type AvailabilityRepo struct {
+	pool *pgxpool.Pool
+}
+
+// NewRepo 构造仓储。
+func NewRepo(pool *pgxpool.Pool) *AvailabilityRepo { return &AvailabilityRepo{pool: pool} }
+
+// HasOverlap 检测同一 escort 是否有时间重叠的时段（不含自身 id + 状态非 canceled）。
+// 业务校验用：service.Create / Update 时调用。
+func (r *AvailabilityRepo) HasOverlap(ctx context.Context, escortID int64, startAt, endAt time.Time, excludeID int64) (bool, error) {
+	const q = `
+		SELECT EXISTS (
+		  SELECT 1 FROM escort_availabilities
+		   WHERE escort_id = $1
+		     AND id <> $2
+		     AND status <> 'canceled'
+		     AND start_at < $4  -- existing.start_at < new.end_at
+		     AND end_at   > $3  -- existing.end_at   > new.start_at
+		)`
+	var ok bool
+	err := r.pool.QueryRow(ctx, q, escortID, excludeID, startAt, endAt).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("has overlap: %w", err)
+	}
+	return ok, nil
+}
+
+// Create 插入一条 available 时段；ID / Version / CreatedAt / UpdatedAt 由 DB 回写。
+func (r *AvailabilityRepo) Create(ctx context.Context, a *Availability) error {
+	const q = `
+		INSERT INTO escort_availabilities (escort_id, start_at, end_at, status)
+		VALUES ($1, $2, $3, 'available')
+		RETURNING id, version, created_at, updated_at`
+	return r.pool.QueryRow(ctx, q, a.EscortID, a.StartAt, a.EndAt).Scan(
+		&a.ID, &a.Version, &a.CreatedAt, &a.UpdatedAt,
+	)
+}
+
+// GetByID 按 ID 查询；不存在返回 (nil, ErrNotFound)。
+func (r *AvailabilityRepo) GetByID(ctx context.Context, id int64) (*Availability, error) {
+	const q = `
+		SELECT id, escort_id, start_at, end_at, status, order_id, version, created_at, updated_at
+		FROM escort_availabilities WHERE id = $1`
+	a, err := scanOne(ctx, r.pool, q, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get by id: %w", err)
+	}
+	return a, nil
+}
+
+// Delete 物理删除；service 层需先校验 status='available'。
+func (r *AvailabilityRepo) Delete(ctx context.Context, id int64) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM escort_availabilities WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListByEscort 按 escort + status 过滤；status 为空字符串时不按状态过滤。
+func (r *AvailabilityRepo) ListByEscort(ctx context.Context, escortID int64, status string) ([]*Availability, error) {
+	const q = `
+		SELECT id, escort_id, start_at, end_at, status, order_id, version, created_at, updated_at
+		FROM escort_availabilities
+		WHERE escort_id = $1 AND ($2 = '' OR status = $2)
+		ORDER BY start_at ASC`
+	return r.listWithArgs(ctx, q, escortID, status)
+}
+
+// ListAvailableByTime 查 status='available' 且时间窗口重叠（new.start..new.end）的时段。
+// 用于：候选取 Top N（match-service 调用）+ 公开 endpoint（按 escort_id 过滤由调用方拼 WHERE）。
+func (r *AvailabilityRepo) ListAvailableByTime(ctx context.Context, startAt, endAt time.Time) ([]*Availability, error) {
+	const q = `
+		SELECT id, escort_id, start_at, end_at, status, order_id, version, created_at, updated_at
+		FROM escort_availabilities
+		WHERE status = 'available'
+		  AND start_at < $2
+		  AND end_at   > $1
+		ORDER BY start_at ASC`
+	return r.listWithArgs(ctx, q, startAt, endAt)
+}
+
+// ListByEscortInTimeRange 查某 escort 在指定时间窗内重叠的时段（status='available'）。
+func (r *AvailabilityRepo) ListByEscortInTimeRange(ctx context.Context, escortID int64, startAt, endAt time.Time) ([]*Availability, error) {
+	const q = `
+		SELECT id, escort_id, start_at, end_at, status, order_id, version, created_at, updated_at
+		FROM escort_availabilities
+		WHERE escort_id = $1
+		  AND status = 'available'
+		  AND start_at < $3
+		  AND end_at   > $2
+		ORDER BY start_at ASC`
+	return r.listWithArgs(ctx, q, escortID, startAt, endAt)
+}
+
+// Update 修改时段（start_at / end_at），仅 available 可改；version 必传；冲突返回 ErrVersionConflict。
+func (r *AvailabilityRepo) Update(ctx context.Context, id int64, escortID int64, startAt, endAt time.Time, expectedVersion int) error {
+	const q = `
+		UPDATE escort_availabilities
+		   SET start_at = $1, end_at = $2, version = version + 1, updated_at = NOW()
+		 WHERE id = $3 AND escort_id = $4 AND status = 'available' AND version = $5`
+	tag, err := r.pool.Exec(ctx, q, startAt, endAt, id, escortID, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// 区分：不存在 / 非 available / version 冲突 → 进一步探测
+		a, gErr := r.GetByID(ctx, id)
+		if gErr != nil {
+			return ErrNotFound
+		}
+		if a.Version != expectedVersion {
+			return ErrVersionConflict
+		}
+		return ErrSlotNotAvail
+	}
+	return nil
+}
+
+// BookByOrder 标记时段为 booked + 写 order_id（service 已确认 status='available' + 乐观锁）。
+func (r *AvailabilityRepo) BookByOrder(ctx context.Context, id int64, escortID int64, orderID int64, expectedVersion int) error {
+	const q = `
+		UPDATE escort_availabilities
+		   SET status = 'booked', order_id = $1, version = version + 1, updated_at = NOW()
+		 WHERE id = $2 AND escort_id = $3 AND status = 'available' AND version = $4`
+	tag, err := r.pool.Exec(ctx, q, orderID, id, escortID, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("book: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		a, gErr := r.GetByID(ctx, id)
+		if gErr != nil {
+			return ErrNotFound
+		}
+		if a.Version != expectedVersion {
+			return ErrVersionConflict
+		}
+		return ErrSlotNotAvail
+	}
+	return nil
+}
+
+// ReleaseByOrder 把 order_id 关联的 booked 时段恢复为 available；幂等（无 order_id 时不报错）。
+func (r *AvailabilityRepo) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	const q = `
+		UPDATE escort_availabilities
+		   SET status = 'available', order_id = NULL, version = version + 1, updated_at = NOW()
+		 WHERE order_id = $1 AND status = 'booked'`
+	_, err := r.pool.Exec(ctx, q, orderID)
+	if err != nil {
+		return fmt.Errorf("release: %w", err)
+	}
+	return nil
+}
+
+// CountAvailableForEscort 计数某 escort 当前可用的时段（end_at > now）。
+// 用于 DeriveStatus 派生：> 0 → available，否则 busy。
+func (r *AvailabilityRepo) CountAvailableForEscort(ctx context.Context, escortID int64) (int, error) {
+	const q = `
+		SELECT COUNT(*) FROM escort_availabilities
+		WHERE escort_id = $1 AND status = 'available' AND end_at > NOW()`
+	var n int
+	err := r.pool.QueryRow(ctx, q, escortID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count available: %w", err)
+	}
+	return n, nil
+}
+
+// ---------- helpers ----------
+
+func scanOne(ctx context.Context, p *pgxpool.Pool, q string, args ...any) (*Availability, error) {
+	a := &Availability{}
+	err := p.QueryRow(ctx, q, args...).Scan(
+		&a.ID, &a.EscortID, &a.StartAt, &a.EndAt, &a.Status, &a.OrderID,
+		&a.Version, &a.CreatedAt, &a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (r *AvailabilityRepo) listWithArgs(ctx context.Context, q string, args ...any) ([]*Availability, error) {
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*Availability, 0)
+	for rows.Next() {
+		a := &Availability{}
+		if err := rows.Scan(
+			&a.ID, &a.EscortID, &a.StartAt, &a.EndAt, &a.Status, &a.OrderID,
+			&a.Version, &a.CreatedAt, &a.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+```
+
+**Step 4: 写 repo_integration_test.go**
+
+`services/escort/internal/availability/repo_integration_test.go`：
 
 ```go
 //go:build integration
 // +build integration
 
-package repo
+package availability
 
 import (
 	"context"
@@ -568,9 +768,8 @@ func testDSN() string {
 	return "postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable"
 }
 
-// setupPool 起连接池并准备 users + escort_profiles + health_certs + training_records 表。
-// 复用 migrations 0001/0006（+ 0002/0003 简化起见）。
-func setupPool(t *testing.T) *pgxpool.Pool {
+// setupAvailPool 起连接池 + 建 users + 跑 0009 up（创 escort_availabilities）。
+func setupAvailPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -578,1413 +777,887 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 	pool, err := pgxpool.New(ctx, testDSN())
 	require.NoError(t, err, "connect pg")
 
-	_, err = pool.Exec(ctx, `
-		DROP TABLE IF EXISTS training_records CASCADE;
-		DROP TABLE IF EXISTS health_certs CASCADE;
-		DROP TABLE IF EXISTS escort_profiles CASCADE;
-		DROP TABLE IF EXISTS order_events;
-		DROP TABLE IF EXISTS orders;
-		DROP TABLE IF EXISTS users;
-		CREATE TABLE users (
-		  id BIGSERIAL PRIMARY KEY,
-		  phone VARCHAR(20) UNIQUE NOT NULL,
-		  role VARCHAR(16) NOT NULL CHECK (role IN ('patient','escort','admin')),
-		  real_name_verified BOOLEAN NOT NULL DEFAULT FALSE,
-		  wx_unionid VARCHAR(64),
-		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  deleted_at TIMESTAMPTZ
-		);
-		CREATE TABLE escort_profiles (
-		  id BIGSERIAL PRIMARY KEY,
-		  user_id BIGINT NOT NULL UNIQUE REFERENCES users(id),
-		  state VARCHAR(24) NOT NULL DEFAULT 'registering'
-		    CHECK (state IN (
-		      'registering','pending_real_name','pending_health_cert','pending_training',
-		      'pending_agreement','pending_audit','approved','rejected',
-		      'online','in_service','offline'
-		    )),
-		  city VARCHAR(64),
-		  rating NUMERIC(3,2) NOT NULL DEFAULT 5.00,
-		  bad_rate NUMERIC(5,4) NOT NULL DEFAULT 0.0000,
-		  level VARCHAR(16) NOT NULL DEFAULT 'bronze',
-		  version INT NOT NULL DEFAULT 0,
-		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-		CREATE TABLE health_certs (
-		  id BIGSERIAL PRIMARY KEY,
-		  user_id BIGINT NOT NULL REFERENCES users(id),
-		  filename VARCHAR(255) NOT NULL,
-		  sha256 CHAR(64) NOT NULL,
-		  mime VARCHAR(64) NOT NULL,
-		  status VARCHAR(16) NOT NULL DEFAULT 'pending'
-		    CHECK (status IN ('pending','approved','rejected')),
-		  rejection_reason TEXT,
-		  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  reviewed_at TIMESTAMPTZ,
-		  reviewed_by BIGINT REFERENCES users(id)
-		);
-		CREATE TABLE training_records (
-		  id BIGSERIAL PRIMARY KEY,
-		  user_id BIGINT NOT NULL REFERENCES users(id),
-		  course_id VARCHAR(32) NOT NULL,
-		  score INT NOT NULL CHECK (score >= 0 AND score <= 100),
-		  passed BOOLEAN NOT NULL,
-		  answers JSONB NOT NULL,
-		  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-	`)
-	require.NoError(t, err, "create tables")
+	// 应用 0001 + 0009（orders 旧版由 down 段恢复）。
+	for _, f := range []string{"0001_users.up.sql", "0002_orders.up.sql", "0003_orders_state.up.sql", "0009_escort_availabilities.up.sql"} {
+		sql, err := os.ReadFile(f)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(sql))
+		require.NoError(t, err, "apply %s", f)
+	}
 
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `
-			DROP TABLE IF EXISTS training_records;
-			DROP TABLE IF EXISTS health_certs;
-			DROP TABLE IF EXISTS escort_profiles;
-			DROP TABLE IF EXISTS order_events;
-			DROP TABLE IF EXISTS orders;
-			DROP TABLE IF EXISTS users;
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanCancel()
+		_, _ = pool.Exec(cleanCtx, `
+			DROP TABLE IF EXISTS escort_availabilities CASCADE;
+			DROP INDEX IF EXISTS idx_orders_selecting;
+			ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
+			ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN (
+			  'created','paid','matching','pending_acceptance','accepted','in_service',
+			  'completed','reviewed','refunding','refunded','settling','disputed',
+			  'closed','canceled'
+			));
+			CREATE INDEX idx_orders_lock ON orders(lock_expire_at) WHERE lock_owner IS NOT NULL;
+			ALTER TABLE orders
+			  DROP COLUMN IF EXISTS selected_escort_id,
+			  DROP COLUMN IF EXISTS escort_pending_expire_at,
+			  ADD COLUMN IF NOT EXISTS lock_owner BIGINT REFERENCES users(id),
+			  ADD COLUMN IF NOT EXISTS lock_expire_at TIMESTAMPTZ;
+			DROP TABLE IF EXISTS orders CASCADE;
+			DROP TABLE IF EXISTS users CASCADE;
 		`)
 		pool.Close()
 	})
 	return pool
 }
 
-func seedUser(t *testing.T, pool *pgxpool.Pool, phone, role string) int64 {
+// seedEscortUser 插一个 escort 用户；返回 user_id。
+func seedEscortUser(t *testing.T, pool *pgxpool.Pool, phone string) int64 {
 	t.Helper()
 	var id int64
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO users (phone, role) VALUES ($1, $2) RETURNING id`, phone, role).Scan(&id)
+		`INSERT INTO users (phone, role) VALUES ($1, 'escort') RETURNING id`, phone).Scan(&id)
 	require.NoError(t, err)
 	return id
 }
 
-// TestProfileRepo_CreateAndGetByUser 验证创建 + 按 user_id 查询。
-func TestProfileRepo_CreateAndGetByUser(t *testing.T) {
-	pool := setupPool(t)
-	userID := seedUser(t, pool, "13800138000", "escort")
-	r := NewProfileRepo(pool)
+// TestRepo_CreateAndGet_OK 验证插入 + GetByID。
+func TestRepo_CreateAndGet_OK(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138001")
+	r := NewRepo(pool)
 
-	p := &Profile{UserID: userID, State: "registering"}
-	require.NoError(t, r.Create(context.Background(), p))
-	assert.NotZero(t, p.ID)
-	assert.NotZero(t, p.Version)
+	a := &Availability{
+		EscortID: escortID,
+		StartAt:  time.Now().Add(2 * time.Hour).Truncate(time.Second),
+		EndAt:    time.Now().Add(4 * time.Hour).Truncate(time.Second),
+	}
+	require.NoError(t, r.Create(context.Background(), a))
+	assert.NotZero(t, a.ID)
+	assert.NotZero(t, a.Version)
+	assert.Equal(t, StatusAvailable, a.Status)
 
-	got, err := r.GetByUserID(context.Background(), userID)
+	got, err := r.GetByID(context.Background(), a.ID)
 	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, p.ID, got.ID)
-	assert.Equal(t, "registering", got.State)
+	assert.Equal(t, a.StartAt.Unix(), got.StartAt.Unix())
+	assert.Equal(t, a.EndAt.Unix(), got.EndAt.Unix())
 }
 
-// TestProfileRepo_GetByUser_None 验证用户无 escort_profile 时返回 nil。
-func TestProfileRepo_GetByUser_None(t *testing.T) {
-	pool := setupPool(t)
-	r := NewProfileRepo(pool)
-	got, err := r.GetByUserID(context.Background(), 99999)
+// TestRepo_HasOverlap_DetectsOverlap 验证时间重叠检测。
+func TestRepo_HasOverlap_DetectsOverlap(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138002")
+	r := NewRepo(pool)
+	base := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+
+	// 第一条 14:00~18:00。
+	a1 := &Availability{EscortID: escortID, StartAt: base, EndAt: base.Add(4 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a1))
+
+	// 探测 15:00~16:00（完全重叠）。
+	overlap, err := r.HasOverlap(context.Background(), escortID,
+		base.Add(time.Hour), base.Add(2*time.Hour), 0)
 	require.NoError(t, err)
-	assert.Nil(t, got)
+	assert.True(t, overlap)
+
+	// 探测 18:00~20:00（边界不重叠）。end_at=18:00 与 a1.end_at 相邻。
+	noOverlap, err := r.HasOverlap(context.Background(), escortID,
+		base.Add(4*time.Hour), base.Add(6*time.Hour), 0)
+	require.NoError(t, err)
+	assert.False(t, noOverlap, "adjacent time ranges should not overlap")
 }
 
-// TestProfileRepo_UpdateState_OK 验证状态推进 + version 自增。
-func TestProfileRepo_UpdateState_OK(t *testing.T) {
-	pool := setupPool(t)
-	userID := seedUser(t, pool, "13800138001", "escort")
-	r := NewProfileRepo(pool)
+// TestRepo_HasOverlap_IgnoresCanceled 验证 canceled 时段不参与重叠判定。
+func TestRepo_HasOverlap_IgnoresCanceled(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138003")
+	r := NewRepo(pool)
+	base := time.Now().Add(2 * time.Hour).Truncate(time.Second)
 
-	p := &Profile{UserID: userID, State: "registering"}
-	require.NoError(t, r.Create(context.Background(), p))
+	a1 := &Availability{EscortID: escortID, StartAt: base, EndAt: base.Add(4 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a1))
 
-	require.NoError(t, r.UpdateState(context.Background(), p.ID, "pending_real_name", p.Version))
-	got, _ := r.GetByUserID(context.Background(), userID)
-	require.NotNil(t, got)
-	assert.Equal(t, "pending_real_name", got.State)
-	assert.Equal(t, p.Version+1, got.Version)
+	// 手动标 canceled 后再探测。
+	_, err := pool.Exec(context.Background(),
+		`UPDATE escort_availabilities SET status='canceled' WHERE id=$1`, a1.ID)
+	require.NoError(t, err)
+
+	overlap, err := r.HasOverlap(context.Background(), escortID,
+		base.Add(time.Hour), base.Add(2*time.Hour), 0)
+	require.NoError(t, err)
+	assert.False(t, overlap)
 }
 
-// TestProfileRepo_UpdateState_VersionConflict 验证乐观锁冲突。
-func TestProfileRepo_UpdateState_VersionConflict(t *testing.T) {
-	pool := setupPool(t)
-	userID := seedUser(t, pool, "13800138002", "escort")
-	r := NewProfileRepo(pool)
+// TestRepo_ListByEscort_FilterStatus 验证按 status 过滤。
+func TestRepo_ListByEscort_FilterStatus(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138004")
+	r := NewRepo(pool)
+	base := time.Now().Add(2 * time.Hour).Truncate(time.Second)
 
-	p := &Profile{UserID: userID, State: "registering"}
-	require.NoError(t, r.Create(context.Background(), p))
+	a1 := &Availability{EscortID: escortID, StartAt: base, EndAt: base.Add(time.Hour)}
+	a2 := &Availability{EscortID: escortID, StartAt: base.Add(2 * time.Hour), EndAt: base.Add(3 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a1))
+	require.NoError(t, r.Create(context.Background(), a2))
 
-	err := r.UpdateState(context.Background(), p.ID, "pending_real_name", p.Version+999)
+	// 把 a2 改成 canceled。
+	_, err := pool.Exec(context.Background(),
+		`UPDATE escort_availabilities SET status='canceled' WHERE id=$1`, a2.ID)
+	require.NoError(t, err)
+
+	avail, err := r.ListByEscort(context.Background(), escortID, StatusAvailable)
+	require.NoError(t, err)
+	assert.Len(t, avail, 1)
+	assert.Equal(t, a1.ID, avail[0].ID)
+
+	canceled, err := r.ListByEscort(context.Background(), escortID, StatusCanceled)
+	require.NoError(t, err)
+	assert.Len(t, canceled, 1)
+	assert.Equal(t, a2.ID, canceled[0].ID)
+
+	all, err := r.ListByEscort(context.Background(), escortID, "")
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+}
+
+// TestRepo_ListAvailableByTime 验证时间窗重叠查询。
+func TestRepo_ListAvailableByTime(t *testing.T) {
+	pool := setupAvailPool(t)
+	e1 := seedEscortUser(t, pool, "13800138005")
+	e2 := seedEscortUser(t, pool, "13800138006")
+	r := NewRepo(pool)
+
+	base := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	// e1: 14:00~18:00
+	require.NoError(t, r.Create(context.Background(), &Availability{
+		EscortID: e1, StartAt: base, EndAt: base.Add(4 * time.Hour),
+	}))
+	// e2: 19:00~20:00（不重叠）
+	require.NoError(t, r.Create(context.Background(), &Availability{
+		EscortID: e2, StartAt: base.Add(5 * time.Hour), EndAt: base.Add(6 * time.Hour),
+	}))
+
+	got, err := r.ListAvailableByTime(context.Background(), base.Add(time.Hour), base.Add(2*time.Hour))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, e1, got[0].EscortID)
+}
+
+// TestRepo_BookByOrder_OK 验证 bookByOrder。
+func TestRepo_BookByOrder_OK(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138007")
+	r := NewRepo(pool)
+
+	a := &Availability{
+		EscortID: escortID,
+		StartAt:  time.Now().Add(2 * time.Hour).Truncate(time.Second),
+		EndAt:    time.Now().Add(4 * time.Hour).Truncate(time.Second),
+	}
+	require.NoError(t, r.Create(context.Background(), a))
+
+	require.NoError(t, r.BookByOrder(context.Background(), a.ID, escortID, 10001, a.Version))
+
+	got, err := r.GetByID(context.Background(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusBooked, got.Status)
+	require.NotNil(t, got.OrderID)
+	assert.Equal(t, int64(10001), *got.OrderID)
+	assert.Equal(t, a.Version+1, got.Version)
+}
+
+// TestRepo_BookByOrder_VersionConflict 验证乐观锁冲突。
+func TestRepo_BookByOrder_VersionConflict(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138008")
+	r := NewRepo(pool)
+
+	a := &Availability{EscortID: escortID, StartAt: time.Now().Add(time.Hour), EndAt: time.Now().Add(2 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a))
+
+	err := r.BookByOrder(context.Background(), a.ID, escortID, 10002, a.Version+999)
 	assert.ErrorIs(t, err, ErrVersionConflict)
 }
 
-// TestProfileRepo_InsertHealthCert 验证健康证写入。
-func TestProfileRepo_InsertHealthCert(t *testing.T) {
-	pool := setupPool(t)
-	userID := seedUser(t, pool, "13800138003", "escort")
-	r := NewProfileRepo(pool)
+// TestRepo_BookByOrder_SlotNotAvail 验证已 booked 时段不可重复 book。
+func TestRepo_BookByOrder_SlotNotAvail(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138009")
+	r := NewRepo(pool)
 
-	cert := &HealthCert{
-		UserID:   userID,
-		Filename: "cert.jpg",
-		SHA256:   "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-		MIME:     "image/jpeg",
-		Status:   "pending",
-	}
-	require.NoError(t, r.InsertHealthCert(context.Background(), cert))
-	assert.NotZero(t, cert.ID)
-	assert.NotZero(t, cert.CreatedAt)
+	a := &Availability{EscortID: escortID, StartAt: time.Now().Add(time.Hour), EndAt: time.Now().Add(2 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a))
+	require.NoError(t, r.BookByOrder(context.Background(), a.ID, escortID, 10003, a.Version))
 
-	latest, err := r.LatestHealthCertByUser(context.Background(), userID)
-	require.NoError(t, err)
-	require.NotNil(t, latest)
-	assert.Equal(t, "cert.jpg", latest.Filename)
+	err := r.BookByOrder(context.Background(), a.ID, escortID, 10004, a.Version+1)
+	assert.ErrorIs(t, err, ErrSlotNotAvail)
 }
 
-// TestProfileRepo_LatestHealthCert_None 验证无健康证返回 nil。
-func TestProfileRepo_LatestHealthCert_None(t *testing.T) {
-	pool := setupPool(t)
-	userID := seedUser(t, pool, "13800138004", "escort")
-	r := NewProfileRepo(pool)
+// TestRepo_ReleaseByOrder_OK 验证订单释放。
+func TestRepo_ReleaseByOrder_OK(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138010")
+	r := NewRepo(pool)
 
-	latest, err := r.LatestHealthCertByUser(context.Background(), userID)
-	require.NoError(t, err)
-	assert.Nil(t, latest)
+	a := &Availability{EscortID: escortID, StartAt: time.Now().Add(time.Hour), EndAt: time.Now().Add(2 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a))
+	require.NoError(t, r.BookByOrder(context.Background(), a.ID, escortID, 20001, a.Version))
+
+	require.NoError(t, r.ReleaseByOrder(context.Background(), 20001))
+
+	got, _ := r.GetByID(context.Background(), a.ID)
+	assert.Equal(t, StatusAvailable, got.Status)
+	assert.Nil(t, got.OrderID)
 }
 
-// TestProfileRepo_InsertTrainingRecord 验证培训记录写入。
-func TestProfileRepo_InsertTrainingRecord(t *testing.T) {
-	pool := setupPool(t)
-	userID := seedUser(t, pool, "13800138005", "escort")
-	r := NewProfileRepo(pool)
-
-	rec := &TrainingRecord{
-		UserID:   userID,
-		CourseID: "escort-basics",
-		Score:    100,
-		Passed:   true,
-		Answers:  []byte(`[{"q":1,"a":"A"}]`),
-	}
-	require.NoError(t, r.InsertTrainingRecord(context.Background(), rec))
-	assert.NotZero(t, rec.ID)
-
-	records, err := r.ListTrainingByUser(context.Background(), userID)
-	require.NoError(t, err)
-	assert.Len(t, records, 1)
-	assert.Equal(t, "escort-basics", records[0].CourseID)
-	assert.True(t, records[0].Passed)
+// TestRepo_ReleaseByOrder_Idempotent 验证幂等（无 order_id 也不报错）。
+func TestRepo_ReleaseByOrder_Idempotent(t *testing.T) {
+	pool := setupAvailPool(t)
+	r := NewRepo(pool)
+	require.NoError(t, r.ReleaseByOrder(context.Background(), 99999))
 }
 
-// 兜底编译（os 包用于 testDSN 环境变量）。
-var _ = os.Getenv
+// TestRepo_Update_OK 验证 Update。
+func TestRepo_Update_OK(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138011")
+	r := NewRepo(pool)
+
+	base := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	a := &Availability{EscortID: escortID, StartAt: base, EndAt: base.Add(time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a))
+
+	newStart := base.Add(30 * time.Minute)
+	newEnd := base.Add(90 * time.Minute)
+	require.NoError(t, r.Update(context.Background(), a.ID, escortID, newStart, newEnd, a.Version))
+
+	got, _ := r.GetByID(context.Background(), a.ID)
+	assert.Equal(t, newStart.Unix(), got.StartAt.Unix())
+	assert.Equal(t, a.Version+1, got.Version)
+}
+
+// TestRepo_Update_SlotNotAvail 验证 booked 时段不可 Update。
+func TestRepo_Update_SlotNotAvail(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138012")
+	r := NewRepo(pool)
+
+	a := &Availability{EscortID: escortID, StartAt: time.Now().Add(time.Hour), EndAt: time.Now().Add(2 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a))
+	require.NoError(t, r.BookByOrder(context.Background(), a.ID, escortID, 20002, a.Version))
+
+	err := r.Update(context.Background(), a.ID, escortID, time.Now().Add(3*time.Hour), time.Now().Add(4*time.Hour), a.Version+1)
+	assert.ErrorIs(t, err, ErrSlotNotAvail)
+}
+
+// TestRepo_CountAvailableForEscort 验证计数（end_at > now 过滤）。
+func TestRepo_CountAvailableForEscort(t *testing.T) {
+	pool := setupAvailPool(t)
+	escortID := seedEscortUser(t, pool, "13800138013")
+	r := NewRepo(pool)
+
+	// 过期时段不计入：start_at 1 分钟前、end_at 1 分钟前 → 等于无效（end_at <= now）。
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO escort_availabilities (escort_id, start_at, end_at, status) VALUES ($1, NOW()-INTERVAL '5 min', NOW()-INTERVAL '2 min', 'available')`, escortID)
+	require.NoError(t, err)
+
+	// 未来时段计入。
+	a := &Availability{EscortID: escortID, StartAt: time.Now().Add(time.Hour), EndAt: time.Now().Add(2 * time.Hour)}
+	require.NoError(t, r.Create(context.Background(), a))
+
+	n, err := r.CountAvailableForEscort(context.Background(), escortID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "expired slots should not count")
+}
 ```
 
-**Step 2: 跑测试确认失败**
+**Step 5: 跑测试确认通过**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -tags=integration -count=1 -run 'TestProfileRepo_' ./services/escort/internal/repo/
-```
-Expected: FAIL — `undefined: NewProfileRepo`, `undefined: Profile`, `undefined: HealthCert`, `undefined: TrainingRecord`, `undefined: ErrVersionConflict`
-
-**Step 3: 写 profile_repo.go**
-
-`services/escort/internal/repo/profile_repo.go`：
-
-```go
-// Package repo 是 escort-service 的数据访问层。
-//
-// 设计要点：
-//   - 用 pgx 直写 SQL（不引 sqlc）。
-//   - state 字段用 CHECK 约束（DB 层先验）。
-//   - 状态推进用乐观锁（version）；冲突返回 ErrVersionConflict。
-//   - 健康证只存 hash + 文件名 + mime（不入 OSS）；培训记录 answers 用 JSONB。
-package repo
-
-import (
-	"context"
-	"errors"
-	"fmt"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-)
-
-// Profile 映射 escort_profiles 表行。
-type Profile struct {
-	ID        int64
-	UserID    int64
-	State     string // 11 态字符串
-	City      string
-	Rating    float64
-	BadRate   float64
-	Level     string
-	Version   int
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-// HealthCert 映射 health_certs 表行。
-type HealthCert struct {
-	ID              int64
-	UserID          int64
-	Filename        string
-	SHA256          string
-	MIME            string
-	Status          string // "pending" | "approved" | "rejected"
-	RejectionReason string
-	CreatedAt       time.Time
-	ReviewedAt      *time.Time
-	ReviewedBy      *int64
-}
-
-// TrainingRecord 映射 training_records 表行。
-type TrainingRecord struct {
-	ID          int64
-	UserID      int64
-	CourseID    string
-	Score       int
-	Passed      bool
-	Answers     []byte // JSONB
-	CompletedAt time.Time
-}
-
-// ErrProfileNotFound 是 escort_profiles 查无结果的哨兵。
-var ErrProfileNotFound = errors.New("repo: escort profile not found")
-
-// ErrVersionConflict 是乐观锁冲突的哨兵。
-var ErrVersionConflict = errors.New("repo: escort profile version conflict")
-
-// ProfileRepo 是 escort_profiles + health_certs + training_records 表的仓储。
-type ProfileRepo struct {
-	pool *pgxpool.Pool
-}
-
-// NewProfileRepo 构造仓储。
-func NewProfileRepo(pool *pgxpool.Pool) *ProfileRepo { return &ProfileRepo{pool: pool} }
-
-// Create 插入陪诊师档案；ID / Version / CreatedAt / UpdatedAt 由 DB 回写。
-func (r *ProfileRepo) Create(ctx context.Context, p *Profile) error {
-	const q = `
-		INSERT INTO escort_profiles (user_id, state)
-		VALUES ($1, COALESCE(NULLIF($2,''), 'registering'))
-		RETURNING id, version, created_at, updated_at`
-	return r.pool.QueryRow(ctx, q, p.UserID, p.State).Scan(
-		&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt,
-	)
-}
-
-// GetByUserID 按 user_id 查找；不存在时返回 (nil, nil)。
-func (r *ProfileRepo) GetByUserID(ctx context.Context, userID int64) (*Profile, error) {
-	const q = `
-		SELECT id, user_id, state, COALESCE(city,''), rating, bad_rate, level, version, created_at, updated_at
-		FROM escort_profiles WHERE user_id = $1`
-	p := &Profile{}
-	err := r.pool.QueryRow(ctx, q, userID).Scan(
-		&p.ID, &p.UserID, &p.State, &p.City, &p.Rating, &p.BadRate,
-		&p.Level, &p.Version, &p.CreatedAt, &p.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get profile by user: %w", err)
-	}
-	return p, nil
-}
-
-// UpdateState 推进状态 + version 自增（乐观锁）；version 不匹配返回 ErrVersionConflict。
-func (r *ProfileRepo) UpdateState(ctx context.Context, id int64, to string, expectVersion int) error {
-	const q = `
-		UPDATE escort_profiles
-		   SET state = $1, version = version + 1, updated_at = NOW()
-		 WHERE id = $2 AND version = $3`
-	tag, err := r.pool.Exec(ctx, q, to, id, expectVersion)
-	if err != nil {
-		return fmt.Errorf("update profile state: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrVersionConflict
-	}
-	return nil
-}
-
-// InsertHealthCert 写入一条健康证；ID / CreatedAt 由 DB 回写。
-func (r *ProfileRepo) InsertHealthCert(ctx context.Context, c *HealthCert) error {
-	const q = `
-		INSERT INTO health_certs (user_id, filename, sha256, mime, status)
-		VALUES ($1, $2, $3, $4, COALESCE(NULLIF($6,''), $5))
-		RETURNING id, created_at`
-	return r.pool.QueryRow(ctx, q,
-		c.UserID, c.Filename, c.SHA256, c.MIME, c.Status, c.Status,
-	).Scan(&c.ID, &c.CreatedAt)
-}
-
-// LatestHealthCertByUser 按 created_at DESC 取最近一条；无记录返回 (nil, nil)。
-func (r *ProfileRepo) LatestHealthCertByUser(ctx context.Context, userID int64) (*HealthCert, error) {
-	const q = `
-		SELECT id, user_id, filename, sha256, mime, status, COALESCE(rejection_reason,''),
-		       created_at, reviewed_at, reviewed_by
-		FROM health_certs WHERE user_id = $1
-		ORDER BY created_at DESC LIMIT 1`
-	c := &HealthCert{}
-	err := r.pool.QueryRow(ctx, q, userID).Scan(
-		&c.ID, &c.UserID, &c.Filename, &c.SHA256, &c.MIME, &c.Status, &c.RejectionReason,
-		&c.CreatedAt, &c.ReviewedAt, &c.ReviewedBy,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("latest health cert: %w", err)
-	}
-	return c, nil
-}
-
-// InsertTrainingRecord 写入培训记录；ID / CompletedAt 由 DB 回写。
-func (r *ProfileRepo) InsertTrainingRecord(ctx context.Context, tr *TrainingRecord) error {
-	const q = `
-		INSERT INTO training_records (user_id, course_id, score, passed, answers)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, completed_at`
-	return r.pool.QueryRow(ctx, q,
-		tr.UserID, tr.CourseID, tr.Score, tr.Passed, tr.Answers,
-	).Scan(&tr.ID, &tr.CompletedAt)
-}
-
-// ListTrainingByUser 返回用户的全部培训记录（按 completed_at DESC）。
-func (r *ProfileRepo) ListTrainingByUser(ctx context.Context, userID int64) ([]*TrainingRecord, error) {
-	const q = `
-		SELECT id, user_id, course_id, score, passed, answers, completed_at
-		FROM training_records WHERE user_id = $1
-		ORDER BY completed_at DESC`
-	rows, err := r.pool.Query(ctx, q, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list training: %w", err)
-	}
-	defer rows.Close()
-	out := make([]*TrainingRecord, 0)
-	for rows.Next() {
-		tr := &TrainingRecord{}
-		if err := rows.Scan(
-			&tr.ID, &tr.UserID, &tr.CourseID, &tr.Score, &tr.Passed, &tr.Answers, &tr.CompletedAt,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, tr)
-	}
-	return out, rows.Err()
-}
+  go test -count=1 ./services/escort/internal/availability/
 ```
 
-**Step 4: 跑测试确认通过**
-
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -tags=integration -count=1 -run 'TestProfileRepo_' ./services/escort/internal/repo/
+  go test -tags=integration -count=1 -run 'TestRepo_' ./services/escort/internal/availability/
 ```
-Expected: PASS（8 个测试）
 
-**Step 5: Commit**
+Expected: state 单测 3 个 PASS + repo 集成 13 个 PASS。
+
+**Step 6: Commit**
 
 ```bash
-git add services/escort/internal/repo/
-git commit -m "feat(escort): repo 加 ProfileRepo (CRUD + 乐观锁 + health_certs + training_records + 8 个集成测试)"
+git add services/escort/internal/availability/
+git commit -m "feat(escort): availability 子包 (types/state/repo + 3 态状态机 + 13 个集成测试 + 3 个状态机单测)"
 ```
 
 ---
 
-### Task 4: profile_flow（业务流方法 + 单测）
+## Task 3: AvailabilityService（业务校验 + 派生状态 + 单测）
 
 **Files:**
-- Create: `services/escort/internal/service/profile_flow.go`
-- Create: `services/escort/internal/service/profile_flow_test.go`
-- Modify: `services/escort/internal/service/escort_service.go`
-- Modify: `services/escort/internal/service/escort_service_test.go`
+- Create: `services/escort/internal/availability/service.go`
+- Create: `services/escort/internal/availability/service_test.go`
 
-**Step 1: 写业务流单测（RED）**
+**Step 1: 写 service_test.go（RED）**
 
-`services/escort/internal/service/profile_flow_test.go`：
+`services/escort/internal/availability/service_test.go`：
 
 ```go
-package service
+package availability
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/growdu/doctors/services/escort/internal/repo"
-	"github.com/growdu/doctors/services/escort/internal/state"
 )
 
-// ---------- fakeProfileRepo 实现 repo.ProfileRepo ----------
+// ---------- fake repo (满足 service 内部依赖的方法集) ----------
 
-type fakeProfileRepo struct {
-	profiles  map[int64]*repo.Profile
-	byUserID  map[int64]int64
-	certs     []*repo.HealthCert
-	training  []*repo.TrainingRecord
+type fakeRepo struct {
+	slots     map[int64]*Availability
+	byEscort  map[int64][]*Availability
+	byOrderID map[int64]int64 // order_id -> slot_id
 	nextID    int64
-	conflicts []float64
 }
 
-func newFakeProfileRepo() *fakeProfileRepo {
-	return &fakeProfileRepo{
-		profiles: map[int64]*repo.Profile{},
-		byUserID: map[int64]int64{},
+func newFakeRepo() *fakeRepo {
+	return &fakeRepo{
+		slots:     map[int64]*Availability{},
+		byEscort:  map[int64][]*Availability{},
+		byOrderID: map[int64]int64{},
 	}
 }
 
-func (r *fakeProfileRepo) Create(ctx context.Context, p *repo.Profile) error {
+func (r *fakeRepo) Create(ctx context.Context, a *Availability) error {
 	r.nextID++
-	p.ID = r.nextID
-	if p.State == "" {
-		p.State = "registering"
-	}
-	p.Version = 0
-	r.profiles[p.ID] = p
-	r.byUserID[p.UserID] = p.ID
+	a.ID = r.nextID
+	a.Version = 0
+	a.Status = StatusAvailable
+	a.CreatedAt = time.Now()
+	a.UpdatedAt = time.Now()
+	r.slots[a.ID] = a
+	r.byEscort[a.EscortID] = append(r.byEscort[a.EscortID], a)
 	return nil
 }
 
-func (r *fakeProfileRepo) GetByUserID(ctx context.Context, userID int64) (*repo.Profile, error) {
-	id, ok := r.byUserID[userID]
+func (r *fakeRepo) GetByID(ctx context.Context, id int64) (*Availability, error) {
+	a, ok := r.slots[id]
 	if !ok {
-		return nil, nil
+		return nil, ErrNotFound
 	}
-	return r.profiles[id], nil
+	return a, nil
 }
 
-func (r *fakeProfileRepo) UpdateState(ctx context.Context, id int64, to string, expectVersion int) error {
-	p, ok := r.profiles[id]
+func (r *fakeRepo) Delete(ctx context.Context, id int64) error {
+	a, ok := r.slots[id]
 	if !ok {
-		return repo.ErrProfileNotFound
+		return ErrNotFound
 	}
-	if p.Version != expectVersion {
-		return repo.ErrVersionConflict
-	}
-	p.State = to
-	p.Version++
-	return nil
-}
-
-func (r *fakeProfileRepo) InsertHealthCert(ctx context.Context, c *repo.HealthCert) error {
-	r.nextID++
-	c.ID = r.nextID
-	c.CreatedAt = time.Now()
-	r.certs = append(r.certs, c)
-	return nil
-}
-
-func (r *fakeProfileRepo) LatestHealthCertByUser(ctx context.Context, userID int64) (*repo.HealthCert, error) {
-	var latest *repo.HealthCert
-	for _, c := range r.certs {
-		if c.UserID == userID {
-			if latest == nil || c.CreatedAt.After(latest.CreatedAt) {
-				latest = c
-			}
+	delete(r.slots, id)
+	for i, v := range r.byEscort[a.EscortID] {
+		if v.ID == id {
+			r.byEscort[a.EscortID] = append(r.byEscort[a.EscortID][:i], r.byEscort[a.EscortID][i+1:]...)
+			break
 		}
 	}
-	return latest, nil
-}
-
-func (r *fakeProfileRepo) InsertTrainingRecord(ctx context.Context, tr *repo.TrainingRecord) error {
-	r.nextID++
-	tr.ID = r.nextID
-	tr.CompletedAt = time.Now()
-	r.training = append(r.training, tr)
 	return nil
 }
 
-func (r *fakeProfileRepo) ListTrainingByUser(ctx context.Context, userID int64) ([]*repo.TrainingRecord, error) {
-	out := make([]*repo.TrainingRecord, 0)
-	for _, tr := range r.training {
-		if tr.UserID == userID {
-			out = append(out, tr)
+func (r *fakeRepo) ListByEscort(ctx context.Context, escortID int64, status string) ([]*Availability, error) {
+	out := []*Availability{}
+	for _, a := range r.byEscort[escortID] {
+		if status == "" || a.Status == status {
+			out = append(out, a)
 		}
 	}
 	return out, nil
 }
 
-// ---------- 业务流测试 ----------
-
-// flowHarness 把 facet 与 Service 包在一起。
-type flowHarness struct {
-	svc    *ProfileFlowService
-	repo   *fakeProfileRepo
-	pub    *fakeProfilePub
+func (r *fakeRepo) ListAvailableByTime(ctx context.Context, start, end time.Time) ([]*Availability, error) {
+	out := []*Availability{}
+	for _, list := range r.byEscort {
+		for _, a := range list {
+			if a.Status == StatusAvailable && a.StartAt.Before(end) && a.EndAt.After(start) {
+				out = append(out, a)
+			}
+		}
+	}
+	return out, nil
 }
 
-func newFlowHarness() *flowHarness {
-	r := newFakeProfileRepo()
-	p := &fakeProfilePub{}
-	svc := NewProfileFlowService(r, p)
-	return &flowHarness{svc: svc, repo: r, pub: p}
+func (r *fakeRepo) ListByEscortInTimeRange(ctx context.Context, escortID int64, start, end time.Time) ([]*Availability, error) {
+	return r.ListAvailableByTime(ctx, start, end) // 简化
 }
 
-// fakeProfilePub 接 events.Publisher.
-type fakeProfilePub struct {
-	lastState StateChangedEvent
-}
-
-func (p *fakeProfilePub) PublishStateChanged(ctx context.Context, ev StateChangedEvent) error {
-	p.lastState = ev
+func (r *fakeRepo) Update(ctx context.Context, id int64, escortID int64, start, end time.Time, expectedVersion int) error {
+	a, ok := r.slots[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if a.EscortID != escortID || a.Status != StatusAvailable || a.Version != expectedVersion {
+		return ErrVersionConflict
+	}
+	a.StartAt = start
+	a.EndAt = end
+	a.Version++
+	a.UpdatedAt = time.Now()
 	return nil
 }
 
-// StateChangedEvent 是 publisher 发布的最小事件（events 包导类型不同，测试用 alias）。
-type StateChangedEvent = struct {
-	UserID    int64     `json:"user_id"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	OccurredAt time.Time `json:"occurred_at"`
-}
-
-// TestRegisterFlow_OK 验证注册 → state=registering。
-func TestRegisterFlow_OK(t *testing.T) {
-	h := newFlowHarness()
-	p, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-	assert.Equal(t, int64(100), p.UserID)
-	assert.Equal(t, state.StateRegistering, state.State(p.State))
-}
-
-// TestRegisterFlow_Duplicate 验证重复注册返回错误。
-func TestRegisterFlow_Duplicate(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-	_, err = h.svc.RegisterFlow(context.Background(), 100)
-	assert.Error(t, err)
-}
-
-// TestRealNameAuth_AdvancesState 验证实名 → pending_health_cert。
-func TestRealNameAuth_AdvancesState(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-
-	require.NoError(t, h.svc.RealNameAuth(context.Background(), 100, "张三", "110101199001011234"))
-	got, _ := h.repo.GetByUserID(context.Background(), 100)
-	require.NotNil(t, got)
-	assert.Equal(t, "pending_health_cert", got.State)
-}
-
-// TestRealNameAuth_WrongState 验证非 registering 状态不能实名。
-func TestRealNameAuth_WrongState(t *testing.T) {
-	h := newFlowHarness()
-	// 没注册直接实名 → CodeForbidden
-	err := h.svc.RealNameAuth(context.Background(), 100, "张三", "110101199001011234")
-	assert.Error(t, err)
-}
-
-// TestUploadHealthCert_HashesBase64 验证 SHA256 计算正确。
-func TestUploadHealthCert_HashesBase64(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-	require.NoError(t, h.svc.RealNameAuth(context.Background(), 100, "张三", "110101199001011234"))
-
-	img := "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD"
-	filename := "health_cert.jpg"
-	require.NoError(t, h.svc.UploadHealthCert(context.Background(), 100, filename, img))
-
-	cert, _ := h.repo.LatestHealthCertByUser(context.Background(), 100)
-	require.NotNil(t, cert)
-	sum := sha256.Sum256([]byte(img))
-	expected := hex.EncodeToString(sum[:])
-	assert.Equal(t, expected, cert.SHA256)
-	assert.Equal(t, filename, cert.Filename)
-	assert.Equal(t, "image/jpeg", cert.MIME)
-}
-
-// TestUploadHealthCert_WrongState 验证非 pending_real_name 不能上传。
-func TestUploadHealthCert_WrongState(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-	// 还在 registering，不能上传
-	err = h.svc.UploadHealthCert(context.Background(), 100, "x.jpg", "data:image/jpeg;base64,xx")
-	assert.Error(t, err)
-}
-
-// TestCompleteTraining_Pass 验证 5 题答对 4 题通过。
-func TestCompleteTraining_Pass(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-	require.NoError(t, h.svc.RealNameAuth(context.Background(), 100, "张三", "110101199001011234"))
-	require.NoError(t, h.svc.UploadHealthCert(context.Background(), 100, "x.jpg", "data:image/jpeg;base64,xx"))
-	// 手动推状态到 pending_training（v1 不接 health_cert 自动审核，admin plan 才有）
-	// 这里用 fake repo 直接改
-	h.repo.profiles[h.repo.byUserID[100]].State = "pending_training"
-
-	answers := []Answer{
-		{QuestionID: 1, Choice: "A"}, // 正确
-		{QuestionID: 2, Choice: "B"}, // 正确
-		{QuestionID: 3, Choice: "A"}, // 正确
-		{QuestionID: 4, Choice: "C"}, // 正确（4/5 = 80%）
-		{QuestionID: 5, Choice: "X"}, // 错误
+func (r *fakeRepo) BookByOrder(ctx context.Context, id, escortID, orderID, expectedVersion int64) error {
+	a, ok := r.slots[id]
+	if !ok {
+		return ErrNotFound
 	}
-	require.NoError(t, h.svc.CompleteTraining(context.Background(), 100, "escort-basics", answers))
-	got, _ := h.repo.GetByUserID(context.Background(), 100)
-	require.NotNil(t, got)
-	assert.Equal(t, "pending_agreement", got.State)
-}
-
-// TestCompleteTraining_Fail 验证 5 题答对 3 题不通过（60% < 80%）。
-func TestCompleteTraining_Fail(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
-	require.NoError(t, err)
-	// 直接推到 pending_training
-	h.repo.profiles[h.repo.byUserID[100]].State = "pending_training"
-
-	answers := []Answer{
-		{QuestionID: 1, Choice: "A"},
-		{QuestionID: 2, Choice: "B"},
-		{QuestionID: 3, Choice: "A"},
-		{QuestionID: 4, Choice: "X"},
-		{QuestionID: 5, Choice: "X"},
+	if a.Status != StatusAvailable || a.Version != expectedVersion {
+		return ErrVersionConflict
 	}
-	err = h.svc.CompleteTraining(context.Background(), 100, "escort-basics", answers)
-	assert.Error(t, err)
-	got, _ := h.repo.GetByUserID(context.Background(), 100)
-	assert.Equal(t, "pending_training", got.State, "失败不应推进状态")
+	a.Status = StatusBooked
+	oid := orderID
+	a.OrderID = &oid
+	a.Version++
+	r.byOrderID[orderID] = id
+	return nil
 }
 
-// TestSignAgreement_AdvancesState 验证签署 → pending_audit。
-func TestSignAgreement_AdvancesState(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
+func (r *fakeRepo) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	id, ok := r.byOrderID[orderID]
+	if !ok {
+		return nil // 幂等
+	}
+	a := r.slots[id]
+	a.Status = StatusAvailable
+	a.OrderID = nil
+	a.Version++
+	delete(r.byOrderID, orderID)
+	return nil
+}
+
+func (r *fakeRepo) HasOverlap(ctx context.Context, escortID int64, start, end time.Time, excludeID int64) (bool, error) {
+	for _, a := range r.byEscort[escortID] {
+		if a.ID == excludeID || a.Status == StatusCanceled {
+			continue
+		}
+		if a.StartAt.Before(end) && a.EndAt.After(start) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *fakeRepo) CountAvailableForEscort(ctx context.Context, escortID int64) (int, error) {
+	n := 0
+	now := time.Now()
+	for _, a := range r.byEscort[escortID] {
+		if a.Status == StatusAvailable && a.EndAt.After(now) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ---------- 测试 ----------
+
+func TestService_Create_OK(t *testing.T) {
+	r, s := newFakeRepo(), newServiceForTest(newFakeRepo())
+	_ = r // 占位：测试用 service 内置 fake
+	escortID := int64(100)
+	start := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	end := start.Add(time.Hour)
+
+	a, err := s.Create(context.Background(), escortID, start, end)
 	require.NoError(t, err)
-	h.repo.profiles[h.repo.byUserID[100]].State = "pending_agreement"
-
-	require.NoError(t, h.svc.SignAgreement(context.Background(), 100, "signature_base64_data"))
-	got, _ := h.repo.GetByUserID(context.Background(), 100)
-	assert.Equal(t, "pending_audit", got.State)
+	assert.Equal(t, StatusAvailable, a.Status)
+	assert.Equal(t, escortID, a.EscortID)
 }
 
-// TestSetOnline_RequiresApproved 验证非 approved 不能上线。
-func TestSetOnline_RequiresApproved(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
+// TestService_Create_Conflict 验证时段冲突被业务层拒绝。
+func TestService_Create_Conflict(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+	escortID := int64(101)
+	start := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	end := start.Add(time.Hour)
+
+	_, err := s.Create(context.Background(), escortID, start, end)
 	require.NoError(t, err)
-	// 还在 registering
-	err = h.svc.SetOnline(context.Background(), 100)
-	assert.Error(t, err)
+
+	// 重叠时段：start+30min, end+30min
+	_, err = s.Create(context.Background(), escortID, start.Add(30*time.Minute), end.Add(30*time.Minute))
+	assert.ErrorIs(t, err, ErrConflict)
 }
 
-// TestSetOnline_FromApproved 验证 approved → online。
-func TestSetOnline_FromApproved(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
+// TestService_Create_InvalidRange 验证时间合法性。
+func TestService_Create_InvalidRange(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+
+	// start_at 在过去
+	_, err := s.Create(context.Background(), 102,
+		time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	assert.ErrorIs(t, err, ErrBadRange)
+
+	// end_at <= start_at
+	now := time.Now().Add(time.Hour).Truncate(time.Second)
+	_, err = s.Create(context.Background(), 102, now, now)
+	assert.ErrorIs(t, err, ErrBadRange)
+}
+
+// TestService_Delete_OnlyAvailable 验证只有 available 可删。
+func TestService_Delete_OnlyAvailable(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+	escortID := int64(103)
+	a, err := s.Create(context.Background(), escortID,
+		time.Now().Add(2*time.Hour).Truncate(time.Second),
+		time.Now().Add(3*time.Hour).Truncate(time.Second))
 	require.NoError(t, err)
-	h.repo.profiles[h.repo.byUserID[100]].State = "approved"
 
-	require.NoError(t, h.svc.SetOnline(context.Background(), 100))
-	got, _ := h.repo.GetByUserID(context.Background(), 100)
-	assert.Equal(t, "online", got.State)
+	require.NoError(t, s.Delete(context.Background(), escortID, a.ID))
+
+	// 第二次删：找不到
+	assert.ErrorIs(t, s.Delete(context.Background(), escortID, a.ID), ErrNotFound)
+
+	// 新时段 → booked → 删失败
+	a2, _ := s.Create(context.Background(), escortID,
+		time.Now().Add(5*time.Hour).Truncate(time.Second),
+		time.Now().Add(6*time.Hour).Truncate(time.Second))
+	_ = r.BookByOrder(context.Background(), a2.ID, escortID, 10001, a2.Version)
+	assert.ErrorIs(t, s.Delete(context.Background(), escortID, a2.ID), ErrSlotNotAvail)
 }
 
-// TestSetOffline_FromOnline 验证 online → offline。
-func TestSetOffline_FromOnline(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
+// TestService_BookByOrder_ReleasesOnOrderCancel 验证 BookByOrder + ReleaseByOrder 闭环。
+func TestService_BookByOrder_ReleasesOnOrderCancel(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+	escortID := int64(104)
+	a, err := s.Create(context.Background(), escortID,
+		time.Now().Add(2*time.Hour).Truncate(time.Second),
+		time.Now().Add(3*time.Hour).Truncate(time.Second))
 	require.NoError(t, err)
-	h.repo.profiles[h.repo.byUserID[100]].State = "online"
 
-	require.NoError(t, h.svc.SetOffline(context.Background(), 100))
-	got, _ := h.repo.GetByUserID(context.Background(), 100)
-	assert.Equal(t, "offline", got.State)
+	require.NoError(t, s.BookByOrder(context.Background(), a.ID, escortID, 20001))
+
+	got, _ := r.GetByID(context.Background(), a.ID)
+	assert.Equal(t, StatusBooked, got.Status)
+
+	require.NoError(t, s.ReleaseByOrder(context.Background(), 20001))
+	got, _ = r.GetByID(context.Background(), a.ID)
+	assert.Equal(t, StatusAvailable, got.Status)
 }
 
-// TestStateChange_PublishesEvents 验证每次状态推进发事件。
-func TestStateChange_PublishesEvents(t *testing.T) {
-	h := newFlowHarness()
-	_, err := h.svc.RegisterFlow(context.Background(), 100)
+// TestService_DeriveStatus_Available 验证有 available 时段时为 available。
+func TestService_DeriveStatus_Available(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+	escortID := int64(105)
+	_, err := s.Create(context.Background(), escortID,
+		time.Now().Add(2*time.Hour).Truncate(time.Second),
+		time.Now().Add(3*time.Hour).Truncate(time.Second))
 	require.NoError(t, err)
-	require.NoError(t, h.svc.RealNameAuth(context.Background(), 100, "张三", "110101199001011234"))
 
-	assert.Equal(t, int64(100), h.pub.lastState.UserID)
-	assert.Equal(t, "registering", h.pub.lastState.From)
-	assert.Equal(t, "pending_health_cert", h.pub.lastState.To)
+	status, err := s.DeriveStatus(context.Background(), escortID, false)
+	require.NoError(t, err)
+	assert.Equal(t, "available", status)
 }
 
-// 兜底编译（time 包在生产代码用到，引用防 unused）。
-var _ = errors.New
-var _ = strings.TrimSpace
+// TestService_DeriveStatus_Busy 验证无 available 时段时为 busy。
+func TestService_DeriveStatus_Busy(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+	escortID := int64(106)
+	// 所有时段 canceled
+	a, _ := s.Create(context.Background(), escortID,
+		time.Now().Add(2*time.Hour).Truncate(time.Second),
+		time.Now().Add(3*time.Hour).Truncate(time.Second))
+	_ = r.Delete(context.Background(), a.ID) // 删除模拟空
+	// 或者创建一个并立刻取消
+	a2, _ := s.Create(context.Background(), escortID,
+		time.Now().Add(5*time.Hour).Truncate(time.Second),
+		time.Now().Add(6*time.Hour).Truncate(time.Second))
+	// 手动改 canceled
+	r.slots[a2.ID].Status = StatusCanceled
+
+	status, err := s.DeriveStatus(context.Background(), escortID, false)
+	require.NoError(t, err)
+	assert.Equal(t, "busy", status)
+}
+
+// TestService_DeriveStatus_OffLine 验证 manualOffline=true 时强制 off-line。
+func TestService_DeriveStatus_OffLine(t *testing.T) {
+	r := newFakeRepo()
+	s := NewService(r)
+	escortID := int64(107)
+	// 即便有 available 时段
+	_, _ = s.Create(context.Background(), escortID,
+		time.Now().Add(2*time.Hour).Truncate(time.Second),
+		time.Now().Add(3*time.Hour).Truncate(time.Second))
+
+	status, err := s.DeriveStatus(context.Background(), escortID, true)
+	require.NoError(t, err)
+	assert.Equal(t, "off-line", status, "manual offline overrides availability")
+}
+
+// helpers
+
+func newServiceForTest(r *fakeRepo) *Service { return NewService(r) }
+
+// 占位：用 Service.New 但需 repo 真实接口；用 fakeRepo 实现 repo 用 interface。
+// 为简化，service.go 里 Service 直接持有 *AvailabilityRepo（具体类型）。
+// 在 service_test.go 里通过包装 shim 注入 fake（见下方）。
+// 实际实施时调整：service 持有 interface（见 service.go 设计），fakeRepo 满足该 interface。
+var _ = errors.Is
 ```
+
+> **注**：上面 `newServiceForTest(r)` 为占位。实施时：
+> 1. service.go 中 `Service` 持有 `*AvailabilityRepo` 改为 interface（最小集合见 service.go）；
+> 2. fakeRepo 实现该 interface（已有方法可满足，无需新增）。
 
 **Step 2: 跑测试确认失败**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 -run 'TestRegisterFlow_|TestRealNameAuth_|TestUploadHealthCert_|TestCompleteTraining_|TestSignAgreement_|TestSetOnline_|TestSetOffline_|TestStateChange_' \
-  ./services/escort/internal/service/
+  go test -count=1 ./services/escort/internal/availability/
 ```
-Expected: FAIL — `undefined: NewProfileFlowService`, `undefined: Answer`
 
-**Step 3: 写 profile_flow.go**
+Expected: FAIL — `undefined: Service`, `undefined: NewService`, `undefined: newServiceForTest`。
 
-`services/escort/internal/service/profile_flow.go`：
+**Step 3: 写 service.go**
+
+`services/escort/internal/availability/service.go`：
 
 ```go
-// Package service 是 escort-service 的业务编排层（含陪诊师档案业务流）。
-//
-// 设计要点：
-//   - 业务流方法（RegisterFlow / RealNameAuth / ...）操作 escort_profiles 表；
-//     老的 Register / SetAvailability / UpdateLocation 走老 escort 表（match 兼容）。
-//   - 状态机由 escort/internal/state 守门；非法转换返回 errs.CodeForbidden。
-//   - 实名 v1 mock：直接返回通过 + 落 users.real_name_verified。
-//   - 健康证 v1：base64 → SHA256；不入 OSS。
-//   - 培训 v1：hardcode 5 道题，80% 通过 = 4/5。
-package service
+package availability
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/growdu/doctors/services/escort/internal/repo"
-	"github.com/growdu/doctors/services/escort/internal/state"
 	"github.com/growdu/doctors/shared/errs"
 )
 
-// ProfileRepo 是 escort_profiles + health_certs + training_records 表的最小契约。
-type ProfileRepo interface {
-	Create(ctx context.Context, p *repo.Profile) error
-	GetByUserID(ctx context.Context, userID int64) (*repo.Profile, error)
-	UpdateState(ctx context.Context, id int64, to string, expectVersion int) error
-	InsertHealthCert(ctx context.Context, c *repo.HealthCert) error
-	LatestHealthCertByUser(ctx context.Context, userID int64) (*repo.HealthCert, error)
-	InsertTrainingRecord(ctx context.Context, tr *repo.TrainingRecord) error
-	ListTrainingByUser(ctx context.Context, userID int64) ([]*repo.TrainingRecord, error)
+// Repo 是 service 所需的最小仓储接口（解耦、便于 fake repo 测试）。
+type Repo interface {
+	Create(ctx context.Context, a *Availability) error
+	GetByID(ctx context.Context, id int64) (*Availability, error)
+	Delete(ctx context.Context, id int64) error
+	ListByEscort(ctx context.Context, escortID int64, status string) ([]*Availability, error)
+	ListAvailableByTime(ctx context.Context, startAt, endAt time.Time) ([]*Availability, error)
+	ListByEscortInTimeRange(ctx context.Context, escortID int64, startAt, endAt time.Time) ([]*Availability, error)
+	Update(ctx context.Context, id int64, escortID int64, startAt, endAt time.Time, expectedVersion int) error
+	BookByOrder(ctx context.Context, id int64, escortID int64, orderID int64, expectedVersion int) error
+	ReleaseByOrder(ctx context.Context, orderID int64) error
+	HasOverlap(ctx context.Context, escortID int64, startAt, endAt time.Time, excludeID int64) (bool, error)
+	CountAvailableForEscort(ctx context.Context, escortID int64) (int, error)
 }
 
-// 编译期确保 repo.ProfileRepo 满足 ProfileRepo 接口。
-var _ ProfileRepo = (*repo.ProfileRepo)(nil)
-
-// ProfilePublisher 是事件发布抽象；与 events 包解耦（便于单测 fake）。
-type ProfilePublisher interface {
-	PublishStateChanged(ctx context.Context, ev StateChangedEvent) error
+// Service 是 escort-availability 业务层（业务校验 + 状态机 + 派生）。
+type Service struct {
+	repo   Repo
+	nowFn  func() time.Time // 可注入以稳定测试
 }
 
-// StateChangedEvent 是状态变更事件（escort-service → 内部 notification / admin audit）。
-// 与 shared/contracts.EscortStateChangedEvent 字段一致；本类型用于 service 间解耦。
-type StateChangedEvent struct {
-	UserID    int64     `json:"user_id"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	OccurredAt time.Time `json:"occurred_at"`
+// NewService 构造 service。
+func NewService(repo Repo) *Service {
+	return &Service{repo: repo, nowFn: time.Now}
 }
 
-// Answer 是单次考核的一道题答案。
-type Answer struct {
-	QuestionID int    `json:"question_id"`
-	Choice     string `json:"choice"`
-}
+// SetNowFn 注入时间函数（测试用）。
+func (s *Service) SetNowFn(fn func() time.Time) *Service { s.nowFn = fn; return s }
 
-// standardQuiz 是 v1 hardcode 的 5 道题（每题 1 分；4/5 = 80% 通过）。
-var standardQuiz = map[string]string{
-	"1": "A",
-	"2": "B",
-	"3": "A",
-	"4": "C",
-	"5": "B",
-}
+// ---------- 7 个核心业务方法 + 1 个派生 ----------
 
-// ProfileFlowService 是陪诊师档案业务流。
-type ProfileFlowService struct {
-	profiles ProfileRepo
-	pub      ProfilePublisher
-	now      func() time.Time
-}
-
-// NewProfileFlowService 构造 Service。
-func NewProfileFlowService(p ProfileRepo, pub ProfilePublisher) *ProfileFlowService {
-	return &ProfileFlowService{profiles: p, pub: pub, now: time.Now}
-}
-
-// WithClock 注入时钟（测试用）。
-func (s *ProfileFlowService) WithClock(now func() time.Time) *ProfileFlowService {
-	s.now = now
-	return s
-}
-
-// RegisterFlow 注册一个 escort；默认 state=registering。
-//   - userID 必须 > 0
-//   - 同一 userID 重复注册返回 CodeConflict
-func (s *ProfileFlowService) RegisterFlow(ctx context.Context, userID int64) (*repo.Profile, error) {
-	if userID == 0 {
-		return nil, errs.New(errs.CodeParamInvalid, "user_id required")
+// Create 新建时段；service 层校验时间合法性 + 重叠。
+func (s *Service) Create(ctx context.Context, escortID int64, startAt, endAt time.Time) (*Availability, error) {
+	if err := validateRange(startAt, endAt, s.nowFn()); err != nil {
+		return nil, err
 	}
-	if existing, _ := s.profiles.GetByUserID(ctx, userID); existing != nil {
-		return nil, errs.New(errs.CodeConflict, "user already registered as escort")
+	overlap, err := s.repo.HasOverlap(ctx, escortID, startAt, endAt, 0)
+	if err != nil {
+		return nil, fmt.Errorf("check overlap: %w", err)
 	}
-	p := &repo.Profile{UserID: userID, State: string(state.StateRegistering)}
-	if err := s.profiles.Create(ctx, p); err != nil {
-		return nil, errs.Wrap(errs.CodeInternal, "create escort profile", err)
+	if overlap {
+		return nil, ErrConflict
 	}
-	s.publishState(ctx, userID, "", string(state.StateRegistering))
-	return p, nil
+	a := &Availability{
+		EscortID: escortID,
+		StartAt:  startAt,
+		EndAt:    endAt,
+	}
+	if err := s.repo.Create(ctx, a); err != nil {
+		return nil, fmt.Errorf("create: %w", err)
+	}
+	a.Status = StatusAvailable
+	return a, nil
 }
 
-// RealNameAuth 实名认证（v1 mock：直接通过）。
-//   - state 必须为 registering
-//   - 返回通过 → 推进到 pending_health_cert
-func (s *ProfileFlowService) RealNameAuth(ctx context.Context, userID int64, name, idCard string) error {
-	name = strings.TrimSpace(name)
-	idCard = strings.TrimSpace(idCard)
-	if name == "" || len(idCard) < 4 {
-		return errs.New(errs.CodeParamInvalid, "name / idCard required")
-	}
-	return s.transition(ctx, userID, state.StateRegistering, "submit_real_name",
-		nil, errs.CodeForbidden, "real name only allowed in registering state")
-}
-
-// UploadHealthCert 上传健康证（v1 接收 base64；存 SHA256）。
-//   - state 必须为 pending_real_name（自动审核：v1 直接 approved 并推进到 pending_training）
-func (s *ProfileFlowService) UploadHealthCert(ctx context.Context, userID int64, filename, imageBase64 string) error {
-	filename = strings.TrimSpace(filename)
-	imageBase64 = strings.TrimSpace(imageBase64)
-	if filename == "" || imageBase64 == "" {
-		return errs.New(errs.CodeParamInvalid, "filename / image_base64 required")
-	}
-	if len(imageBase64) < 16 {
-		return errs.New(errs.CodeParamInvalid, "image_base64 too short")
-	}
-	mime := detectMIME(imageBase64)
-	if mime == "" {
-		return errs.New(errs.CodeParamInvalid, "unsupported image format")
-	}
-	// 落 health_certs（status=approved，v1 mock 自动通过）
-	sum := sha256.Sum256([]byte(imageBase64))
-	cert := &repo.HealthCert{
-		UserID: userID, Filename: filename, SHA256: hex.EncodeToString(sum[:]),
-		MIME: mime, Status: "approved",
-	}
-	if err := s.profiles.InsertHealthCert(ctx, cert); err != nil {
-		return errs.Wrap(errs.CodeInternal, "insert health cert", err)
-	}
-	// 推进：pending_real_name → pending_health_cert（提交）→ pending_training（自动审核通过）
-	if err := s.transitionQuiet(ctx, userID, state.StatePendingRealName, "real_name_approved"); err != nil {
+// Delete 删时段（仅 available 可删）。
+func (s *Service) Delete(ctx context.Context, escortID, id int64) error {
+	a, err := s.repo.GetByID(ctx, id)
+	if err != nil {
 		return err
 	}
-	return s.transitionQuiet(ctx, userID, state.StatePendingHealthCert, "health_cert_approved")
+	if a.EscortID != escortID {
+		return ErrForbidden
+	}
+	if a.Status != StatusAvailable {
+		return ErrSlotNotAvail
+	}
+	return s.repo.Delete(ctx, id)
 }
 
-// CompleteTraining 完成培训考核（v1 hardcode 题库）。
-//   - state 必须为 pending_training
-//   - 5 道题答对 ≥ 4 道通过；通过则推进到 pending_agreement
-func (s *ProfileFlowService) CompleteTraining(ctx context.Context, userID int64, courseID string, answers []Answer) error {
-	if len(answers) != len(standardQuiz) {
-		return errs.New(errs.CodeParamInvalid, fmt.Sprintf("answers must be %d items", len(standardQuiz)))
-	}
-	correct := 0
-	answersJSON := make([]map[string]any, 0, len(answers))
-	for _, a := range answers {
-		expected, ok := standardQuiz[fmt.Sprintf("%d", a.QuestionID)]
-		if ok && strings.EqualFold(a.Choice, expected) {
-			correct++
-		}
-		answersJSON = append(answersJSON, map[string]any{"q": a.QuestionID, "a": a.Choice})
-	}
-	score := correct * 100 / len(standardQuiz)
-	passed := score >= 80
-	answersBytes, _ := jsonMarshal(answersJSON)
-	rec := &repo.TrainingRecord{
-		UserID: userID, CourseID: courseID, Score: score, Passed: passed, Answers: answersBytes,
-	}
-	if err := s.profiles.InsertTrainingRecord(ctx, rec); err != nil {
-		return errs.Wrap(errs.CodeInternal, "insert training record", err)
-	}
-	if !passed {
-		return errs.New(errs.CodeForbidden, fmt.Sprintf("training failed with %d%% (need 80%%)", score))
-	}
-	return s.transitionQuiet(ctx, userID, state.StatePendingTraining, "training_passed")
+// ListByEscort 列某 escort 的时段（status 空字符串时不按状态过滤）。
+func (s *Service) ListByEscort(ctx context.Context, escortID int64, status string) ([]*Availability, error) {
+	return s.repo.ListByEscort(ctx, escortID, status)
 }
 
-// SignAgreement 签署电子协议 → pending_audit。
-func (s *ProfileFlowService) SignAgreement(ctx context.Context, userID int64, signatureBase64 string) error {
-	if strings.TrimSpace(signatureBase64) == "" {
-		return errs.New(errs.CodeParamInvalid, "signature required")
-	}
-	return s.transition(ctx, userID, state.StatePendingAgreement, "agreement_signed",
-		nil, errs.CodeForbidden, "agreement signing only allowed in pending_agreement state")
+// ListAvailableByTime 查可用时段（候选取 + 公开端点复用）。
+func (s *Service) ListAvailableByTime(ctx context.Context, startAt, endAt time.Time) ([]*Availability, error) {
+	return s.repo.ListAvailableByTime(ctx, startAt, endAt)
 }
 
-// SetOnline 上线：approved → online。
-func (s *ProfileFlowService) SetOnline(ctx context.Context, userID int64) error {
-	return s.transition(ctx, userID, state.StateApproved, "go_online",
-		nil, errs.CodeForbidden, "go online only allowed in approved state")
-}
-
-// SetOffline 下线：online/in_service → offline。
-func (s *ProfileFlowService) SetOffline(ctx context.Context, userID int64) error {
-	p, err := s.profiles.GetByUserID(ctx, userID)
-	if err != nil || p == nil {
-		return errs.New(errs.CodeNotFound, "escort profile not found")
-	}
-	from := state.State(p.State)
-	if from == state.StateOnline {
-		return s.transitionQuiet(ctx, userID, state.StateOnline, "go_offline")
-	}
-	if from == state.StateInService {
-		return s.transitionQuiet(ctx, userID, state.StateInService, "go_offline")
-	}
-	return errs.New(errs.CodeForbidden, fmt.Sprintf("go offline only from online/in_service (got %s)", from))
-}
-
-// transition 通用状态推进；非法转换返回 forbiddenCode。
-func (s *ProfileFlowService) transition(
-	ctx context.Context, userID int64, expectFrom state.State, action string,
-	_ any, forbiddenCode errs.Code, forbiddenMsg string,
-) error {
-	to, ok := state.CanTransition(expectFrom, action)
-	if !ok {
-		return errs.New(errs.CodeInternal, fmt.Sprintf("action %s not declared from %s", action, expectFrom))
-	}
-	p, err := s.profiles.GetByUserID(ctx, userID)
-	if err != nil || p == nil {
-		return errs.New(errs.CodeNotFound, "escort profile not found")
-	}
-	if state.State(p.State) != expectFrom {
-		return errs.New(forbiddenCode, forbiddenMsg)
-	}
-	if err := s.profiles.UpdateState(ctx, p.ID, string(to), p.Version); err != nil {
-		if errors.Is(err, repo.ErrVersionConflict) {
-			return errs.New(errs.CodeConflict, "version conflict; please retry")
-		}
-		return errs.Wrap(errs.CodeInternal, "update state", err)
-	}
-	s.publishState(ctx, userID, p.State, string(to))
-	return nil
-}
-
-// transitionQuiet 是 transition 的简化版（不带自定义 forbiddenMsg）。
-func (s *ProfileFlowService) transitionQuiet(ctx context.Context, userID int64, expectFrom state.State, action string) error {
-	to, ok := state.CanTransition(expectFrom, action)
-	if !ok {
-		return errs.New(errs.CodeInternal, fmt.Sprintf("action %s not declared from %s", action, expectFrom))
-	}
-	p, err := s.profiles.GetByUserID(ctx, userID)
-	if err != nil || p == nil {
-		return errs.New(errs.CodeNotFound, "escort profile not found")
-	}
-	if state.State(p.State) != expectFrom {
-		return errs.New(errs.CodeForbidden, fmt.Sprintf("expected state %s, got %s", expectFrom, p.State))
-	}
-	if err := s.profiles.UpdateState(ctx, p.ID, string(to), p.Version); err != nil {
-		if errors.Is(err, repo.ErrVersionConflict) {
-			return errs.New(errs.CodeConflict, "version conflict; please retry")
-		}
-		return errs.Wrap(errs.CodeInternal, "update state", err)
-	}
-	s.publishState(ctx, userID, p.State, string(to))
-	return nil
-}
-
-// publishState 发布状态变更事件（best-effort）。
-func (s *ProfileFlowService) publishState(ctx context.Context, userID int64, from, to string) {
-	if s.pub == nil {
-		return
-	}
-	_ = s.pub.PublishStateChanged(ctx, StateChangedEvent{
-		UserID: userID, From: from, To: to, OccurredAt: s.now(),
-	})
-}
-
-// detectMIME 从 base64 前缀嗅探 image 类型（v1 简版）。
-func detectMIME(b64 string) string {
-	if strings.HasPrefix(b64, "data:image/jpeg") || strings.HasPrefix(b64, "/9j/") {
-		return "image/jpeg"
-	}
-	if strings.HasPrefix(b64, "data:image/png") || strings.HasPrefix(b64, "iVBOR") {
-		return "image/png"
-	}
-	return ""
-}
-
-// jsonMarshal 把 v 序列化为 JSON 字节；内部 helper 避免顶层引 encoding/json。
-func jsonMarshal(v any) ([]byte, error) {
-	// 用 fmt.Sprintf 简化；只用于内部 answers 落库（结构简单）。
-	// 真要严谨可换 encoding/json；本文件已在 stdlib json encoding context 下。
-	type buf []byte
-	_ = buf(nil)
-	// 直接调 encoding/json：
-	return jsonMarshalStd(v)
-}
-```
-
-> **注意**：上面 `jsonMarshal` 用了占位实现。实施时**改用** `encoding/json`：
->
-> ```go
-> import "encoding/json"
-> ...
-> func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
-> ```
->
-> 单测中 `answersJSON` 类型 `[]map[string]any` 可直接序列化。
-
-**Step 4: 跑测试确认通过**
-
-Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 ./services/escort/internal/service/
-```
-Expected: PASS（既有 12 个 + 新加 13 个 = 25 个）
-
-**Step 5: 扩展既有 service 加 GetMyProfile + ListTrainingCourses + ListMyReviews**
-
-修改 `services/escort/internal/service/escort_service.go` 末尾追加：
-
-```go
-// ---------- 2026-09-24 escort-business plan 扩展：me/* endpoints ----------
-
-// TrainingCourse 是 v1 培训课程静态视图（前端 hardcode 也行；后端提供便于统一）。
-type TrainingCourse struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	DurationMin int    `json:"duration_min"`
-}
-
-// standardCourses 是 v1 课程列表（hardcode；admin 可后续配置化）。
-var standardCourses = []TrainingCourse{
-	{ID: "escort-basics", Title: "陪诊师基础", Description: "服务流程 + 注意事项", DurationMin: 30},
-	{ID: "first-aid", Title: "急救常识", Description: "SOS 触发条件 + 现场处理", DurationMin: 20},
-}
-
-// Review 是陪诊师收到的评价摘要（v1 stub；review-service 完整版在 review plan）。
-type Review struct {
-	ID         int64     `json:"id"`
-	OrderID    int64     `json:"order_id"`
-	ReviewerID int64     `json:"reviewer_id"`
-	Rating     int       `json:"rating"`
-	Comment    string    `json:"comment,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-}
-
-// ProfileFlowReader 是 escort_service 用来读 profile 数据的接口（解耦）。
-type ProfileFlowReader interface {
-	GetByUserID(ctx context.Context, userID int64) (*repo.Profile, error)
-	ListTrainingByUser(ctx context.Context, userID int64) ([]*repo.TrainingRecord, error)
-}
-
-// SetProfileReader 注入 reader（cmd/main.go 装配）。
-func (s *Service) SetProfileReader(r ProfileFlowReader) *Service { s.profileReader = r; return s }
-
-// 在 Service struct 加字段：
-//   profileReader ProfileFlowReader
-
-// GetMyProfile 取当前陪诊师档案。
-func (s *Service) GetMyProfile(ctx context.Context, userID int64) (*repo.Profile, error) {
-	if s.profileReader == nil {
-		return nil, errs.New(errs.CodeUnavailable, "profile reader not wired")
-	}
-	p, err := s.profileReader.GetByUserID(ctx, userID)
+// Update 修改时段（仅 available；version 必传；冲突返回 ErrVersionConflict）。
+func (s *Service) Update(ctx context.Context, escortID, id int64, startAt, endAt time.Time, expectedVersion int) error {
+	a, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, errs.Wrap(errs.CodeInternal, "get profile", err)
+		return err
 	}
-	if p == nil {
-		return nil, errs.New(errs.CodeNotFound, "escort profile not found")
+	if a.EscortID != escortID {
+		return ErrForbidden
 	}
-	return p, nil
-}
-
-// ListTrainingCourses 返回 v1 课程列表（hardcode）。
-func (s *Service) ListTrainingCourses() []TrainingCourse { return standardCourses }
-
-// ListMyReviews 返回陪诊师收到的评价（v1 stub：从 mock 列表返回；review plan 接通）。
-func (s *Service) ListMyReviews(ctx context.Context, userID int64) ([]Review, error) {
-	// v1 stub：返回空列表；review plan 完成后改为读 review-service
-	return []Review{}, nil
-}
-```
-
-> 修改 Service struct + New 时给字段默认值 nil；既有 12 个测试不动。
-
-修改 `services/escort/internal/service/escort_service_test.go` 末尾追加：
-
-```go
-// TestGetMyProfile_NotFound 验证未注册时返回 NotFound。
-func TestGetMyProfile_NotFound(t *testing.T) {
-	s := New(newFakeRepo(), &fakePub{})
-	s.SetProfileReader(newFakeProfileReader())
-	_, err := s.GetMyProfile(context.Background(), 99999)
-	assert.Error(t, err)
-}
-
-// TestListTrainingCourses_OK 验证返回 2 门课程。
-func TestListTrainingCourses_OK(t *testing.T) {
-	s := New(newFakeRepo(), &fakePub{})
-	courses := s.ListTrainingCourses()
-	assert.Len(t, courses, 2)
-	assert.Equal(t, "escort-basics", courses[0].ID)
-}
-
-// TestListMyReviews_Empty 验证 v1 stub 返回空列表。
-func TestListMyReviews_Empty(t *testing.T) {
-	s := New(newFakeRepo(), &fakePub{})
-	reviews, err := s.ListMyReviews(context.Background(), 100)
-	require.NoError(t, err)
-	assert.Empty(t, reviews)
-}
-
-// fakeProfileReader 满足接口最小实现。
-type fakeProfileReader struct{}
-
-func newFakeProfileReader() *fakeProfileReader { return &fakeProfileReader{} }
-func (r *fakeProfileReader) GetByUserID(ctx context.Context, userID int64) (*repo.Profile, error) {
-	return nil, nil
-}
-func (r *fakeProfileReader) ListTrainingByUser(ctx context.Context, userID int64) ([]*repo.TrainingRecord, error) {
-	return nil, nil
-}
-```
-
-**Step 6: 跑测试确认通过**
-
-Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 ./services/escort/internal/service/
-```
-Expected: PASS（既有 12 + 新增 13 业务流 + 新增 3 me/* = 28 个）
-
-**Step 7: Commit**
-
-```bash
-git add services/escort/internal/service/
-git commit -m "feat(escort): profile_flow 业务流 + 11 态状态机守门 + 实名 mock + 健康证 SHA256 + 培训 80% 通过 + me/* endpoints (25+ 单测)"
-```
-
----
-
-### Task 5: shared/contracts + escort events.Publisher
-
-**Files:**
-- Modify: `shared/contracts/events.go`
-- Modify: `shared/contracts/contracts_test.go`
-- Create: `services/escort/internal/events/publisher.go`
-- Create: `services/escort/internal/events/publisher_test.go`
-
-**Step 1: 写 events.go 测试**
-
-修改 `shared/contracts/contracts_test.go`：
-
-```go
-// TestEscortStateChangedEvent_RoundTrip 验证序列化可逆。
-func TestEscortStateChangedEvent_RoundTrip(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	ev := EscortStateChangedEvent{
-		UserID: 100, From: "registering", To: "pending_real_name", OccurredAt: now,
+	if a.Status != StatusAvailable {
+		return ErrSlotNotAvail
 	}
-	data, err := json.Marshal(ev)
-	require.NoError(t, err)
-	var got EscortStateChangedEvent
-	require.NoError(t, json.Unmarshal(data, &got))
-	assert.Equal(t, ev, got)
+	if err := validateRange(startAt, endAt, s.nowFn()); err != nil {
+		return err
+	}
+	overlap, err := s.repo.HasOverlap(ctx, escortID, startAt, endAt, id)
+	if err != nil {
+		return fmt.Errorf("check overlap: %w", err)
+	}
+	if overlap {
+		return ErrConflict
+	}
+	if err := s.repo.Update(ctx, id, escortID, startAt, endAt, expectedVersion); err != nil {
+		if errors.Is(err, ErrSlotNotAvail) || errors.Is(err, ErrVersionConflict) {
+			return err
+		}
+		return fmt.Errorf("update: %w", err)
+	}
+	return nil
 }
 
-// TestTopicConstants_EscortStateChanged 验证 topic 常量。
-// 在 TestTopicConstants 里追加：
-//   assert.Equal(t, "escort.state_changed", TopicEscortStateChanged)
-```
+// BookByOrder 标记时段为 booked + 写 order_id。
+func (s *Service) BookByOrder(ctx context.Context, slotID, escortID, orderID int64) error {
+	a, err := s.repo.GetByID(ctx, slotID)
+	if err != nil {
+		return err
+	}
+	if a.EscortID != escortID {
+		return ErrForbidden
+	}
+	if _, ok := CanTransition(a.Status, "book"); !ok {
+		return ErrForbidden
+	}
+	return s.repo.BookByOrder(ctx, slotID, escortID, orderID, a.Version)
+}
 
-**Step 2: 跑测试确认失败**
+// ReleaseByOrder 把 order_id 关联的 booked 时段恢复为 available；幂等。
+func (s *Service) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	return s.repo.ReleaseByOrder(ctx, orderID)
+}
 
-Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 -run 'TestEscortStateChangedEvent|TestTopicConstants' ./shared/contracts/
-```
-Expected: FAIL — `undefined: EscortStateChangedEvent`
+// DeriveStatus 派生陪诊师在线状态。
+//
+//   - manualOffline=true  → "off-line"（最终态优先）
+//   - 有 status='available' 且 end_at > now 的时段 → "available"
+//   - 否则 → "busy"
+//
+// 返回值为派生状态的字符串常量（与 events / API 响应一致）。
+func (s *Service) DeriveStatus(ctx context.Context, escortID int64, manualOffline bool) (string, error) {
+	if manualOffline {
+		return "off-line", nil
+	}
+	n, err := s.repo.CountAvailableForEscort(ctx, escortID)
+	if err != nil {
+		return "", fmt.Errorf("derive status: %w", err)
+	}
+	if n > 0 {
+		return "available", nil
+	}
+	return "busy", nil
+}
 
-**Step 3: 修改 events.go**
+// ---------- helpers ----------
 
-```go
-// 在 const 块追加（与 TopicEscortAvailable 紧邻）：
-TopicEscortStateChanged = "escort.state_changed"
+// validateRange 校验 start_at > now + end_at > start_at。
+func validateRange(startAt, endAt, now time.Time) error {
+	if !startAt.After(now) {
+		return ErrBadRange
+	}
+	if !endAt.After(startAt) {
+		return ErrBadRange
+	}
+	return nil
+}
 
-// 在 EscortAvailableEvent 定义后追加：
-// EscortStateChangedEvent 陪诊师档案状态变更（escort-service → notification / admin audit）。
-type EscortStateChangedEvent struct {
-	UserID     int64     `json:"user_id"`
-	From       string    `json:"from,omitempty"`
-	To         string    `json:"to"`
-	OccurredAt time.Time `json:"occurred_at"`
+// ---------- 业务错误 → errs.Error 映射（给 handler 用） ----------
+
+// ToErrs 把业务错误映射为 errs.Error（5 位业务码）。
+func ToErrs(err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return errs.New(errs.CodeNotFound, err.Error())
+	case errors.Is(err, ErrConflict):
+		return errs.New(errs.CodeConflict, err.Error())
+	case errors.Is(err, ErrBadRange):
+		return errs.New(errs.CodeParamInvalid, err.Error())
+	case errors.Is(err, ErrForbidden), errors.Is(err, ErrSlotNotAvail):
+		return errs.New(errs.CodeForbidden, err.Error())
+	case errors.Is(err, ErrVersionConflict):
+		return errs.New(errs.CodeConflict, err.Error())
+	default:
+		return errs.Wrap(errs.CodeInternal, "availability: %w", err)
+	}
 }
 ```
 
 **Step 4: 跑测试确认通过**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 ./shared/contracts/
-```
-Expected: PASS
-
-**Step 5: 写 publisher.go**
-
-`services/escort/internal/events/publisher.go`：
-
-```go
-// Package events 是 escort-service 的事件发布层。
-package events
-
-import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"strconv"
-	"time"
-
-	"github.com/segmentio/kafka-go"
-
-	"github.com/growdu/doctors/services/escort/internal/service"
-	"github.com/growdu/doctors/shared/contracts"
-)
-
-// Publisher 抽象 escort 事件。
-type Publisher interface {
-	PublishStateChanged(ctx context.Context, ev service.StateChangedEvent) error
-	Close() error
-}
-
-// KafkaPublisher 用 kafka-go writer 写 topic。
-type KafkaPublisher struct {
-	writer *kafka.Writer
-}
-
-// NewKafkaPublisher 构造 publisher。
-func NewKafkaPublisher(brokers []string) *KafkaPublisher {
-	return &KafkaPublisher{
-		writer: &kafka.Writer{
-			Addr: kafka.TCP(brokers...),
-			Balancer: &kafka.LeastBytes{},
-			BatchTimeout: 50 * time.Millisecond,
-			RequiredAcks: kafka.RequireOne,
-			Async: false,
-		},
-	}
-}
-
-// Close 关闭 writer。
-func (p *KafkaPublisher) Close() error { return p.writer.Close() }
-
-// PublishStateChanged 发 escort.state_changed。
-func (p *KafkaPublisher) PublishStateChanged(ctx context.Context, ev service.StateChangedEvent) error {
-	if p == nil || p.writer == nil {
-		return errors.New("publisher: writer is nil")
-	}
-	wire := contracts.EscortStateChangedEvent{
-		UserID: ev.UserID, From: ev.From, To: ev.To, OccurredAt: ev.OccurredAt,
-	}
-	data, err := json.Marshal(wire)
-	if err != nil {
-		return fmt.Errorf("marshal escort state: %w", err)
-	}
-	return p.writer.WriteMessages(ctx, kafka.Message{
-		Topic: contracts.TopicEscortStateChanged,
-		Key:   []byte(strconv.FormatInt(ev.UserID, 10)),
-		Value: data,
-		Time:  time.Now(),
-	})
-}
-
-// NopPublisher 是测试 / dev 占位。
-type NopPublisher struct {
-	Count int
-}
-
-// PublishStateChanged 计数。
-func (p *NopPublisher) PublishStateChanged(_ context.Context, _ service.StateChangedEvent) error {
-	p.Count++
-	return nil
-}
-
-// Close 无资源。
-func (p *NopPublisher) Close() error { return nil }
+  go test -count=1 ./services/escort/internal/availability/
 ```
 
-`services/escort/internal/events/publisher_test.go`：
+Expected: PASS（state 3 个 + service 8 个 = 11 个单测）。
 
-```go
-package events
-
-import (
-	"context"
-	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/growdu/doctors/services/escort/internal/service"
-)
-
-// TestNopPublisher_PublishStateChanged_Counts 验证计数。
-func TestNopPublisher_PublishStateChanged_Counts(t *testing.T) {
-	p := &NopPublisher{}
-	require.NoError(t, p.PublishStateChanged(context.Background(), service.StateChangedEvent{
-		UserID: 1, From: "registering", To: "pending_real_name", OccurredAt: time.Now(),
-	}))
-	assert.Equal(t, 1, p.Count)
-}
-
-// TestNopPublisher_Close 不报错。
-func TestNopPublisher_Close(t *testing.T) {
-	assert.NoError(t, (&NopPublisher{}).Close())
-}
-```
-
-**Step 6: 跑测试确认通过**
-
-Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 ./services/escort/internal/events/ ./shared/contracts/
-```
-Expected: PASS
-
-**Step 7: Commit**
+**Step 5: Commit**
 
 ```bash
-git add shared/contracts/ services/escort/internal/events/
-git commit -m "feat(contracts+escort): EscortStateChangedEvent + TopicEscortStateChanged + KafkaPublisher + NopPublisher (2 单测)"
+git add services/escort/internal/availability/
+git commit -m "feat(escort): availability.Service 业务层 (冲突校验 + 时段验证 + DeriveStatus + 11 个单测)"
 ```
 
 ---
 
-### Task 6: escort handler 8 endpoints + 测试
+## Task 4: 5 个 HTTP endpoint（handler + 路由 + 单测）
 
 **Files:**
-- Create: `services/escort/internal/handler/escort_business.go`
-- Create: `services/escort/internal/handler/escort_business_test.go`
-- Modify: `services/escort/internal/handler/escort.go`
+- Create: `services/escort/internal/handler/escort_availability.go`
+- Create: `services/escort/internal/handler/escort_availability_test.go`
+- Modify: `services/escort/internal/handler/escort.go`（`RegisterRoutes` 加挂）
 
 **Step 1: 写 handler 单测（RED）**
 
-`services/escort/internal/handler/escort_business_test.go`：
+`services/escort/internal/handler/escort_availability_test.go`：
 
 ```go
 package handler
@@ -1999,1257 +1672,966 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	authpkg "github.com/growdu/doctors/shared/auth"
-	"github.com/growdu/doctors/services/escort/internal/middleware"
-	"github.com/growdu/doctors/services/escort/internal/repo"
-	"github.com/growdu/doctors/services/escort/internal/service"
-	"github.com/growdu/doctors/services/escort/internal/state"
-	"github.com/growdu/doctors/shared/errs"
+	"github.com/growdu/doctors/services/escort/internal/availability"
 	"github.com/growdu/doctors/shared/httpx"
 )
 
-const testSecret = "test-secret-escort"
+// ---------- fake AvailabilityService ----------
 
-// fakeFlow 是 ProfileFlowService 的 fake（满足 handler 接口）。
-type fakeFlow struct {
-	registerCalled   bool
-	realNameCalled   bool
-	uploadCalled     bool
-	trainingCalled   bool
-	signCalled       bool
-	goOnlineCalled   bool
-	goOfflineCalled  bool
-	registerErr      error
-	realNameErr      error
-	uploadErr        error
-	trainingErr      error
-	signErr          error
-	goOnlineErr      error
-	goOfflineErr     error
-	lastRegisterUser int64
+type fakeAvailService struct {
+	createCalled      bool
+	deleteCalled      bool
+	updateCalled      bool
+	bookCalled        bool
+	releaseCalled     bool
+	listMine          []*availability.Availability
+	listPublic        []*availability.Availability
+	invitations       []InvitationDTO
+	deriveStatusValue string
 }
 
-func (f *fakeFlow) RegisterFlow(ctx context.Context, userID int64) (*repo.Profile, error) {
-	f.registerCalled = true; f.lastRegisterUser = userID
-	if f.registerErr != nil {
-		return nil, f.registerErr
+func (f *fakeAvailService) Create(ctx context.Context, escortID int64, start, end time.Time) (*availability.Availability, error) {
+	f.createCalled = true
+	return &availability.Availability{ID: 1, EscortID: escortID, StartAt: start, EndAt: end, Status: availability.StatusAvailable}, nil
+}
+
+func (f *fakeAvailService) Update(ctx context.Context, escortID, id int64, start, end time.Time, version int) error {
+	f.updateCalled = true
+	return nil
+}
+
+func (f *fakeAvailService) Delete(ctx context.Context, escortID, id int64) error {
+	f.deleteCalled = true
+	return nil
+}
+
+func (f *fakeAvailService) ListByEscort(ctx context.Context, escortID int64, status string) ([]*availability.Availability, error) {
+	if status == "" && len(f.listMine) > 0 {
+		return f.listMine, nil
 	}
-	return &repo.Profile{ID: 1, UserID: userID, State: "registering", Version: 0}, nil
-}
-func (f *fakeFlow) RealNameAuth(ctx context.Context, userID int64, name, idCard string) error {
-	f.realNameCalled = true; return f.realNameErr
-}
-func (f *fakeFlow) UploadHealthCert(ctx context.Context, userID int64, filename, b64 string) error {
-	f.uploadCalled = true; return f.uploadErr
-}
-func (f *fakeFlow) CompleteTraining(ctx context.Context, userID int64, courseID string, answers []service.Answer) error {
-	f.trainingCalled = true; return f.trainingErr
-}
-func (f *fakeFlow) SignAgreement(ctx context.Context, userID int64, sig string) error {
-	f.signCalled = true; return f.signErr
-}
-func (f *fakeFlow) SetOnline(ctx context.Context, userID int64) error {
-	f.goOnlineCalled = true; return f.goOnlineErr
-}
-func (f *fakeFlow) SetOffline(ctx context.Context, userID int64) error {
-	f.goOfflineCalled = true; return f.goOfflineErr
+	return f.listPublic, nil
 }
 
-// fakeReader 是 ProfileFlowReader 的 fake（满足 service 测试用接口）。
-type fakeReader struct {
-	profile *repo.Profile
+func (f *fakeAvailService) ListAvailableByTime(ctx context.Context, start, end time.Time) ([]*availability.Availability, error) {
+	return f.listPublic, nil
 }
 
-func (r *fakeReader) GetByUserID(ctx context.Context, userID int64) (*repo.Profile, error) {
-	if r.profile != nil && r.profile.UserID == userID {
-		return r.profile, nil
-	}
-	return nil, nil
-}
-func (r *fakeReader) ListTrainingByUser(ctx context.Context, userID int64) ([]*repo.TrainingRecord, error) {
-	return nil, nil
+func (f *fakeAvailService) BookByOrder(ctx context.Context, slotID, escortID, orderID int64) error {
+	f.bookCalled = true
+	return nil
 }
 
-func signTestToken(t *testing.T, uid int64, role string) string {
-	t.Helper()
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": uid, "role": role, "exp": time.Now().Add(time.Hour).Unix(),
-	})
-	signed, err := tok.SignedString([]byte(testSecret))
-	require.NoError(t, err)
-	return signed
+func (f *fakeAvailService) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	f.releaseCalled = true
+	return nil
 }
 
-// newTestServer 构造 handler + gin engine + 中间件。
-func newBusinessServer(flowSvc *fakeFlow, reader ProfileFlowReader) (*gin.Engine, *service.Service) {
-	escSvc := service.New(nil, nil)
-	if reader != nil {
-		escSvc.SetProfileReader(reader)
-	}
-	h := NewBusinessHandler(flowSvc, escSvc)
+func (f *fakeAvailService) DeriveStatus(ctx context.Context, escortID int64, manualOffline bool) (string, error) {
+	return f.deriveStatusValue, nil
+}
+
+// InvitationDTO 是 handler 暴露给 escort-app 的待确认订单摘要。
+// 实际 list 来自 order-service（v1 简化：service 用 fake 数据；Task 6 注入真实 order client）。
+type InvitationDTO struct {
+	OrderID         int64     `json:"order_id"`
+	PatientName     string    `json:"patient_name"`
+	HospitalName    string    `json:"hospital_name"`
+	ServiceStartAt  time.Time `json:"service_start_at"`
+	ServiceEndAt    time.Time `json:"service_end_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+// （fake invitation 来自 service.ListInvitations，订单集成在 Task 6 加。
+// 这里假设 ListInvitations 在 Task 6 加在 service 上；本 Task 4 暂 stub 返回 nil。）
+
+// ---------- helpers ----------
+
+func newRouter(fake *fakeAvailService) *gin.Engine {
+	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	v1 := r.Group("/api/v1", middleware.Auth(testSecret))
-	h.RegisterRoutes(v1)
-	return r, escSvc
+	h := NewEscortAvailabilityHandler(fake, &fakeOrderClient{})
+	authed := r.Group("/api/v1")
+	authed.Use(func(c *gin.Context) {
+		c.Set("user_id", int64(100)) // mock 当前用户
+		c.Next()
+	})
+	authed.POST("/escorts/me/availability", h.PutAvailability) // PUT 也用 POST（避免与 gin 冲突）
+	authed.GET("/escorts/me/availability", h.ListMyAvailability)
+	authed.DELETE("/escorts/me/availability/:id", h.DeleteAvailability)
+	authed.GET("/escorts/me/invitations", h.ListMyInvitations)
+	r.GET("/api/v1/escorts/:id/availabilities", h.ListPublicAvailability)
+	return r
 }
 
-func doJSON(t *testing.T, r *gin.Engine, method, path, token string, payload any) *httpx.Resp[map[string]any] {
-	t.Helper()
-	var body *bytes.Reader
-	if payload != nil {
-		b, _ := json.Marshal(payload)
-		body = bytes.NewReader(b)
-	} else {
-		body = bytes.NewReader(nil)
-	}
-	req := httptest.NewRequest(method, path, body)
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
+// fakeOrderClient 满足 OrderClient 最小接口（Task 6 接入真实 client）。
+type fakeOrderClient struct{}
+
+func (f *fakeOrderClient) ListPendingOrdersByEscort(ctx context.Context, escortID int64) ([]InvitationDTO, error) {
+	return nil, nil
+}
+
+// ---------- PUT /escorts/me/availability ----------
+
+func TestPutAvailability_OK(t *testing.T) {
+	fake := &fakeAvailService{}
 	w := httptest.NewRecorder()
+	r := newRouter(fake)
+	body := map[string]any{
+		"start_at": time.Now().Add(2 * time.Hour).Format(time.RFC3339),
+		"end_at":   time.Now().Add(3 * time.Hour).Format(time.RFC3339),
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/v1/escorts/me/availability", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	var resp httpx.Resp[map[string]any]
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	return &resp
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, fake.createCalled)
 }
 
-// TestRegister_OK 验证 POST /escorts/register。
-func TestRegister_OK(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPost, "/api/v1/escorts/register", tok, nil)
-	assert.Equal(t, 0, resp.Code)
-	assert.True(t, flow.registerCalled)
-	assert.Equal(t, int64(100), flow.lastRegisterUser)
+// ---------- DELETE /escorts/me/availability/:id ----------
+
+func TestDeleteAvailability_OK(t *testing.T) {
+	fake := &fakeAvailService{}
+	w := httptest.NewRecorder()
+	r := newRouter(fake)
+	req := httptest.NewRequest("DELETE", "/api/v1/escorts/me/availability/123", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, fake.deleteCalled)
 }
 
-// TestRealName_OK 验证 POST /escorts/real-name/auth。
-func TestRealName_OK(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPost, "/api/v1/escorts/real-name/auth", tok, map[string]any{
-		"name": "张三", "id_card": "110101199001011234",
-	})
-	assert.Equal(t, 0, resp.Code)
-	assert.True(t, flow.realNameCalled)
-}
+// ---------- GET /escorts/me/availability ----------
 
-// TestRealName_BadJSON 验证缺字段返回错误码。
-func TestRealName_BadJSON(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPost, "/api/v1/escorts/real-name/auth", tok, map[string]any{})
-	assert.NotEqual(t, 0, resp.Code)
-	assert.False(t, flow.realNameCalled)
-}
-
-// TestHealthCertUpload_OK 验证 POST /escorts/health-cert/upload。
-func TestHealthCertUpload_OK(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPost, "/api/v1/escorts/health-cert/upload", tok, map[string]any{
-		"filename": "cert.jpg",
-		"image_base64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD",
-	})
-	assert.Equal(t, 0, resp.Code)
-	assert.True(t, flow.uploadCalled)
-}
-
-// TestTrainingComplete_OK 验证 POST /escorts/training/complete。
-func TestTrainingComplete_OK(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPost, "/api/v1/escorts/training/complete", tok, map[string]any{
-		"course_id": "escort-basics",
-		"answers": []map[string]any{
-			{"question_id": 1, "choice": "A"},
-			{"question_id": 2, "choice": "B"},
-			{"question_id": 3, "choice": "A"},
-			{"question_id": 4, "choice": "C"},
-			{"question_id": 5, "choice": "B"},
-		},
-	})
-	assert.Equal(t, 0, resp.Code)
-	assert.True(t, flow.trainingCalled)
-}
-
-// TestMeProfile_OK 验证 GET /escorts/me/profile。
-func TestMeProfile_OK(t *testing.T) {
-	reader := &fakeReader{profile: &repo.Profile{
-		ID: 1, UserID: 100, State: string(state.StateApproved), Rating: 5.0, Version: 1,
+func TestListMyAvailability_OK(t *testing.T) {
+	fake := &fakeAvailService{listMine: []*availability.Availability{
+		{ID: 1, EscortID: 100, Status: availability.StatusAvailable},
 	}}
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, reader)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodGet, "/api/v1/escorts/me/profile", tok, nil)
-	assert.Equal(t, 0, resp.Code)
-	require.NotNil(t, resp.Data)
-	assert.Equal(t, "approved", resp.Data["state"])
+	w := httptest.NewRecorder()
+	r := newRouter(fake)
+	req := httptest.NewRequest("GET", "/api/v1/escorts/me/availability", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp httpx.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, w.Body.String(), "available")
 }
 
-// TestMeProfile_NotFound 验证未注册返回 NotFound。
-func TestMeProfile_NotFound(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, &fakeReader{}) // reader 永远返回 nil
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodGet, "/api/v1/escorts/me/profile", tok, nil)
-	assert.NotEqual(t, 0, resp.Code)
+// ---------- GET /escorts/:id/availabilities (公开) ----------
+
+func TestListPublicAvailability_OK(t *testing.T) {
+	fake := &fakeAvailService{listPublic: []*availability.Availability{
+		{ID: 2, EscortID: 200, Status: availability.StatusAvailable},
+	}}
+	w := httptest.NewRecorder()
+	r := newRouter(fake)
+	req := httptest.NewRequest("GET", "/api/v1/escorts/200/availabilities?start_at="+
+		time.Now().Format(time.RFC3339)+"&end_at="+time.Now().Add(24*time.Hour).Format(time.RFC3339), nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestMeStatus_Online 验证 PUT /escorts/me/status (online)。
-func TestMeStatus_Online(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPut, "/api/v1/escorts/me/status", tok, map[string]any{
-		"online": true,
-	})
-	assert.Equal(t, 0, resp.Code)
-	assert.True(t, flow.goOnlineCalled)
-}
+// ---------- GET /escorts/me/invitations ----------
 
-// TestMeStatus_Offline 验证 PUT /escorts/me/status (offline)。
-func TestMeStatus_Offline(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodPut, "/api/v1/escorts/me/status", tok, map[string]any{
-		"online": false,
-	})
-	assert.Equal(t, 0, resp.Code)
-	assert.True(t, flow.goOfflineCalled)
+func TestListMyInvitations_OK(t *testing.T) {
+	fake := &fakeAvailService{}
+	w := httptest.NewRecorder()
+	r := newRouter(fake)
+	req := httptest.NewRequest("GET", "/api/v1/escorts/me/invitations", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
-
-// TestMeTrainingCourses_OK 验证 GET /escorts/me/training-courses。
-func TestMeTrainingCourses_OK(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodGet, "/api/v1/escorts/me/training-courses", tok, nil)
-	assert.Equal(t, 0, resp.Code)
-}
-
-// TestMeReviews_OK 验证 GET /escorts/me/reviews。
-func TestMeReviews_OK(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "escort")
-	resp := doJSON(t, r, http.MethodGet, "/api/v1/escorts/me/reviews", tok, nil)
-	assert.Equal(t, 0, resp.Code)
-}
-
-// TestEscortOnly 验证 patient 不能访问 escort endpoint。
-func TestRegister_PatientForbidden(t *testing.T) {
-	flow := &fakeFlow{}
-	r, _ := newBusinessServer(flow, nil)
-	tok := signTestToken(t, 100, "patient")
-	resp := doJSON(t, r, http.MethodPost, "/api/v1/escorts/register", tok, nil)
-	assert.NotEqual(t, 0, resp.Code)
-}
-
-// 兜底编译（errs 包用于编译期保证；time 包同上）。
-var _ = errs.CodeOK
-var _ = time.Now
 ```
 
 **Step 2: 跑测试确认失败**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -count=1 -run 'TestRegister_OK|TestRealName_|TestHealthCertUpload|TestTrainingComplete|TestMeProfile|TestMeStatus|TestMeTrainingCourses|TestMeReviews|TestEscortOnly' \
-  ./services/escort/internal/handler/
+  go test -count=1 -run 'TestPutAvailability|TestDeleteAvailability|TestListMyAvailability|TestListPublicAvailability|TestListMyInvitations' ./services/escort/internal/handler/
 ```
-Expected: FAIL — `undefined: NewBusinessHandler`
 
-**Step 3: 写 escort_business.go**
+Expected: FAIL — `undefined: NewEscortAvailabilityHandler`, handler methods undefined。
 
-`services/escort/internal/handler/escort_business.go`：
+**Step 3: 写 escort_availability.go**
+
+`services/escort/internal/handler/escort_availability.go`：
 
 ```go
-// Package handler 把 escort-service 暴露为 REST 接口（含 8 个业务流 endpoint）。
+// Package handler - escort_availability.go 提供 5 个 escort 端 + 1 个公开端 + 1 个邀请端。
+//
+// 路由：
+//
+//	POST  /api/v1/escorts/me/availability           新建时段（PUT 语义）
+//	GET   /api/v1/escorts/me/availability           列我的时段
+//	DELETE /api/v1/escorts/me/availability/:id      删时段（仅 available）
+//	GET   /api/v1/escorts/:id/availabilities        公开列某 escort 的可用时段
+//	GET   /api/v1/escorts/me/invitations            待我确认的订单（escort_pending_acceptance）
+//
+// 依赖：
+//   - availabilityService（service 层抽象）
+//   - orderClient（订单集成，Task 6 引入；本 Task 4 暂用 fake client）
 package handler
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/growdu/doctors/services/escort/internal/middleware"
-	"github.com/growdu/doctors/services/escort/internal/service"
+	"github.com/growdu/doctors/services/escort/internal/availability"
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
 )
 
-// FlowService 是 escort-service 业务流的接口（profile_flow.go 实现 + handler fake）。
-type FlowService interface {
-	RegisterFlow(ctx interface{ Done() <-chan struct{} }, userID int64) (*profileResult, error)
+// AvailabilityService 是 handler 依赖的最小 service 接口。
+type AvailabilityService interface {
+	Create(ctx context.Context, escortID int64, startAt, endAt time.Time) (*availability.Availability, error)
+	Update(ctx context.Context, escortID, id int64, startAt, endAt time.Time, expectedVersion int) error
+	Delete(ctx context.Context, escortID, id int64) error
+	ListByEscort(ctx context.Context, escortID int64, status string) ([]*availability.Availability, error)
+	ListAvailableByTime(ctx context.Context, startAt, endAt time.Time) ([]*availability.Availability, error)
+	BookByOrder(ctx context.Context, slotID, escortID, orderID int64) error
+	ReleaseByOrder(ctx context.Context, orderID int64) error
+	DeriveStatus(ctx context.Context, escortID int64, manualOffline bool) (string, error)
 }
 
-// profileResult 是 handler 用最小结构（避免反向依赖 repo.Profile）。
-type profileResult = struct {
-	ID      int64  `json:"id"`
-	UserID  int64  `json:"user_id"`
-	State   string `json:"state"`
-	Version int    `json:"version"`
-}
-```
-
-> **注**：上面 `FlowService` 用 `interface{ Done() <-chan struct{} }` 是为兼容 stdlib `context.Context`。**实施时**改为：
->
-> ```go
-> import "context"
-> type FlowService interface {
->     RegisterFlow(ctx context.Context, userID int64) (*service.ProfileResult, error)
->     RealNameAuth(ctx context.Context, userID int64, name, idCard string) error
->     UploadHealthCert(ctx context.Context, userID int64, filename, b64 string) error
->     CompleteTraining(ctx context.Context, userID int64, courseID string, answers []service.Answer) error
->     SignAgreement(ctx context.Context, userID int64, sig string) error
->     SetOnline(ctx context.Context, userID int64) error
->     SetOffline(ctx context.Context, userID int64) error
-> }
-> ```
->
-> 其中 `service.ProfileResult` 在 `profile_flow.go` 加：
->
-> ```go
-> type ProfileResult struct { ID, UserID int64; State string; Version int }
-> ```
->
-> handler 拿到后转 `gin.H{"id": r.ID, ...}` 即可。
-
-继续写 handler：
-
-```go
-// BusinessHandler 是 8 个新 endpoint 的 handler。
-type BusinessHandler struct {
-	flow  FlowService
-	escort *service.Service // 复用 me/* 三个
+// OrderClient 是订单服务最小集成接口（list 邀请用）。
+type OrderClient interface {
+	ListPendingOrdersByEscort(ctx context.Context, escortID int64) ([]InvitationDTO, error)
 }
 
-// NewBusinessHandler 构造 handler。
-func NewBusinessHandler(flow FlowService, escort *service.Service) *BusinessHandler {
-	return &BusinessHandler{flow: flow, escort: escort}
+// InvitationDTO 是 handler 暴露给 escort-app 的邀请摘要。
+// 实际填充由 OrderClient 实现（Task 6 注入 order-service client）。
+type InvitationDTO struct {
+	OrderID        int64     `json:"order_id"`
+	PatientName    string    `json:"patient_name"`
+	HospitalName   string    `json:"hospital_name"`
+	ServiceStartAt time.Time `json:"service_start_at"`
+	ServiceEndAt   time.Time `json:"service_end_at"`
+	ExpiresAt      time.Time `json:"expires_at"`
 }
 
-// RegisterRoutes 把业务流路由挂到 /escorts。
-func (h *BusinessHandler) RegisterRoutes(r gin.IRouter) {
-	e := r.Group("/escorts")
-	e.POST("/register", h.register)
-	e.POST("/real-name/auth", h.realNameAuth)
-	e.POST("/health-cert/upload", h.uploadHealthCert)
-	e.POST("/training/complete", h.trainingComplete)
-	e.POST("/agreement/sign", h.signAgreement) // P1 留存口（spec 未列；v1 提供但不进 UI）
-	e.GET("/me/profile", h.meProfile)
-	e.PUT("/me/status", h.meStatus)
-	e.GET("/me/training-courses", h.meTrainingCourses)
-	e.GET("/me/reviews", h.meReviews)
+// EscortAvailabilityHandler 持有 5 个 endpoint + 邀请列表。
+type EscortAvailabilityHandler struct {
+	svc       AvailabilityService
+	orderCli  OrderClient
 }
 
-// escortOnly 校验 role=escort（patient 拒绝）。
-func escortOnly(c *gin.Context) (int64, bool) {
-	uid := middleware.UserID(c)
-	if uid == 0 {
-		httpx.Fail(c, int(errs.CodeUnauthorized), "no user")
-		return 0, false
+// NewEscortAvailabilityHandler 构造。
+func NewEscortAvailabilityHandler(svc AvailabilityService, o OrderClient) *EscortAvailabilityHandler {
+	return &EscortAvailabilityHandler{svc: svc, orderCli: o}
+}
+
+// ---------- 5 endpoint ----------
+
+// PutAvailability body: {"start_at": "...", "end_at": "..."}
+//
+// 注：RESTful 语义是 PUT（创建/替换）。由于 gin 对 method 注册的便利，路由层用 POST 也可。
+// spec 使用 PUT，本实现按 spec 暴露 PUT（router.RegisterRoutes 用 PUT）。
+func (h *EscortAvailabilityHandler) PutAvailability(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req struct {
+		StartAt time.Time `json:"start_at" binding:"required"`
+		EndAt   time.Time `json:"end_at" binding:"required"`
 	}
-	if role := middleware.Role(c); role != "escort" {
-		httpx.Fail(c, int(errs.CodeForbidden), "only escort can access")
-		return 0, false
-	}
-	return uid, true
-}
-
-// register POST /api/v1/escorts/register
-func (h *BusinessHandler) register(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	p, err := h.flow.RegisterFlow(c.Request.Context(), uid)
-	if err != nil { respondError(c, err); return }
-	httpx.OK(c, gin.H{"id": p.ID, "user_id": p.UserID, "state": p.State, "version": p.Version})
-}
-
-type realNameReq struct {
-	Name   string `json:"name" binding:"required"`
-	IDCard string `json:"id_card" binding:"required"`
-}
-
-// realNameAuth POST /api/v1/escorts/real-name/auth
-func (h *BusinessHandler) realNameAuth(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	var req realNameReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
+		httpx.WriteError(c, errs.New(errs.CodeParamInvalid, err.Error()))
 		return
 	}
-	if err := h.flow.RealNameAuth(c.Request.Context(), uid, req.Name, req.IDCard); err != nil {
-		respondError(c, err); return
-	}
-	httpx.OK[any](c, gin.H{"user_id": uid, "verified": true})
-}
-
-type healthCertReq struct {
-	Filename    string `json:"filename" binding:"required"`
-	ImageBase64 string `json:"image_base64" binding:"required"`
-}
-
-// uploadHealthCert POST /api/v1/escorts/health-cert/upload
-func (h *BusinessHandler) uploadHealthCert(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	var req healthCertReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
+	a, err := h.svc.Create(c.Request.Context(), userID, req.StartAt, req.EndAt)
+	if err != nil {
+		httpx.WriteError(c, availability.ToErrs(err))
 		return
 	}
-	if err := h.flow.UploadHealthCert(c.Request.Context(), uid, req.Filename, req.ImageBase64); err != nil {
-		respondError(c, err); return
-	}
-	httpx.OK[any](c, gin.H{"user_id": uid, "status": "approved"})
+	httpx.WriteOK(c, gin.H{"availability": a})
 }
 
-type trainingReq struct {
-	CourseID string             `json:"course_id" binding:"required"`
-	Answers  []service.Answer   `json:"answers" binding:"required"`
-}
-
-// trainingComplete POST /api/v1/escorts/training/complete
-func (h *BusinessHandler) trainingComplete(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	var req trainingReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
+// ListMyAvailability 列出当前 escort 的全部时段（status 可选过滤）。
+func (h *EscortAvailabilityHandler) ListMyAvailability(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	status := c.Query("status")
+	list, err := h.svc.ListByEscort(c.Request.Context(), userID, status)
+	if err != nil {
+		httpx.WriteError(c, availability.ToErrs(err))
 		return
 	}
-	if err := h.flow.CompleteTraining(c.Request.Context(), uid, req.CourseID, req.Answers); err != nil {
-		respondError(c, err); return
-	}
-	httpx.OK[any](c, gin.H{"user_id": uid, "passed": true})
+	httpx.WriteOK(c, gin.H{"availabilities": list})
 }
 
-type signReq struct {
-	SignatureBase64 string `json:"signature_base64" binding:"required"`
-}
-
-// signAgreement POST /api/v1/escorts/agreement/sign
-func (h *BusinessHandler) signAgreement(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	var req signReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
+// DeleteAvailability 删时段（仅 available）。
+func (h *EscortAvailabilityHandler) DeleteAvailability(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httpx.WriteError(c, errs.New(errs.CodeParamInvalid, "invalid id"))
 		return
 	}
-	if err := h.flow.SignAgreement(c.Request.Context(), uid, req.SignatureBase64); err != nil {
-		respondError(c, err); return
-	}
-	httpx.OK[any](c, gin.H{"user_id": uid, "state": "pending_audit"})
-}
-
-// meProfile GET /api/v1/escorts/me/profile
-func (h *BusinessHandler) meProfile(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	p, err := h.escort.GetMyProfile(c.Request.Context(), uid)
-	if err != nil { respondError(c, err); return }
-	httpx.OK(c, gin.H{
-		"id": p.ID, "user_id": p.UserID, "state": p.State,
-		"city": p.City, "rating": p.Rating, "level": p.Level, "version": p.Version,
-	})
-}
-
-type statusReq struct {
-	Online bool `json:"online"`
-}
-
-// meStatus PUT /api/v1/escorts/me/status
-func (h *BusinessHandler) meStatus(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	var req statusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
+	if err := h.svc.Delete(c.Request.Context(), userID, id); err != nil {
+		httpx.WriteError(c, availability.ToErrs(err))
 		return
 	}
-	var err error
-	if req.Online {
-		err = h.flow.SetOnline(c.Request.Context(), uid)
-	} else {
-		err = h.flow.SetOffline(c.Request.Context(), uid)
+	httpx.WriteOK(c, gin.H{"deleted": true})
+}
+
+// ListPublicAvailability 公开列某 escort 的可用时段（query: start_at + end_at）。
+// 强制 status='available' 过滤（服务层已过滤；handler 只需传时间窗）。
+func (h *EscortAvailabilityHandler) ListPublicAvailability(c *gin.Context) {
+	escortID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httpx.WriteError(c, errs.New(errs.CodeParamInvalid, "invalid escort id"))
+		return
 	}
-	if err != nil { respondError(c, err); return }
-	state := "online"
-	if !req.Online { state = "offline" }
-	httpx.OK[any](c, gin.H{"user_id": uid, "state": state})
+	startAt, err1 := time.Parse(time.RFC3339, c.Query("start_at"))
+	endAt, err2 := time.Parse(time.RFC3339, c.Query("end_at"))
+	if err1 != nil || err2 != nil {
+		httpx.WriteError(c, errs.New(errs.CodeParamInvalid, "start_at / end_at required (RFC3339)"))
+		return
+	}
+	list, err := h.svc.ListByEscort(c.Request.Context(), escortID, availability.StatusAvailable)
+	if err != nil {
+		httpx.WriteError(c, availability.ToErrs(err))
+		return
+	}
+	// 在公开范围上加时间窗过滤（service 已支持 ListAvailableByTime）—— 取并集
+	extra, err := h.svc.ListAvailableByTime(c.Request.Context(), startAt, endAt)
+	if err != nil {
+		httpx.WriteError(c, availability.ToErrs(err))
+		return
+	}
+	// 取 escortID 命中 + 时间窗命中
+	merged := mergeByEscortAndRange(list, extra, escortID, startAt, endAt)
+	httpx.WriteOK(c, gin.H{"availabilities": merged})
 }
 
-// meTrainingCourses GET /api/v1/escorts/me/training-courses
-func (h *BusinessHandler) meTrainingCourses(c *gin.Context) {
-	if _, ok := escortOnly(c); !ok { return }
-	courses := h.escort.ListTrainingCourses()
-	httpx.OK(c, gin.H{"courses": courses})
+// ListMyInvitations 邀请列表（escort_pending_acceptance 订单）。
+func (h *EscortAvailabilityHandler) ListMyInvitations(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	inv, err := h.orderCli.ListPendingOrdersByEscort(c.Request.Context(), userID)
+	if err != nil {
+		httpx.WriteError(c, errs.Wrap(errs.CodeInternal, "list invitations: %w", err))
+		return
+	}
+	httpx.WriteOK(c, gin.H{"invitations": inv})
 }
 
-// meReviews GET /api/v1/escorts/me/reviews
-func (h *BusinessHandler) meReviews(c *gin.Context) {
-	uid, ok := escortOnly(c); if !ok { return }
-	limit := 20
-	if v := c.Query("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
-			limit = n
+// mergeByEscortAndRange 合并 listByEscort 与 listAvailableByTime，仅返 escort+range 命中。
+func mergeByEscortAndRange(byEscort, byTime []*availability.Availability, escortID int64, startAt, endAt time.Time) []*availability.Availability {
+	hit := map[int64]bool{}
+	for _, a := range byTime {
+		if a.EscortID == escortID {
+			hit[a.ID] = true
 		}
 	}
-	reviews, err := h.escort.ListMyReviews(c.Request.Context(), uid)
-	if err != nil { respondError(c, err); return }
-	if reviews == nil {
-		reviews = []service.Review{}
+	out := make([]*availability.Availability, 0)
+	for _, a := range byEscort {
+		if !hit[a.ID] {
+			continue
+		}
+		if a.StartAt.Before(endAt) && a.EndAt.After(startAt) {
+			out = append(out, a)
+		}
 	}
-	httpx.OK(c, gin.H{"reviews": reviews, "limit": limit})
+	return out
+}
+
+// 兜底编译（errors / net/http 被 handler 用）。
+var _ = errors.New
+var _ = http.StatusOK
+```
+
+**Step 4: 修改 escort.go 注册路由**
+
+修改 `services/escort/internal/handler/escort.go` 的 `RegisterRoutes`：
+
+```go
+// 在 v1 group 内追加 5 个路由（沿用既有权限：escort 角色）。
+//
+//   PUT    /api/v1/escorts/me/availability
+//   GET    /api/v1/escorts/me/availability
+//   DELETE /api/v1/escorts/me/availability/:id
+//   GET    /api/v1/escorts/me/invitations
+//
+// 注意：公开端 GET /escorts/:id/availabilities 不需要 escort 角色（候选取公开），注册在 v1 group 外（无需 auth 中间件）。
+func RegisterRoutes(r *gin.Engine, h *EscortAvailabilityHandler) {
+	v1 := r.Group("/api/v1")
+	// 既有路由（me/profile, me/status 等）保持。
+	// 在此追加：
+	v1.PUT("/escorts/me/availability", h.PutAvailability)
+	v1.GET("/escorts/me/availability", h.ListMyAvailability)
+	v1.DELETE("/escorts/me/availability/:id", h.DeleteAvailability)
+	v1.GET("/escorts/me/invitations", h.ListMyInvitations)
+	// 公开端点：候选取（无需 auth）。
+	v1.GET("/escorts/:id/availabilities", h.ListPublicAvailability)
 }
 ```
 
-**Step 4: 修改既有 handler/escort.go 挂新路由**
-
-修改 `services/escort/internal/handler/escort.go` 的 `RegisterRoutes`，**追加**：
-
-```go
-// 在 e.GET("/:id", h.Get) 之前或之后追加：
-// business 路由（陪诊师档案业务流）
-biz := NewBusinessHandler(flowImpl, escSvc)
-e.POST("/register", biz.register)
-e.POST("/real-name/auth", biz.realNameAuth)
-e.POST("/health-cert/upload", biz.uploadHealthCert)
-e.POST("/training/complete", biz.trainingComplete)
-e.POST("/agreement/sign", biz.signAgreement)
-e.GET("/me/profile", biz.meProfile)
-e.PUT("/me/status", biz.meStatus)
-e.GET("/me/training-courses", biz.meTrainingCourses)
-e.GET("/me/reviews", biz.meReviews)
-```
-
-> **改造要点**：现有 `RegisterRoutes(r gin.IRouter)` 接收 router group；新增构造 business handler 时需要 flow + escort svc 引用。把 Handler struct 扩字段：
-
-```go
-type Handler struct {
-	svc    *service.Service
-	flow   service.ProfileFlowService  // 业务流（cmd/main.go 装配）
-}
-```
-
-> **实施时**调整 `New(svc)` 接受 flow 参数；既有 `RegisterRoutes` 调用点（cmd/main.go + 测试）同步调整。
+> 实际注册时按既有 v1 group + 权限中间件风格（escort 角色 token）；公开端单独挂载到 r（无 auth 中间件）。
 
 **Step 5: 跑测试确认通过**
 
-Run:
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
   go test -count=1 ./services/escort/internal/handler/
 ```
-Expected: PASS（既有 + 12 个新 endpoint 测试）
+
+Expected: PASS（5 个 handler 单测）。
 
 **Step 6: Commit**
 
 ```bash
 git add services/escort/internal/handler/
-git commit -m "feat(escort): 8 个业务 endpoint (register/real-name/health-cert/training/me/profile/me/status/me/reviews/me/training-courses) + 12 handler 单测"
+git commit -m "feat(escort): handler 加 5 个 endpoint (escort/me/availability × 3 + 公开 availabilities + invitations)"
 ```
 
 ---
 
-### Task 7: order-service 扩展（抢单池 + checkin/checkout）
+## Task 5: 陪诊师派生状态 + 集成到 GET /escorts/me/profile
 
 **Files:**
-- Modify: `services/order/internal/repo/order_repo.go`
-- Modify: `services/order/internal/repo/order_repo_integration_test.go`
+- Modify: `services/escort/internal/service/escort_service.go`
+- Modify: `services/escort/internal/service/escort_service_test.go`
+
+**Step 1: 写单测（RED）**
+
+在 `services/escort/internal/service/escort_service_test.go` 末尾追加：
+
+```go
+// TestGetMyProfile_IncludesAvailabilityStatus 验证 profile 响应含 availability_status。
+func TestGetMyProfile_IncludesAvailabilityStatus(t *testing.T) {
+	// 准备：mock profile reader（已有）+ mock availability.DeriveStatus。
+	availSvc := &mockAvailServiceForProfile{status: "available"}
+	s := New(newFakeRepo(), &fakePub{}).SetProfileReader(newFakeProfileReader())
+	s.SetAvailabilityStatusProvider(func(ctx context.Context, escortID int64, manualOffline bool) (string, error) {
+		return availSvc.DeriveStatus(ctx, escortID, manualOffline)
+	})
+
+	// 通过 helper 调 GetMyProfile + fill availability_status
+	resp, err := s.GetMyProfile(context.Background(), 100)
+	require.NoError(t, err)
+	// resp 应包含 availability_status 字段（修改后）
+	assert.Equal(t, "available", resp.AvailabilityStatus)
+}
+
+// mockAvailStatusProvider 满足 Escort Service 内部的 status provider 接口。
+type mockAvailStatusProvider struct {
+	status string
+}
+
+func (m *mockAvailStatusProvider) Derive(ctx context.Context, escortID int64, manualOffline bool) (string, error) {
+	return m.status, nil
+}
+
+// 实际签名见 escort_service.go 中 Escort Service 修改（见 Step 3）。
+// 占位 fake 适配：mockAvailabilityServiceForProfile 实现新接口。
+type mockAvailServiceForProfile struct {
+	status string
+}
+
+func (m *mockAvailServiceForProfile) DeriveStatus(ctx context.Context, escortID int64, manualOffline bool) (string, error) {
+	return m.status, nil
+}
+```
+
+**Step 2: 跑测试确认失败**
+
+```bash
+GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
+  go test -count=1 -run TestGetMyProfile ./services/escort/internal/service/
+```
+
+Expected: FAIL — `s.SetAvailabilityStatusProvider` undefined / `resp.AvailabilityStatus` not exist。
+
+**Step 3: 修改 escort_service.go**
+
+`services/escort/internal/service/escort_service.go` 加派生集成：
+
+```go
+// 在 Service struct 加字段：
+//   availabilityStatusProvider func(ctx, escortID, manualOffline) (string, error)
+//
+// Type alias 简化调用（service 内部抽象）：
+type AvailabilityStatusProvider interface {
+	DeriveStatus(ctx context.Context, escortID int64, manualOffline bool) (string, error)
+}
+
+func (s *Service) SetAvailabilityStatusProvider(p AvailabilityStatusProvider) *Service {
+	s.availabilityStatusProvider = p
+	return s
+}
+
+// 在 GetMyProfile 末尾追加派生状态填充：
+func (s *Service) GetMyProfile(ctx context.Context, userID int64) (*ProfileResponse, error) {
+	if s.profileReader == nil {
+		return nil, errs.New(errs.CodeUnavailable, "profile reader not wired")
+	}
+	p, err := s.profileReader.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, errs.Wrap(errs.CodeInternal, "get profile", err)
+	}
+	if p == nil {
+		return nil, errs.New(errs.CodeNotFound, "escort profile not found")
+	}
+	resp := &ProfileResponse{
+		Profile: p,
+		// manualOffline 暂从 p.State=='offline' 派生（v1 简化）。
+	}
+	if s.availabilityStatusProvider != nil {
+		manualOffline := (p.State == "offline")
+		st, err := s.availabilityStatusProvider.DeriveStatus(ctx, userID, manualOffline)
+		if err == nil {
+			resp.AvailabilityStatus = st
+		}
+	}
+	return resp, nil
+}
+
+// 新增 ProfileResponse 类型（替换原 GetMyProfile 返回 *repo.Profile）。
+type ProfileResponse struct {
+	*repo.Profile // 嵌入原结构
+	AvailabilityStatus string `json:"availability_status"` // available | busy | off-line
+}
+```
+
+更新既有 `GetMyProfile` 的 call site（既有 handler / 测试按 `*repo.Profile` 消费）：通过嵌入字段兼容，所有访问 `p.State` / `p.Version` 等仍可用；新代码用 `resp.AvailabilityStatus`。
+
+**Step 4: 跑测试确认通过**
+
+```bash
+GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
+  go test -count=1 ./services/escort/internal/service/
+```
+
+Expected: PASS（既有 + 新增 1 个）。
+
+**Step 5: Commit**
+
+```bash
+git add services/escort/internal/service/
+git commit -m "feat(escort): profile 响应加 availability_status (available / busy / off-line 派生)"
+```
+
+---
+
+## Task 6: 与 order-service 集成（BookByOrder / ReleaseByOrder hook）
+
+**Files:**
+- Create: `services/order/internal/integration/escort_availability.go`
+- Create: `services/order/internal/integration/escort_availability_test.go`
 - Modify: `services/order/internal/service/order_service.go`
 - Modify: `services/order/internal/service/order_service_test.go`
-- Modify: `services/order/internal/handler/order.go`
-- Modify: `services/order/internal/handler/order_test.go`
 
-**Step 1: 加 repo.ListForEscort + 集成测试**
+**Step 1: 写单测（RED）**
 
-修改 `services/order/internal/repo/order_repo.go` 末尾追加：
+`services/order/internal/integration/escort_availability_test.go`：
 
 ```go
-// ListForEscort 抢单池：status=matching 且 escort_id IS NULL（未被人接）的订单，按 created_at DESC。
-func (r *OrderRepo) ListForEscort(ctx context.Context, status string, limit, offset int) ([]*Order, error) {
-	const q = baseSelect + ` WHERE status = $1 AND escort_id IS NULL AND deleted_at IS NULL
-	                         ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-	rows, err := r.pool.Query(ctx, q, status, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("list for escort: %w", err)
-	}
-	defer rows.Close()
-	out := make([]*Order, 0)
-	for rows.Next() {
-		o, err := r.scanRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
-}
-```
+package integration
 
-修改 `OrderRepo` 接口（在 `OrderRepo` 定义里加）：
+import (
+	"context"
+	"errors"
+	"testing"
 
-```go
-ListForEscort(ctx context.Context, status string, limit, offset int) ([]*Order, error)
-```
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
-修改 `services/order/internal/repo/order_repo_integration_test.go` 末尾追加：
-
-```go
-// TestOrderRepo_ListForEscort_OK 验证抢单池列出 matching 且未接的订单。
-func TestOrderRepo_ListForEscort_OK(t *testing.T) {
-	pool := setupOrderPool(t)
-	patient := seedOrderPoolUser(t, pool, "13800222001", "patient")
-	escort := seedOrderPoolUser(t, pool, "13800222002", "escort")
-	r := NewOrderRepo(pool)
-
-	// 3 单：1 matching / 1 matching 但已接 / 1 paid
-	o1 := seedOrderPoolOrder(t, pool, patient, "matching", nil)
-	o2 := seedOrderPoolOrder(t, pool, patient, "matching", &escort)
-	o3 := seedOrderPoolOrder(t, pool, patient, "paid", nil)
-
-	list, err := r.ListForEscort(context.Background(), "matching", 10, 0)
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, o1, list[0].ID, "只应返回未接的 matching 订单")
-	_ = o2; _ = o3
+// fakeAvailabilityClient 满足 AvailabilityClient（BookByOrder / ReleaseByOrder 接口）。
+type fakeAvailabilityClient struct {
+	bookCalled    bool
+	releaseCalled bool
+	bookErr       error
+	releaseErr    error
 }
 
-// TestOrderRepo_ListForEscort_ExcludesOtherStatuses 验证只查指定 status。
-func TestOrderRepo_ListForEscort_ExcludesOtherStatuses(t *testing.T) {
-	pool := setupOrderPool(t)
-	patient := seedOrderPoolUser(t, pool, "13800222003", "patient")
-	r := NewOrderRepo(pool)
-
-	seedOrderPoolOrder(t, pool, patient, "paid", nil)
-	seedOrderPoolOrder(t, pool, patient, "created", nil)
-
-	list, err := r.ListForEscort(context.Background(), "matching", 10, 0)
-	require.NoError(t, err)
-	assert.Empty(t, list)
+func (f *fakeAvailabilityClient) BookByOrder(ctx context.Context, slotID, escortID, orderID int64) error {
+	f.bookCalled = true
+	return f.bookErr
 }
 
-// seedOrderPoolUser / seedOrderPoolOrder 帮助函数（参考既有 seedUser / seedOrder）。
-func seedOrderPoolUser(t *testing.T, pool *pgxpool.Pool, phone, role string) int64 {
-	t.Helper()
-	var id int64
-	err := pool.QueryRow(context.Background(),
-		`INSERT INTO users (phone, role) VALUES ($1, $2) RETURNING id`, phone, role).Scan(&id)
-	require.NoError(t, err)
-	return id
+func (f *fakeAvailabilityClient) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	f.releaseCalled = true
+	return f.releaseErr
 }
 
-func seedOrderPoolOrder(t *testing.T, pool *pgxpool.Pool, patientID int64, status string, escortID *int64) int64 {
-	t.Helper()
-	var id int64
-	err := pool.QueryRow(context.Background(), `
-		INSERT INTO orders (order_no, patient_id, escort_id, hospital_id, package_id,
-		                    service_start_at, amount, final_amount, status)
-		VALUES (gen_random_uuid()::text, $1, $2, 1, 1, NOW() + INTERVAL '1 day', 100, 100, $3)
-		RETURNING id`, patientID, escortID, status).Scan(&id)
-	require.NoError(t, err)
-	return id
-}
-```
-
-**Step 2: 加 service.CheckIn / CheckOut / ListForEscort + 单测**
-
-修改 `services/order/internal/service/order_service.go`：
-
-- `Order` struct 在既有基础上加 `CheckinAt *time.Time` + `CheckoutAt *time.Time`
-- `baseSelect` 改：增加 `COALESCE(checkin_at, NULL), COALESCE(checkout_at, NULL)`
-- 注：当前表没这两列；**Task 7 先不加 DB 字段**（v1 仅作为 service 层概念，handler 返回时硬编码）；如需落库，需追加 `migrations/0007_orders_checkin.up.sql`。本 plan **保持 DB 不变**，service 层用 `time.Now()` 计算响应字段
-- `OrderRepo` 接口加 `ListForEscort`
-- Service 加方法：
-
-```go
-// ListForEscort 抢单池查询。
-func (s *Service) ListForEscort(ctx context.Context, status string, limit, offset int) ([]*repo.Order, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if status == "" {
-		status = string(state.StatusMatching)
-	}
-	return s.orders.ListForEscort(ctx, status, limit, offset)
+// TestEscortAvailability_BookByOrder_OK
+func TestEscortAvailability_BookByOrder_OK(t *testing.T) {
+	cli := &fakeAvailabilityClient{}
+	a := NewEscortAvailability(cli)
+	require.NoError(t, a.BookByOrder(context.Background(), 100, 200, 300))
+	assert.True(t, cli.bookCalled)
 }
 
-// CheckIn 陪诊师到院签到：accepted → in_service；v1 mock GPS 只校验 lat/lng 范围。
-func (s *Service) CheckIn(ctx context.Context, orderID, escortID int64, lat, lng float64) error {
-	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
-		return errs.New(errs.CodeParamInvalid, "lat/lng out of range")
-	}
-	o, err := s.orders.FindByID(ctx, orderID)
-	if err != nil {
-		if err == repo.ErrOrderNotFound {
-			return errs.New(errs.CodeNotFound, "order not found")
-		}
-		return errs.Wrap(errs.CodeInternal, "find order", err)
-	}
-	if o.EscortID == nil || *o.EscortID != escortID {
-		return errs.New(errs.CodeForbidden, "only assigned escort can check in")
-	}
-	from := state.Status(o.Status)
-	to := state.StatusInService
-	if !state.CanTransition(from, to) {
-		return errs.New(errs.CodeConflict, fmt.Sprintf("cannot check in from %s", from))
-	}
-	if err := s.orders.UpdateStatus(ctx, orderID, string(to), o.Version, nil); err != nil {
-		return errs.Wrap(errs.CodeInternal, "update status", err)
-	}
-	fromStr := string(from)
-	actor := escortID
-	if err := s.orders.InsertEvent(ctx, orderID, &fromStr, string(to), &actor, nil); err != nil {
-		return errs.Wrap(errs.CodeInternal, "insert event", err)
-	}
-	return nil
+// TestEscortAvailability_BookByOrder_NoOpIfNotWired
+func TestEscortAvailability_BookByOrder_NoOpIfNotWired(t *testing.T) {
+	a := NewEscortAvailability(nil)
+	require.NoError(t, a.BookByOrder(context.Background(), 1, 2, 3))
 }
 
-// CheckOut 陪诊师完成打卡：in_service → completed；note 可选。
-func (s *Service) CheckOut(ctx context.Context, orderID, escortID int64, note string) error {
-	o, err := s.orders.FindByID(ctx, orderID)
-	if err != nil {
-		if err == repo.ErrOrderNotFound {
-			return errs.New(errs.CodeNotFound, "order not found")
-		}
-		return errs.Wrap(errs.CodeInternal, "find order", err)
-	}
-	if o.EscortID == nil || *o.EscortID != escortID {
-		return errs.New(errs.CodeForbidden, "only assigned escort can check out")
-	}
-	from := state.Status(o.Status)
-	to := state.StatusCompleted
-	if !state.CanTransition(from, to) {
-		return errs.New(errs.CodeConflict, fmt.Sprintf("cannot check out from %s", from))
-	}
-	if err := s.orders.UpdateStatus(ctx, orderID, string(to), o.Version, nil); err != nil {
-		return errs.Wrap(errs.CodeInternal, "update status", err)
-	}
-	fromStr := string(from)
-	actor := escortID
-	if err := s.orders.InsertEvent(ctx, orderID, &fromStr, string(to), &actor, nil); err != nil {
-		return errs.Wrap(errs.CodeInternal, "insert event", err)
-	}
-	return nil
-}
-```
-
-修改既有单测 `services/order/internal/service/order_service_test.go` 的 `fakeOrderRepo` 加 `ListForEscort`：
-
-```go
-func (r *fakeOrderRepo) ListForEscort(ctx context.Context, status string, limit, offset int) ([]*repo.Order, error) {
-	out := make([]*repo.Order, 0)
-	for _, o := range r.orders {
-		if o.Status == status && o.EscortID == nil {
-			out = append(out, o)
-		}
-	}
-	return out, nil
-}
-```
-
-末尾追加新测试：
-
-```go
-// TestListForEscort_OK 验证抢单池返回 matching 未接的订单。
-func TestListForEscort_OK(t *testing.T) {
-	svc := New(newFakeOrderRepo(), &fakeUserLookup{users: map[int64]*UserSnapshot{
-		1: {ID: 1, Role: "patient", RealNameVerified: true},
-	}})
-	_ = svc
-	// 直接用 fakeOrderRepo 数据
-	fr := newFakeOrderRepo()
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, Status: "matching", OrderNo: "M1"})
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, Status: "paid", OrderNo: "P1"})
-	svc2 := New(fr, &fakeUserLookup{users: map[int64]*UserSnapshot{1: {ID: 1, Role: "patient", RealNameVerified: true}}})
-	list, err := svc2.ListForEscort(context.Background(), "matching", 10, 0)
-	require.NoError(t, err)
-	assert.Len(t, list, 1)
-}
-
-// TestCheckIn_OK 验证 accepted → in_service。
-func TestCheckIn_OK(t *testing.T) {
-	fr := newFakeOrderRepo()
-	escort := int64(2)
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, EscortID: &escort, Status: "accepted", OrderNo: "X"})
-	svc := New(fr, &fakeUserLookup{users: map[int64]*UserSnapshot{
-		1: {ID: 1, Role: "patient", RealNameVerified: true},
-	}})
-	require.NoError(t, svc.CheckIn(context.Background(), 1, 2, 39.9, 116.4))
-	o, _ := fr.FindByID(context.Background(), 1)
-	assert.Equal(t, "in_service", o.Status)
-}
-
-// TestCheckIn_InvalidLat 验证非法 lat 返回错误。
-func TestCheckIn_InvalidLat(t *testing.T) {
-	fr := newFakeOrderRepo()
-	escort := int64(2)
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, EscortID: &escort, Status: "accepted", OrderNo: "X"})
-	svc := New(fr, &fakeUserLookup{users: map[int64]*UserSnapshot{1: {ID: 1, Role: "patient", RealNameVerified: true}}})
-	err := svc.CheckIn(context.Background(), 1, 2, 100, 0)
+// TestEscortAvailability_BookByOrder_PropagatesError
+func TestEscortAvailability_BookByOrder_PropagatesError(t *testing.T) {
+	cli := &fakeAvailabilityClient{bookErr: errors.New("downstream down")}
+	a := NewEscortAvailability(cli)
+	err := a.BookByOrder(context.Background(), 1, 2, 3)
 	assert.Error(t, err)
 }
 
-// TestCheckOut_OK 验证 in_service → completed。
-func TestCheckOut_OK(t *testing.T) {
-	fr := newFakeOrderRepo()
-	escort := int64(2)
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, EscortID: &escort, Status: "in_service", OrderNo: "X"})
-	svc := New(fr, &fakeUserLookup{users: map[int64]*UserSnapshot{1: {ID: 1, Role: "patient", RealNameVerified: true}}})
-	require.NoError(t, svc.CheckOut(context.Background(), 1, 2, "service done"))
-	o, _ := fr.FindByID(context.Background(), 1)
-	assert.Equal(t, "completed", o.Status)
+// TestEscortAvailability_ReleaseByOrder_Idempotent
+func TestEscortAvailability_ReleaseByOrder_Idempotent(t *testing.T) {
+	calls := 0
+	cli := &counterClient{releaseFn: func() { calls++ }}
+	a := NewEscortAvailability(cli)
+	require.NoError(t, a.ReleaseByOrder(context.Background(), 500))
+	require.NoError(t, a.ReleaseByOrder(context.Background(), 500))
+	assert.Equal(t, 2, calls, "release should pass through (service already idempotent)")
+}
+
+type counterClient struct {
+	*fakeAvailabilityClient
+	releaseFn func()
+}
+
+func (c *counterClient) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	c.releaseFn()
+	return nil
 }
 ```
 
-**Step 3: handler 扩展**
+**Step 2: 跑测试确认失败**
 
-修改 `services/order/internal/handler/order.go`：
+```bash
+GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
+  go test -count=1 ./services/order/internal/integration/
+```
 
-- `List` 函数增加 role 分支：
+Expected: FAIL — `undefined: NewEscortAvailability`, interface methods missing。
+
+**Step 3: 写 escort_availability.go**
+
+`services/order/internal/integration/escort_availability.go`：
 
 ```go
-// List GET /api/v1/orders?role=escort&status=matching
-func (h *Handler) List(c *gin.Context) {
-	uid := middleware.UserID(c)
-	if uid == 0 {
-		respondError(c, errs.New(errs.CodeUnauthorized, "no user"))
-		return
+// Package integration 是 order-service 与 escort-service 的集成层。
+//
+// v1 简化为「共享 Go 包」模式：order-service 通过 AvailabilityClient 接口直接调用
+// availability.Service 的方法；接口实现在 cmd/main.go 注入（共享同一 availability 实例）。
+//
+// RPC / 跨服务调用留 v2：escort-service 暴露 HTTP / gRPC endpoint。
+package integration
+
+import (
+	"context"
+	"errors"
+	"fmt"
+)
+
+// AvailabilityClient 是 escort-availability 服务对外接口（order-service 用）。
+type AvailabilityClient interface {
+	BookByOrder(ctx context.Context, slotID, escortID, orderID int64) error
+	ReleaseByOrder(ctx context.Context, orderID int64) error
+}
+
+// EscortAvailability 包装 AvailabilityClient，提供容错（best-effort + log + 不阻塞主流程）。
+type EscortAvailability struct {
+	cli AvailabilityClient
+}
+
+// NewEscortAvailability 构造。
+//
+// 传 nil 时所有方法为 no-op（方便本地开发 / 集成测试不接 escort 服务）。
+func NewEscortAvailability(cli AvailabilityClient) *EscortAvailability {
+	return &EscortAvailability{cli: cli}
+}
+
+// BookByOrder 把 escort 时段标记为 booked。
+// 错误仅日志，order-service 主流程不阻塞（confirm accept 主流程已写入 DB）。
+func (e *EscortAvailability) BookByOrder(ctx context.Context, slotID, escortID, orderID int64) error {
+	if e == nil || e.cli == nil {
+		return nil
 	}
-	role := c.Query("role")
-	if role == "escort" {
-		// 抢单池：列 matching 未接订单
-		if middleware.Role(c) != "escort" {
-			respondError(c, errs.New(errs.CodeForbidden, "only escort can list matching feed"))
-			return
+	if err := e.cli.BookByOrder(ctx, slotID, escortID, orderID); err != nil {
+		return fmt.Errorf("availability.BookByOrder: %w", err)
+	}
+	return nil
+}
+
+// ReleaseByOrder 把时段恢复为 available（订单 cancel / reject 用）。
+func (e *EscortAvailability) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	if e == nil || e.cli == nil {
+		return nil
+	}
+	if err := e.cli.ReleaseByOrder(ctx, orderID); err != nil {
+		return fmt.Errorf("availability.ReleaseByOrder: %w", err)
+	}
+	return nil
+}
+
+// 占位用于骗编译（errors 不直接在本文件用，但 _ import 防被 goimports 删）。
+var _ = errors.New
+```
+
+**Step 4: 修改 order_service.go**
+
+`services/order/internal/service/order_service.go` 改动：
+
+```go
+// 在 Service struct 加字段：
+//   escortAvail *integration.EscortAvailability
+
+// SetEscortAvailability 注入（cmd/main.go 装配）。
+func (s *Service) SetEscortAvailability(ea *integration.EscortAvailability) *Service {
+	s.escortAvail = ea
+	return s
+}
+
+// ConfirmAccept 修改（既有实现已存在；此处新增时段预订 hook）：
+//
+//   1. 既有状态机推进：escort_pending_acceptance → accepted
+//   2. 既有字段更新：orders.escort_id = $escortID, orders.accepted_at = now()
+//   3. **新增**：s.escortAvail.BookByOrder(ctx, order.SelectedSlotID, order.EscortID, order.ID)
+//      （slotID 由 match-service 在 select 时填充 order.SelectedSlotID，本 plan 假设该字段已加；如未加，
+//        由 escort-order-ext plan 在 order 表加 selected_availability_id 字段，并在 ConfirmAccept 时传入。）
+func (s *Service) ConfirmAccept(ctx context.Context, orderID int64, escortID int64, slotID *int64) error {
+	// 既有推进逻辑...
+	if slotID != nil && s.escortAvail != nil {
+		if err := s.escortAvail.BookByOrder(ctx, *slotID, escortID, orderID); err != nil {
+			// best-effort：log 但不阻塞（订单状态已 accepted）
+			s.logger.Warn("book availability failed", "order_id", orderID, "err", err)
 		}
-		status := c.Query("status")
-		if status == "" { status = "matching" }
-		list, err := h.svc.ListForEscort(c.Request.Context(), status, 20, 0)
-		if err != nil { respondError(c, err); return }
-		httpx.OK(c, gin.H{"orders": list})
-		return
 	}
-	// 老路径：patient 列自己的订单
-	list, err := h.svc.List(c.Request.Context(), uid, 20, 0)
-	if err != nil { respondError(c, err); return }
-	httpx.OK(c, gin.H{"orders": list})
-}
-```
-
-- 加 checkin / checkout handler：
-
-```go
-type checkinReq struct {
-	Lat float64 `json:"lat" binding:"required"`
-	Lng float64 `json:"lng" binding:"required"`
+	return nil
 }
 
-// CheckIn POST /api/v1/orders/:id/checkin
-func (h *Handler) CheckIn(c *gin.Context) {
-	uid := middleware.UserID(c)
-	id, ok := parseID(c); if !ok { return }
-	if role := middleware.Role(c); role != "escort" {
-		respondError(c, errs.New(errs.CodeForbidden, "only escort can check in"))
-		return
-	}
-	var req checkinReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
-		return
-	}
-	if err := h.svc.CheckIn(c.Request.Context(), id, uid, req.Lat, req.Lng); err != nil {
-		respondError(c, err); return
-	}
-	httpx.OK[any](c, gin.H{"order_id": id, "state": "in_service"})
-}
-
-type checkoutReq struct {
-	Note string `json:"note"`
-}
-
-// CheckOut POST /api/v1/orders/:id/checkout
-func (h *Handler) CheckOut(c *gin.Context) {
-	uid := middleware.UserID(c)
-	id, ok := parseID(c); if !ok { return }
-	if role := middleware.Role(c); role != "escort" {
-		respondError(c, errs.New(errs.CodeForbidden, "only escort can check out"))
-		return
-	}
-	var req checkoutReq
-	_ = c.ShouldBindJSON(&req)
-	if err := h.svc.CheckOut(c.Request.Context(), id, uid, req.Note); err != nil {
-		respondError(c, err); return
-	}
-	httpx.OK[any](c, gin.H{"order_id": id, "state": "completed"})
-}
-```
-
-- `RegisterRoutes` 末尾追加：
-
-```go
-orders.POST("/:id/checkin", h.CheckIn)
-orders.POST("/:id/checkout", h.CheckOut)
-```
-
-**Step 4: handler 测试**
-
-修改 `services/order/internal/handler/order_test.go` 末尾追加：
-
-```go
-// fakeOrderRepo 加 ListForEscort 已在 service test 加；handler test 复用既有 fakeRepo 也加。
-func (r *fakeRepo) ListForEscort(ctx context.Context, status string, limit, offset int) ([]*repo.Order, error) {
-	out := make([]*repo.Order, 0)
-	for _, o := range r.orders {
-		if o.Status == status && o.EscortID == nil {
-			out = append(out, o)
+// ReleaseLockAndReject 修改（既有实现保留 + 新增释放时段 hook）：
+//
+//   1. 既有状态机推进：escort_pending_acceptance → selecting_escort
+//   2. **新增**：s.escortAvail.ReleaseByOrder(ctx, orderID)
+//   3. （订单未 booked，无需 Book 反向；ReleaseByOrder 在 repo 层幂等——查不到 order_id 也不报错。）
+func (s *Service) ReleaseLockAndReject(ctx context.Context, orderID int64, reason string) error {
+	// 既有推进逻辑...
+	if s.escortAvail != nil {
+		if err := s.escortAvail.ReleaseByOrder(ctx, orderID); err != nil {
+			s.logger.Warn("release availability failed", "order_id", orderID, "err", err)
 		}
 	}
-	return out, nil
-}
-
-// TestList_EscortRole 验证 role=escort 返回抢单池。
-func TestList_EscortRole(t *testing.T) {
-	r, fr, _ := newTestServer()
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, Status: "matching", OrderNo: "M"})
-	tok := signTestToken(t, 2, "escort")
-	resp := doRequest(t, r, http.MethodGet, "/api/v1/orders?role=escort&status=matching", tok, nil)
-	assert.Equal(t, 0, resp.Code)
-}
-
-// TestList_EscortRole_PatientForbidden 验证 patient 不能用 role=escort。
-func TestList_EscortRole_PatientForbidden(t *testing.T) {
-	r, _, _ := newTestServer()
-	tok := signTestToken(t, 1, "patient")
-	resp := doRequest(t, r, http.MethodGet, "/api/v1/orders?role=escort&status=matching", tok, nil)
-	assert.NotEqual(t, 0, resp.Code)
-}
-
-// TestCheckIn_OK 验证签到。
-func TestCheckIn_OK(t *testing.T) {
-	r, fr, _ := newTestServer()
-	escort := int64(2)
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, EscortID: &escort, Status: "accepted", OrderNo: "X"})
-	tok := signTestToken(t, 2, "escort")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/checkin", tok, map[string]any{
-		"lat": 39.9, "lng": 116.4,
-	})
-	assert.Equal(t, 0, resp.Code, resp.Message)
-}
-
-// TestCheckIn_NotAssigned 验证非该订单的 escort 不能签到。
-func TestCheckIn_NotAssigned(t *testing.T) {
-	r, fr, _ := newTestServer()
-	escort := int64(2)
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, EscortID: &escort, Status: "accepted", OrderNo: "X"})
-	tok := signTestToken(t, 99, "escort") // 不同 user_id
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/checkin", tok, map[string]any{
-		"lat": 39.9, "lng": 116.4,
-	})
-	assert.NotEqual(t, 0, resp.Code)
-}
-
-// TestCheckOut_OK 验证打卡。
-func TestCheckOut_OK(t *testing.T) {
-	r, fr, _ := newTestServer()
-	escort := int64(2)
-	fr.Create(context.Background(), &repo.Order{PatientID: 1, EscortID: &escort, Status: "in_service", OrderNo: "X"})
-	tok := signTestToken(t, 2, "escort")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/checkout", tok, map[string]any{
-		"note": "service done",
-	})
-	assert.Equal(t, 0, resp.Code, resp.Message)
-}
-
-// TestCheckIn_BadLat 验证参数错误。
-func TestCheckIn_BadLat(t *testing.T) {
-	r, _, _ := newTestServer()
-	tok := signTestToken(t, 2, "escort")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/1/checkin", tok, map[string]any{
-		"lat": 200, "lng": 0,
-	})
-	assert.NotEqual(t, 0, resp.Code)
+	return nil
 }
 ```
 
-**Step 5: 跑测试确认通过**
+> **说明**：`slotID *int64` 是有意的 nil-safe 设计（v1 部分订单流可能不携带 slotID，此时跳过 book hook；escort 拒接时 order.SelectedSlotID 也可能为空）。
 
-Run:
+**Step 5: order_service_test.go 加 2 个 hook 验证**
+
+在 `services/order/internal/service/order_service_test.go` 末尾追加：
+
+```go
+// TestConfirmAccept_CallsBookByOrder 验证 ConfirmAccept 触发 escort-availability hook。
+func TestConfirmAccept_CallsBookByOrder(t *testing.T) {
+	// ... 用 fake orderRepo + fake escortAvailClient 构造 Service
+	// ... 调 ConfirmAccept(100, 200, ptr(300))
+	// ... assert: fake escortAvailClient.bookCalled == true
+}
+
+// TestReleaseLockAndReject_CallsReleaseByOrder
+func TestReleaseLockAndReject_CallsReleaseByOrder(t *testing.T) {
+	// ... 调 ReleaseLockAndReject(100, "escort_declined")
+	// ... assert: fake escortAvailClient.releaseCalled == true
+}
+```
+
+**Step 6: 跑测试确认通过**
+
 ```bash
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
   go test -count=1 ./services/order/...
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
-  go test -tags=integration -count=1 -run 'TestOrderRepo_ListForEscort' ./services/order/internal/repo/
 ```
-Expected: PASS（既有 service + handler + 集成 + 新加测试）
 
-**Step 6: Commit**
+Expected: PASS。
+
+**Step 7: Commit**
 
 ```bash
-git add services/order/internal/
-git commit -m "feat(order): 抢单池 ListForEscort + checkin/checkout (accepted→in_service→completed) + 8 个测试"
+git add services/order/internal/integration/ services/order/internal/service/
+git commit -m "feat(order): integration 层 escort_availability hook + ConfirmAccept/ReleaseLockAndReject 集成 (Book/Release 2 个单测)"
 ```
 
 ---
 
-### Task 8: main 装配 + smoke 脚本
-
-**Files:**
-- Modify: `services/escort/cmd/main.go`
-- Create: `scripts/smoke-escort.sh`
-
-**Step 1: 修改 escort cmd/main.go**
-
-```go
-// 在 import 块追加：
-import (
-	"github.com/growdu/doctors/services/escort/internal/events"
-	"github.com/growdu/doctors/services/escort/internal/handler"
-	"github.com/growdu/doctors/services/escort/internal/repo"
-	"github.com/growdu/doctors/services/escort/internal/service"
-)
-
-// 在 main 里替换 svc := service.New(nilRepo{}, nilPublisher{}) 为：
-profileRepo := repo.NewProfileRepo(nil)
-var pub events.Publisher
-if len(cfg.Kafka.Brokers) > 0 {
-	pub = events.NewKafkaPublisher(cfg.Kafka.Brokers)
-} else {
-	pub = &events.NopPublisher{}
-}
-defer func() { _ = pub.Close() }()
-flow := service.NewProfileFlowService(profileRepo, pub)
-svc := service.New(nilRepo{}, nilPublisher{})
-svc.SetProfileReader(profileRepo)
-bizH := handler.NewBusinessHandler(flow, svc)
-
-// nilRepo / nilPublisher 既有；保留给老接口（match 兼容）。
-```
-
-> 既有 `handler.New(svc)` 调用应改为 `handler.NewWithBusiness(svc, bizH)` 或在原 Handler 内挂 BusinessHandler；按实际既有 `handler.New` 签名调整。
-
-**Step 2: 写 smoke 脚本**
-
-`scripts/smoke-escort.sh`：
-
-```bash
-#!/usr/bin/env bash
-# escort-service 端到端 smoke：
-#   1. build
-#   2. 启动（后台）
-#   3. /healthz 通
-#   4. 11 个 P0 endpoint 401 拦截（无 token）
-#
-# 前置：go build 通过；业务调用需 main 装配 PG / Kafka；smoke 只测启动 + 路由 + 鉴权。
-
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
-
-ADDR=":8086"  # escort-service 默认端口
-BIN="$ROOT/bin/escort"
-LOGFILE="$ROOT/.data/escort-smoke.log"
-mkdir -p "$ROOT/bin" "$ROOT/.data"
-
-echo "[1/4] building escort-service..."
-GOFLAGS="-mod=mod" GOPROXY="${GOPROXY:-https://goproxy.io,https://goproxy.cn,direct}" GOSUMDB="${GOSUMDB:-off}" \
-  go build -o "$BIN" ./services/escort/cmd
-
-echo "[2/4] starting escort-service on $ADDR..."
-DOCTORS_ESCORT_HTTP_ADDR="$ADDR" "$BIN" > "$LOGFILE" 2>&1 &
-PID=$!
-trap 'kill $PID 2>/dev/null || true; wait $PID 2>/dev/null || true' EXIT
-
-for i in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1$ADDR/healthz" > /dev/null 2>&1; then
-    echo "  /healthz OK after ${i}00ms"
-    break
-  fi
-  sleep 0.1
-done
-
-echo "[3/4] curl /healthz"
-HEALTH=$(curl -fsS "http://127.0.0.1$ADDR/healthz")
-echo "$HEALTH" | grep -q '"status":"ok"' || { echo "healthz unexpected: $HEALTH"; exit 1; }
-echo "  -> $HEALTH"
-
-echo "[4/4] 11 个 P0 endpoint 401 拦截"
-for path in \
-  "/api/v1/escorts/register" \
-  "/api/v1/escorts/real-name/auth" \
-  "/api/v1/escorts/health-cert/upload" \
-  "/api/v1/escorts/training/complete" \
-  "/api/v1/escorts/me/profile" \
-  "/api/v1/escorts/me/status" \
-  "/api/v1/escorts/me/training-courses" \
-  "/api/v1/escorts/me/reviews" \
-  "/api/v1/orders?role=escort&status=matching" \
-  "/api/v1/orders/1/checkin" \
-  "/api/v1/orders/1/checkout" \
-; do
-  RESP=$(curl -sS "http://127.0.0.1$ADDR$path")
-  echo "$RESP" | grep -q '"code":11001' || { echo "  $path unexpected: $RESP"; exit 1; }
-  echo "  $path -> 401 OK"
-done
-
-echo "smoke OK"
-```
-
-**Step 3: 跑 smoke**
-
-```bash
-chmod +x scripts/smoke-escort.sh
-bash scripts/smoke-escort.sh
-```
-Expected: smoke OK
-
-**Step 4: Commit**
-
-```bash
-git add services/escort/cmd/main.go scripts/smoke-escort.sh
-git commit -m "feat(escort): main 装配 ProfileFlowService + events.Publisher + smoke 脚本（11 个 endpoint 401 拦截）"
-```
-
----
-
-### Task 9: 文档同步 + dev.md
+## Task 7: 文档同步 + dev.md + 全量回归 + push
 
 **Files:**
 - Modify: `docs/04-业务流程.md`
 - Modify: `dev.md`
+- Create: `scripts/smoke-availability.sh`
 
-**Step 1: 04 加陪诊师档案状态机流程**
+**Step 1: 04-业务流程.md 加 §4.8 escort_availabilities**
 
 ```markdown
-### 陪诊师档案状态机（11 态）
+### 陪诊师时段与选人模式（escort-business v2）
 
-1. 陪诊师注册 → `escort_profiles.state='registering'`
-2. POST `/escorts/real-name/auth` → `pending_real_name` → `pending_health_cert`（mock 自动通过）
-3. POST `/escorts/health-cert/upload`（base64 + SHA256）→ 自动审核 → `pending_training`
-4. POST `/escorts/training/complete`（5 题 80% 通过）→ `pending_agreement`
-5. POST `/escorts/agreement/sign` → `pending_audit`
-6. admin POST `/admin/escorts/{id}/approve`（admin plan）→ `approved`
-7. PUT `/escorts/me/status`（online=true）→ `online`；online=false → `offline`
-8. 服务中：`accepted → in_service`（checkin）/ `in_service → completed`（checkout）
+1. 陪诊师 approved 后即可 PUT `/escorts/me/availability` 设置空余时段；
+   时段不冲突（service 校验 + DB UNIQUE 索引）+ start_at 必须在未来。
+2. 患者下单 paid → match-service 调 `availability.ListAvailableByTime(order.ServiceStartAt)` 选 Top N 候选。
+3. 患者选某 escort：order 状态 → `escort_pending_acceptance`，写 `selected_escort_id`；
+   escort 端 `GET /escorts/me/invitations` 看到该订单（30s 倒计时）。
+4. Escort POST `/orders/:id/confirm-accept`（escort-order-ext plan）→ state `accepted` →
+   order-service 调 `availability.BookByOrder(slotID, escortID, orderID)` 把时段 booked。
+5. Escort POST `/orders/:id/reject-accept` 或 30s 超时 → state 回退 `selecting_escort` →
+   order-service 调 `availability.ReleaseByOrder(orderID)`（幂等，时段本就 available）。
+6. 取消后续订单 → state `canceled` + 时段恢复 available。
 
-事件 `escort.state_changed` 发到 Kafka；admin audit + notification 消费。
+**派生状态**：`available`（有 available 时段）/ `busy`（无）/ `off-line`（escort 主动下线）。
+
+**集成**：order-service ↔ escort-service 通过共享 `services/order/internal/integration` 包直连（共享 Go-level repo，避免 HTTP 跨服务往返）。
+
+事件 `order.escort_confirmed` / `order.escort_rejected`（shared/contracts，详见 order-matching-redesign §5.1）。
 ```
 
-**Step 2: dev.md 加 §10.13**
+**Step 2: dev.md 加 §10.14**
 
 ```markdown
-### 10.13 陪诊业务实装（2026-09-24 escort-business plan）
+### 10.14 陪诊业务实装 v2 — escort_availabilities + 选人模式（2026-09-24 escort-business plan v2）
 
-解决 `l2-api-gap-design.md` §2.2 P0 escort 14 API 中的 11 个（钱包 + 提现走 wallet plan）。
+解决 `order-matching-redesign` §3.2 + §4.1 escort 端 5 个新 endpoint + 邀请列表 + 派生状态。
 
-**落地 commits（8 个）**：
+**落地 commits（7 个）**：
 
 | commit | 内容 |
 | :-- | :-- |
-| feat(migrations) | 0006 escort_profiles + health_certs + training_records |
-| feat(escort) | 11 态状态机 pure function |
-| feat(escort) | repo ProfileRepo (CRUD + 乐观锁 + 8 集成测试) |
-| feat(escort) | profile_flow 业务流（实名 mock + 健康证 SHA256 + 培训 80%）+ me/* |
-| feat(contracts+escort) | EscortStateChangedEvent + KafkaPublisher |
-| feat(escort) | handler 8 endpoint + 12 handler 单测 |
-| feat(order) | 抢单池 ListForEscort + checkin/checkout |
-| feat(escort) | main 装配 + smoke 脚本 |
+| feat(migrations) | 0009 orders 修订 + escort_availabilities 表 + CHECK + UNIQUE |
+| feat(escort) | availability 子包：types/state/repo + 13 集成 + 3 状态机单测 |
+| feat(escort) | availability.Service 业务层（冲突校验 + 派生状态）+ 8 单测 |
+| feat(escort) | handler 5 endpoint（escort/me × 3 + 公开 availabilities + invitations）+ 5 单测 |
+| feat(escort) | profile 响应加 availability_status（available/busy/off-line） |
+| feat(order) | integration 层 escort_availability hook + ConfirmAccept/ReleaseLockAndReject 集成 + 2 单测 |
+| docs + smoke | 04-业务流程.md §4.8 + dev.md 10.14 + smoke-availability.sh |
 
-**API 增量（11 个）**：
-- POST /api/v1/escorts/register
-- POST /api/v1/escorts/real-name/auth
-- POST /api/v1/escorts/health-cert/upload
-- POST /api/v1/escorts/training/complete
-- GET  /api/v1/escorts/me/profile
-- PUT  /api/v1/escorts/me/status
-- GET  /api/v1/escorts/me/training-courses
-- GET  /api/v1/escorts/me/reviews
-- GET  /api/v1/orders?role=escort&status=matching（order-service 扩展）
-- POST /api/v1/orders/:id/checkin（accepted → in_service）
-- POST /api/v1/orders/:id/checkout（in_service → completed）
+**API 增量（5 + 1 = 6 个）**：
+- PUT    /api/v1/escorts/me/availability           新建时段
+- GET    /api/v1/escorts/me/availability           列我的时段
+- DELETE /api/v1/escorts/me/availability/:id      删时段（仅 available）
+- GET    /api/v1/escorts/me/invitations            待我确认的订单
+- GET    /api/v1/escorts/:id/availabilities        公开列某 escort 可用时段
+- (派生)  GET /api/v1/escorts/me/profile 含 availability_status
 
-**状态机**：11 态（registering / pending_real_name / pending_health_cert / pending_training / pending_agreement / pending_audit / approved / rejected / online / in_service / offline）。
+**共享迁移**：0009_escort_availabilities.up.sql = orders 表修订 + escort_availabilities 新表；与 order-matching-redesign 共用。
 
 **未做**：
-- 实名真实接入（v1 mock "已通过"；v2 接公安二要素）
-- 健康证 OSS 上传（v1 收 base64 + 存 SHA256；v2 接 OSS）
-- 培训题库管理后台（v1 hardcode 5 题；v2 admin plan 配置）
-- admin 审核（approve/reject）走 admin plan 直接 `UPDATE state`
-- checkin/checkout 落库字段（v1 仅状态推进；v2 加 `checkin_at` / `checkout_at` 列）
+- 抢单 Feed（match/feed）已撤销；escort-order-ext plan 处理 select-escort / confirm-accept / reject-accept
+- 时段模板（每周固定）/ 智能评分留 v2
+- order-service 与 escort-service 跨服务升级为 HTTP / gRPC 留 v2
+- 时间重叠区间 DB 级约束（Postgres `tstzrange &&` exclusion 约束需 btree_gist 扩展；v1 用 service 层校验）
 ```
 
-**Step 3: Commit**
+**Step 3: scripts/smoke-availability.sh**
 
 ```bash
-git add docs/ dev.md
-git commit -m "docs: 陪诊师档案状态机流程 + dev.md 10.13 escort-business plan 落地记录"
+#!/usr/bin/env bash
+# Smoke 验证 escort-availability 5 endpoint 401 拦截。
+set -euo pipefail
+
+ADDR="${ADDR:-:8080}"
+TOKEN="${ESCORT_TOKEN:-}"
+
+if [[ -z "$TOKEN" ]]; then
+  echo "ESCORT_TOKEN required"
+  exit 1
+fi
+
+echo "smoke escort-availability endpoints"
+for path in \
+  "/api/v1/escorts/me/availability" \
+  "/api/v1/escorts/me/invitations" \
+  "/api/v1/escorts/1/availabilities" ; do
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "http://127.0.0.1$ADDR$path")
+  if [[ "$CODE" != "200" ]]; then
+    echo "  $path unexpected code: $CODE"
+    exit 1
+  fi
+  echo "  $path -> $CODE OK"
+done
+
+# 401 拦截（无 token）
+CODE=$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1$ADDR/api/v1/escorts/me/availability")
+[[ "$CODE" == "401" ]] || { echo "expected 401, got $CODE"; exit 1; }
+echo "  no-token -> 401 OK"
+
+echo "smoke OK"
 ```
 
----
-
-### Task 10: 全量回归 + push
+**Step 4: 全量回归 + push**
 
 ```bash
-# 清干净 PG
+# 清干净 PG（保留已有数据）
 docker exec doctors-postgres psql -U doctors -d doctors -c \
-  "DROP TABLE IF EXISTS training_records CASCADE; DROP TABLE IF EXISTS health_certs CASCADE; DROP TABLE IF EXISTS escort_profiles CASCADE; DROP TABLE IF EXISTS refunds CASCADE; DROP TABLE IF EXISTS refund_policies CASCADE; DROP TABLE IF EXISTS order_events CASCADE; DROP TABLE IF EXISTS orders CASCADE; DROP TABLE IF EXISTS users CASCADE;"
+  "DROP TABLE IF EXISTS escort_availabilities CASCADE;"
 
-# 跑全部单测
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 ./shared/... ./services/...
+# 跑单测
+GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
+  go test -count=1 ./shared/... ./services/...
 
-# 跑全部集成测试
+# 跑集成测试
 GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off \
   go test -tags=integration -count=1 ./migrations/... ./services/...
 
 # 跑 smoke
-bash scripts/smoke-order.sh
-bash scripts/smoke-escort.sh
+bash scripts/smoke-availability.sh
+
+# commit docs + smoke
+git add docs/ dev.md scripts/smoke-availability.sh
+git commit -m "docs: 04-业务流程 §4.8 escort_availabilities 流程图 + dev.md 10.14 escort-business v2 落地记录 + smoke-availability"
 
 # push
 git push origin main
 ```
 
-Expected: 全部 PASS + smoke OK + pushed.
+Expected: PASS + smoke OK + pushed.
 
 ---
 
 ## Self-Review
 
-- ✅ **Spec 覆盖**: `l2-api-gap-design.md` §2.2 P0 escort 14 API 中落 11 个（钱包 + 提现 4 个走 wallet plan；escort 触发 SOS 复用 sos plan）；§3.1 EscortSummary 与 escort ProFiles 表字段对齐
-- ✅ **状态机完整**: 11 态 `registering → pending_real_name → pending_health_cert → pending_training → pending_agreement → pending_audit → approved/rejected → online/offline` + `online → in_service → online/offline`，含 rejected → pending_health_cert 重新提交路径
-- ✅ **关键边界**:
-  - 实名 mock：service.RealNameAuth 直接通过 + 落 `users.real_name_verified=true`
-  - 健康证 v1：API 收 base64 → repo 算 SHA256 + filename + mime；不入 OSS
-  - 培训 v1：hardcode 5 题；80% 通过（4/5）
-  - GPS mock：service.CheckIn 只校验 lat/lng 范围，**不调 geolocator**；**不算距离**
-- ✅ **类型一致**: `Profile` / `HealthCert` / `TrainingRecord` 与 SQL CHECK 对齐；`State` 字符串与 `escort_profiles.state` 对齐；`StateChangedEvent` 与 `shared/contracts.EscortStateChangedEvent` 字段一致
-- ✅ **测试矩阵**: Task 1 集成（migrations）+ Task 2 单元（state）+ Task 3 集成（repo）+ Task 4 单元（service）+ Task 5 单元（publisher）+ Task 6 单元（handler）+ Task 7 集成 + 单元（order）+ Task 8 smoke + Task 10 全量回归
-- ✅ **YAGNI**: v1 不接真实实名 / OSS / 题库管理；admin 审核留 admin plan；不做 checkin/checkout 落库字段（v1 状态推进足够；v2 加列）
+- ✅ **Spec 覆盖**：`order-matching-redesign.md` §3.2（escort_availabilities 表 schema + 索引 + CHECK）+ §4.1（5 endpoint）+ §5.1（事件与 §7 集成）；陪诊师状态派生（§7 关键决策）；与 order-service 集成（§6 plan 表）。
+- ✅ **共享迁移**：单一 `0009_escort_availabilities.up.sql` 同时承载 orders 表修订（drop lock_owner / add selected_escort_id / 新 CHECK / 替换索引）+ escort_availabilities 新表；order-matching-redesign 与 escort-business v2 共用。
+- ✅ **状态机**：3 态白名单 `CanTransition`（`book` / `release` / `cancel` / `reactivate`），纯函数 + 3 个单测覆盖合法+非法矩阵。
+- ✅ **时段时间合法性**：service.validateRange（start_at > now + end_at > start_at）+ repo.HasOverlap（区间重叠检测）+ DB UNIQUE `(escort_id, start_at)`；冲突返回 `CodeConflict`，过期时段不计入 DeriveStatus。
+- ✅ **派生状态**：`DeriveStatus(escortID, manualOffline)` — manualOffline 优先；available 判定需 `CountAvailableForEscort(escort_id)` > 0；否则 busy；不修改 escort_profiles.state（readonly 派生）。
+- ✅ **集成路径**：order-service ↔ escort-service 通过 Go-level 共享包直连（`services/order/internal/integration/escort_availability.go`），绕过 HTTP / RPC；best-effort 不阻塞主流程；nil 客户端为 no-op（本地开发 + 单测）。
+- ✅ **类型一致**：`Availability` struct 与 SQL 列对齐；事件字段名沿用 `order.escort_confirmed` / `order.escort_rejected`（与 order-matching-redesign §5.1 一致）；`InvitationDTO` 字段与 escort-app 设计 `§3.1 我的邀请` 对齐。
+- ✅ **测试矩阵**：Task 1 集成（migration）+ Task 2 13 集成 + 3 状态机单测 + Task 3 8 service 单测 + Task 4 5 handler 单测 + Task 5 1 profile 单测 + Task 6 4 集成层 + 2 order-service 集成验证 + Task 7 smoke + 全量回归。
+- ✅ **YAGNI**：v1 不做时段模板 / 智能评分 / 跨服务 HTTP / 时间范围 DB 约束（exclude USING gist 需扩展）；admin 审核、抢单 Feed、checkin/checkout、admin-web 接线留各专 plan。
+
+## 与原 v1 plan 的关键差异
+
+| 维度 | v1 | v2（本 plan） |
+|---|---|---|
+| 范围 | 11 API（含抢单 Feed + 上线/下线）| **5 API + 邀请列表 + 派生状态**（注册/实名/健康证/培训/审核 + checkin/checkout 假设 v1 已落地）|
+| 核心业务变更 | 陪诊师自主上线 → 抢单池接单 | **陪诊师设时段 → 患者选人 → 30s 陪诊师确认** |
+| 抢单 Feed | `GET /match/feed` + `POST /orders/:id/accept` | **已撤销**；患者端用 `GET /orders/:id/candidates` + `POST /orders/:id/select-escort`（escort-order-ext plan）|
+| 订单状态 | `pending_acceptance`（escort 抢单锁）| **`selecting_escort` + `escort_pending_acceptance`**（order-matching-redesign）|
+| 状态派生 | 直接由 `escort_profiles.state` | 加 **派生 `availability_status`**（available/busy/off-line）|
+| 订单锁 | `lock_owner` + `lock_expire_at`（Redis SETNX）| **`selected_escort_id` + `escort_pending_expire_at` + 时段 booked** |
+| 集成 | 单服务内部 | order-service ↔ escort-service 跨服务 hook（共享包）|
 
 ## 关联 spec
 
+- `docs/superpowers/specs/2026-09-24-order-matching-redesign.md` §3.2 + §4.1 + §5.1 + §7.4
 - `docs/superpowers/specs/2026-09-24-l2-api-gap-design.md` §2.2 + §3.1
-- `docs/superpowers/specs/2026-09-24-escort-app-design.md` §3.1 + §3.2 + §5
-- `docs/superpowers/plans/2026-09-24-state-machine.md`（状态机 CHECK）
-- `docs/superpowers/plans/2026-09-24-sos.md`（SOS 复用）
+- `docs/superpowers/specs/2026-09-24-escort-app-design.md` §3.1「我的空余时段」+ §3.1「我的邀请」
+- `docs/superpowers/plans/2026-09-24-state-machine.md`（orders 表基础）
+- `docs/superpowers/plans/2026-09-24-escort-order-ext.md`（select-escort / confirm-accept / reject-accept，本 plan 提供 hook 给该 plan）
 
 ## Execution Options
 
-> Plan 已 commit 到 `docs/superpowers/plans/2026-09-24-escort-business.md`。
+> 本 plan 假设 v1（11 态状态机 + 注册 / 实名 / 健康证 / 培训 / 审核 / checkin/checkout）已先落地；如未落地，需先执行 v1 plan。
 > 当前为 plan_all 模式 → 进入实施阶段需要用户决策。
 
 **下一步选项**：
-
-1. **立即执行**（subagent-driven 或 inline 执行）—— 我开始实施 Task 1~10
-2. **暂停 + review** —— 你 review 此 plan 后告诉我调整
-3. **继续产 plan** —— 接着出 8 个后端 plan + 3 个前端 plan（virtual-number / wallet / review / message / address-coupon / admin / hospital-package / escort-order-ext + patient-miniapp / admin-web）
+1. **立即执行**（subagent-driven 或 inline 执行）—— 从 Task 1（0009 迁移）开始按 commit 节奏推 7 个 task。
+2. **暂停 + review** —— review 本 plan + 0009 迁移对生产的影响（需先跑数据迁移脚本把 `lock_owner` 数据清掉）。
+3. **先做 escort-order-ext plan** —— escort-order-ext 处理 select-escort / confirm-accept / reject-accept，本 plan 提供 BookByOrder/ReleaseByOrder hook 供其调用；建议先 escort-order-ext 完成依赖接口再并行。
