@@ -138,8 +138,16 @@ func Test0002OrdersUpDown(t *testing.T) {
 	_, err = conn.Exec(ctx, string(usersSQL))
 	require.NoError(t, err)
 	t.Cleanup(func() {
+		// 注意：defer conn.Close 已运行；这里新开一个 conn 跑 down。
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanCancel()
+		cleanConn, err := pgx.Connect(cleanCtx, dsn())
+		if err != nil {
+			return
+		}
+		defer cleanConn.Close(cleanCtx)
 		down, _ := os.ReadFile("0001_users.down.sql")
-		_, _ = conn.Exec(context.Background(), string(down))
+		_, _ = cleanConn.Exec(cleanCtx, string(down))
 	})
 
 	applyUp(t, "0002_orders.up.sql", []string{"orders", "order_events"})
@@ -171,6 +179,93 @@ func Test0002OrdersUpDown(t *testing.T) {
 
 	// down 验证：两张表都被清掉
 	applyDown(t, "0002_orders.down.sql", []string{"orders", "order_events"})
+}
+
+// Test0003OrdersStateUpDown 验证 0003 加列 + CHECK + 索引。
+// 依赖 0001_users + 0002_orders；测试结束回滚所有变更。
+func Test0003OrdersStateUpDown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn())
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	// 先建 users + orders
+	usersSQL, _ := os.ReadFile("0001_users.up.sql")
+	_, err = conn.Exec(ctx, string(usersSQL))
+	require.NoError(t, err)
+	ordersSQL, _ := os.ReadFile("0002_orders.up.sql")
+	_, err = conn.Exec(ctx, string(ordersSQL))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		// 注意：defer conn.Close 已运行；这里新开一个 conn 跑 down。
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanCancel()
+		cleanConn, err := pgx.Connect(cleanCtx, dsn())
+		if err != nil {
+			return
+		}
+		defer cleanConn.Close(cleanCtx)
+		down, _ := os.ReadFile("0002_orders.down.sql")
+		_, _ = cleanConn.Exec(cleanCtx, string(down))
+		down, _ = os.ReadFile("0001_users.down.sql")
+		_, _ = cleanConn.Exec(cleanCtx, string(down))
+	})
+
+	applyUp(t, "0003_orders_state.up.sql", []string{"orders"})
+
+	// 列检查
+	for _, col := range []string{"lock_owner", "lock_expire_at"} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='orders' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "orders.%s should exist", col)
+	}
+
+	// 索引检查
+	var idxExists bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, "idx_orders_lock").
+		Scan(&idxExists)
+	require.NoError(t, err)
+	assert.True(t, idxExists, "idx_orders_lock should exist")
+
+	// CHECK 约束含新状态
+	var hasCheck bool
+	err = conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
+		               WHERE constraint_name LIKE 'orders_status_check')`).
+		Scan(&hasCheck)
+	require.NoError(t, err)
+	assert.True(t, hasCheck)
+
+	// down 校验：列 / 索引被清理掉
+	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer downCancel()
+	downSQL, err := os.ReadFile("0003_orders_state.down.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(downCtx, string(downSQL))
+	require.NoError(t, err, "apply 0003_orders_state.down.sql")
+
+	for _, col := range []string{"lock_owner", "lock_expire_at"} {
+		var found bool
+		err := conn.QueryRow(downCtx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='orders' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.False(t, found, "orders.%s should be gone after down", col)
+	}
+
+	var idxGone bool
+	err = conn.QueryRow(downCtx,
+		`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, "idx_orders_lock").
+		Scan(&idxGone)
+	require.NoError(t, err)
+	assert.False(t, idxGone, "idx_orders_lock should be gone after down")
 }
 
 // TestAllUpMigrationsApplyCleanly 串行应用所有 up 文件，确保幂等 + 无脏表。
