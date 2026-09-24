@@ -897,3 +897,68 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 
 - patient-miniapp 下单 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → 状态流转 → admin-web 监控
 - 共享 `X-Trace-Id`（escort-app 用 `escort-{ms}-{rand6}`；patient-miniapp 用 `mp-{ms}-{rand6}`；admin-web 用其他前缀）
+
+---
+
+## 14. patient-miniapp v1.1 选人模式增量（2026-09-24 patient-miniapp-setup plan §P1-P7）
+
+**目标**：在 patient-miniapp 骨架（§11 commit `8daff2e`）基础上，落地选人模式核心：删"抢单"相关前端代码 + 加 candidates / order detail / order list 页 + Pinia stores + API client + CountdownBadge + OrderStatusProgress + OrderListItem 4 个新组件 + 路由收尾。
+
+**7 个 commit（按 utils → stores → api → components → pages → list 顺序）**：
+
+| commit | 内容 | 文件 |
+| :-- | :-- | :-- |
+| `570ebd4` | `test(patient-miniapp)` utils format/trace + jest 配置 | utils/{format.js, trace.js, format.test.js, trace.test.js} + jest.config.js + babel.config.js + package.json |
+| `946cb72` | `feat(patient-miniapp)` Pinia stores (auth + order 选人模式状态机) | stores/{auth.js, order.js, auth.test.js, order.test.js} |
+| `f9e4271` | `feat(patient-miniapp)` API client (candidates + order + index) | api/{candidates.js, order.js, index.js, candidates.test.js, order.test.js} |
+| `9d8c4ae` | `feat(patient-miniapp)` CountdownBadge 组件（参数化 expireAt + <60s 红色） | components/{CountdownBadge.vue, CountdownBadge.test.js} |
+| `1be2b17` | `feat(patient-miniapp)` candidates 页 + EscortCandidateCard 组件 + 路由注册 | pages/order/candidates/{index.vue, index.test.js} + components/EscortCandidateCard.{vue,test.js} + pages.json |
+| `6fb379c` | `feat(patient-miniapp)` 订单详情页 + OrderStatusProgress 组件 + 路由注册 | pages/order/detail/{index.vue, index.test.js} + components/OrderStatusProgress.{vue,test.js} + pages.json |
+| `c98d43b` | `feat(patient-miniapp)` 订单列表页 + OrderListItem 组件 + pages.json 路由收尾 | pages/order/index.{vue, test.js} + components/OrderListItem.{vue,test.js} + pages.json |
+
+**关键设计**：
+
+1. **匹配模式按 v1.1**：删除任何"抢单"代码（lobby / pool / waiting）；用"选陪诊师"语义（candidates + selectEscort）。
+2. **状态机 6 节点**：`paid → selectingEscort → escortPendingAcceptance → accepted → inService → completed`；OrderStatusProgress 横向 stepper + 中文 label。
+3. **30s 倒计时**：复用 CountdownBadge（参数化 `expireAt`，`< 60s 红色 #ff4d4f` / `≥ 60s 蓝色 #1677ff`）；组件 unmount 时 `clearInterval` 防内存泄漏。
+4. **拒接回退文案**：`escort_declined → 陪诊师主动拒接` / `lock_expired → 陪诊师超时未确认`；详情页顶部 Alert +「重新选择陪诊师」链接。
+5. **状态过滤**（列表页）：u-tabs 8 项（含 2 新状态 selectingEscort / escortPendingAcceptance）；支持 `?status=` URL 参数（admin-web 跳转锚点）。
+6. **路由顺序**：`pages/order/index → pages/order/detail → pages/order/candidates`（列表 → 详情 → 选人页用户流）。
+
+**测试覆盖**：**80+ 单测用例**（11 个新增文件 + 12 个总变更文件，~3000 行）
+
+| 类别 | 测试数 |
+| :-- | :--: |
+| utils format/trace | 23 |
+| stores auth/order | 23 |
+| api candidates/order | 21 |
+| CountdownBadge | 8 |
+| EscortCandidateCard | 4 |
+| OrderStatusProgress | 4 |
+| OrderListItem | 4 |
+| candidates 页 | 5 |
+| detail 页 | 6 |
+| list 页 | 5 |
+
+**Plan 偏差（重要）**：
+
+1. **路径**：plan 全程 `web/patient-miniapp/...`，实际 `frontend/patient-miniapp/...`。
+2. **JS vs TS**：plan 全量 `.ts`，任务契约写 `format.js` / `trace.js` / `.vue`；按契约走 JS。
+3. **api 模块 store 兼容**：`src/stores/order.js` 已通过 `import('@/api/order.js')` 取 5 个函数；故 `src/api/order.js` 同时导出 `listOrders` / `cancelOrder` + re-export `getCandidates`（不破坏 store 单测）。
+4. **store 字段命名差异**：store 内部 `escortConfirmed` vs OrderStatusProgress 用 `accepted`；detail 页用 `progressStatus` computed 做映射，保持进度条 visual key 与后端 API 字段对齐。
+5. **utils/auth.js 落地位置**：worker A 落在根 `utils/auth.js`；本批次加 `src/utils/auth.js` re-export shim 不动 worker A 代码。
+6. **未跑 jest**：本机无 npm 镜像；测试文件按 `@vue/test-utils v2 + jest 29 fake timers` 编写，待后续 plan 增补 `@vue/test-utils` + `vue-jest` + jest.config.js `.vue` transform 后可跑。
+
+**未做（留给后续）**：
+
+1. 跑 jest 验证（需 npm install + 增补 @vue/test-utils + vue-jest）
+2. 其他 17 个 P0 页面（首页 / 医院列表 / 评价 / 钱包 / 我的 / 登录 / 注册 / 实名 / 陪诊师资料等）
+3. Appium e2e（plan v1.1 Task 20-23 Android/iOS 原生端）
+4. app-plus Android/iOS 原生构建（manifest 已配置 + Icon 二进制）
+5. OpenAPI codegen + types 层（当前 plan 阶段无 contracts.yaml，按手写契约）
+6. MSW mock 全集 + Playwright e2e H5 模式
+
+**端到端联通（v1.1 目标）**：
+
+- patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app `/home/invitations` 30s 倒计时确认 → order-service `escort_pending_acceptance` → 状态流转 → admin-web 监控
+- 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
