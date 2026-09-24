@@ -45,13 +45,20 @@ type UserSnapshot struct {
 
 // Service 是 order 业务编排器。
 type Service struct {
-	orders OrderRepo
-	users  UserLookup
+	orders   OrderRepo
+	users    UserLookup
+	txRunner TxRunner // 可选；抢单 (Accept) 时必需
 }
 
 // New 装配一个 Service。
 func New(orders OrderRepo, users UserLookup) *Service {
 	return &Service{orders: orders, users: users}
+}
+
+// WithTx 注入事务执行器（阶段 3.6 接通 PG 后由 main 调）。
+func (s *Service) WithTx(tx TxRunner) *Service {
+	s.txRunner = tx
+	return s
 }
 
 // CreateReq 是创建订单的参数。

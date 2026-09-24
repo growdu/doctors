@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,13 +12,38 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/services/order/internal/handler"
+	"github.com/growdu/doctors/services/order/internal/repo"
 	"github.com/growdu/doctors/services/order/internal/service"
 	"github.com/growdu/doctors/shared/httpx"
 )
 
+// stubOrderRepo 满足 service.OrderRepo；handler 测试不触达业务逻辑。
+type stubOrderRepo struct{}
+
+func (stubOrderRepo) Create(ctx context.Context, o *repo.Order) error               { return nil }
+func (stubOrderRepo) FindByID(ctx context.Context, id int64) (*repo.Order, error)  { return nil, repo.ErrOrderNotFound }
+func (stubOrderRepo) ListByPatient(ctx context.Context, id int64, l, o int) ([]*repo.Order, error) {
+	return nil, nil
+}
+func (stubOrderRepo) UpdateStatus(ctx context.Context, id int64, to string, v int, e *int64) error {
+	return nil
+}
+func (stubOrderRepo) InsertEvent(ctx context.Context, id int64, from *string, to string, a *int64, p []byte) error {
+	return nil
+}
+func (stubOrderRepo) ListEvents(ctx context.Context, id int64) ([]*repo.OrderEvent, error) {
+	return nil, nil
+}
+
+type stubUserLookup struct{}
+
+func (stubUserLookup) FindByID(ctx context.Context, id int64) (*service.UserSnapshot, error) {
+	return &service.UserSnapshot{ID: id, Role: "patient", RealNameVerified: true}, nil
+}
+
 func newRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	svc := service.New()
+	svc := service.New(stubOrderRepo{}, stubUserLookup{})
 	return New(handler.New(svc), "secret")
 }
 

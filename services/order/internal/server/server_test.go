@@ -11,12 +11,36 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/services/order/internal/handler"
+	"github.com/growdu/doctors/services/order/internal/repo"
 	"github.com/growdu/doctors/services/order/internal/service"
 )
 
+type stubOrderRepo struct{}
+
+func (stubOrderRepo) Create(ctx context.Context, o *repo.Order) error              { return nil }
+func (stubOrderRepo) FindByID(ctx context.Context, id int64) (*repo.Order, error) { return nil, repo.ErrOrderNotFound }
+func (stubOrderRepo) ListByPatient(ctx context.Context, id int64, l, o int) ([]*repo.Order, error) {
+	return nil, nil
+}
+func (stubOrderRepo) UpdateStatus(ctx context.Context, id int64, to string, v int, e *int64) error {
+	return nil
+}
+func (stubOrderRepo) InsertEvent(ctx context.Context, id int64, from *string, to string, a *int64, p []byte) error {
+	return nil
+}
+func (stubOrderRepo) ListEvents(ctx context.Context, id int64) ([]*repo.OrderEvent, error) {
+	return nil, nil
+}
+
+type stubUserLookup struct{}
+
+func (stubUserLookup) FindByID(ctx context.Context, id int64) (*service.UserSnapshot, error) {
+	return &service.UserSnapshot{ID: id, Role: "patient"}, nil
+}
+
 // TestServer_EngineExposesRouter 验证 Engine() 返回的 handler 可以处理 /healthz。
 func TestServer_EngineExposesRouter(t *testing.T) {
-	s := New(":0", handler.New(service.New()), "secret")
+	s := New(":0", handler.New(service.New(stubOrderRepo{}, stubUserLookup{})), "secret")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -26,7 +50,7 @@ func TestServer_EngineExposesRouter(t *testing.T) {
 
 // TestServer_RunShutdownGracefully 启动后立刻取消 ctx，应在超时内返回 nil。
 func TestServer_RunShutdownGracefully(t *testing.T) {
-	s := New("127.0.0.1:0", handler.New(service.New()), "secret")
+	s := New("127.0.0.1:0", handler.New(service.New(stubOrderRepo{}, stubUserLookup{})), "secret")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
