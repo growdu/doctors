@@ -1,26 +1,38 @@
 // lib/core/router.dart
 //
-// GoRouter Provider —— v1 骨架只占位路由，后续 Task 4+ 补全 24 个页面 + redirect 守卫。
+// GoRouter Provider —— 注册 escort-app v1.1 核心路由。
+//
+// 路由清单（v1.1）：
+//   - `/splash`（占位）
+//   - `/home/invitations`（spec §4.1 选人模式核心）
+//   - `/home/availability`（spec §3.2 空余时段管理）
+//
+// v1 骨架路径：`/home/feed`（抢单池）已**删除**；新增 `/home/invitations` + `/home/availability`。
+// 后续 Task（24 个 P0 页面）按 plan 继续补全：login / register / onboarding / audit / orders /
+// wallet / profile / order / sos / message 等。
+import 'package:escort_app/pages/availability/availability_page.dart';
+import 'package:escort_app/pages/invitations/invitations_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-/// 全局 GoRouter。
-///
-/// v1（2026-09-24）：仅注册 splash 占位 + 路由守卫 placeholder；后续 Task 替换：
-///   - `/splash` → splashPage
-///   - `/login` → loginPage
-///   - `/home/invitations` → invitationsPage（替换原 `/home/feed`）
-///   - `/home/availability` → availabilityPage
-///   - `/home/orders` / `/home/wallet` / `/home/profile`
-///   - 3 个 redirect 守卫：authGuardProvider / realNameGuardProvider / approvedGuardProvider
+/// 全局 GoRouter（v1.1 选人模式核心路由）。
 final goRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: '/splash',
+    initialLocation: '/home/invitations',
     routes: [
       GoRoute(
         path: '/splash',
         builder: (context, state) => const _SplashPlaceholder(),
+      ),
+      // 选人模式核心路由（v1.1 新增，替换原 /home/feed）
+      GoRoute(
+        path: '/home/invitations',
+        builder: (context, state) => const InvitationsPage(),
+      ),
+      GoRoute(
+        path: '/home/availability',
+        builder: (context, state) => const AvailabilityPage(),
       ),
     ],
   );
@@ -32,9 +44,9 @@ class _SplashPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('escort-app v1 骨架')),
+      appBar: AppBar(title: const Text('escort-app v1.1')),
       body: const Center(
-        child: Text('TODO: 后续 Task 替换为真实页面'),
+        child: Text('escort-app v1.1 选人模式骨架'),
       ),
     );
   }
