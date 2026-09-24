@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'migrations/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+
+# 默认所有 job 并行；integration 跑 PG + Kafka。
+env:
+  GOPROXY: https://goproxy.io,https://goproxy.cn,direct
+  GOSUMDB: off
+  GOTOOLCHAIN: local
+
+jobs:
+  # ---------- 后端单测 + vet + build（PG / Kafka 可选） ----------
+  backend-unit:
+    name: Backend (unit + vet + build)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: doctors
+          POSTGRES_PASSWORD: doctors
+          POSTGRES_DB: doctors
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Unit tests
+        env:
+          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+        run: go test -count=1 -race -timeout 5m ./...
+
+      - name: Coverage
+        if: github.event_name == 'pull_request'
+        env:
+          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+        run: |
+          go test -count=1 -coverprofile=coverage.out -timeout 5m ./...
+          go tool cover -func=coverage.out | tail -1
+
+  # ---------- 后端集成测（PG + Kafka） ----------
+  backend-integration:
+    name: Backend (integration tests)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: doctors
+          POSTGRES_PASSWORD: doctors
+          POSTGRES_DB: doctors
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      kafka:
+        image: apache/kafka:3.9.1
+        env:
+          KAFKA_NODE_ID: 0
+          KAFKA_PROCESS_ROLES: controller,broker
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+          CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+        ports: ['9092:9092']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply migrations
+        env:
+          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+        run: |
+          for f in migrations/*.up.sql; do
+            echo "Applying $f"
+            psql "$DOCTORS_TEST_DSN" -f "$f"
+          done
+
+      - name: Integration tests
+        env:
+          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+          KAFKA_BROKERS: 127.0.0.1:9092
+        run: go test -tags=integration -count=1 -race -timeout 10m ./...
+
+  # ---------- Go module 检查（go.mod / go.sum 一致） ----------
+  mod-check:
+    name: Go modules (go.mod/go.sum consistent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - run: |
+          go mod download
+          git diff --exit-code -- go.mod go.sum

@@ -1,0 +1,5 @@
+# GitHub Pages 构建依赖（CI 用）
+# 与 dev.md §10.x 文档规范一致：mkdocs-material 9.x + Mermaid 支持
+mkdocs==1.6.1
+mkdocs-material==9.5.49
+pymdown-extensions==10.6.1
