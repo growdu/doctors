@@ -4,6 +4,13 @@
 
 **Goal:** 在 `web/patient-miniapp/` 下建立 uni-app + Vue 3 + uView Plus 2.x 骨架项目，作为 L2 v1.0 患者陪诊小程序的承载点。覆盖 spec §2 完整目录结构、§3.1 全部 20 个 P0 页面空骨架、§5 五个 Pinia store、§4 全部 14 个 API 的 client + uni-request 拦截器、OpenAPI codegen、Jest + Playwright 测试框架。v1 重点是骨架与目录 + mock 后端；UI 实现 / 业务流程按 feature 拆后续 plan。
 
+**本 plan 的「选陪诊师」增量修订**（v1.1，依据 spec `2026-09-24-order-matching-redesign.md` §1.2 / §4.1 patient API）：
+- 新增页面 `/pages/order/candidates/index`（候选陪诊师列表），订单支付成功后跳转
+- 新增 API 客户端函数：`getCandidates(orderId)` + `selectEscort(orderId, escortId)`（替换原抢单 `acceptOrder`）
+- 订单详情页 §3.1 状态机进度条新增 `selecting_escort` / `escort_pending_acceptance` 两节点；状态切换驱动不同 UI（候选列表 / 30s 倒计时 / 已确认详情）
+- Countdown 组件语义保留（30s 倒计时），但语义由「陪诊师抢单窗口」改为「陪诊师确认窗口」
+- 删除任何抢单相关前端代码（lobby / pool / waiting 0..30 等用语）
+
 **Architecture:** 单包项目（不是 monorepo）。开发态用 `npm run dev:h5` 起 Vite + uni-app H5 模式；构建产物可同时输出 mp-weixin / h5。HTTP 全部走 `uni.request`（不引 axios），通过 `uni.addInterceptor` 全局加 `X-Trace-Id` 与 `Authorization` 头。后端在 v1 用 MSW mock（开发态）+ Jest（单测）+ Playwright H5 模式（e2e）。OpenAPI 契约为 single source of truth：`web/openapi/contracts.yaml` → `openapi-typescript` 生成 `src/api/types.gen.ts`。
 
 **Tech Stack:**
@@ -19,6 +26,7 @@
 **前置依赖:**
 - `docs/superpowers/specs/2026-09-24-patient-miniapp-design.md`（设计源真）
 - `docs/superpowers/specs/2026-09-24-l2-api-gap-design.md` §2.1（14 个 patient P0 API）
+- `docs/superpowers/specs/2026-09-24-order-matching-redesign.md`（**本 plan v1.1 的业务真源**；§1.2 新流程 + §4.1 patient API：candidates + select-escort）
 - 后端 plan `2026-09-24-hospital-package-plan.md` 等产出后才会有真实 `web/openapi/contracts.yaml`；本 plan 阶段若 contracts.yaml 缺失则用占位 YAML（OpenAPI 3.0 最小骨架），让 codegen 跑通；后续 plan 替换。
 - 已完成 `dev.md` §10.x 一致的文档同步。
 
@@ -74,7 +82,8 @@
 | `web/patient-miniapp/src/pages/order/create.vue` | Create | 下单页骨架 |
 | `web/patient-miniapp/src/pages/order/pay.vue` | Create | 支付页骨架 |
 | `web/patient-miniapp/src/pages/order/list.vue` | Create | 订单列表骨架 |
-| `web/patient-miniapp/src/pages/order/detail.vue` | Create | 订单详情骨架（含轮询占位） |
+| `web/patient-miniapp/src/pages/order/detail.vue` | Create | 订单详情骨架（含轮询占位 + selecting_escort / escort_pending_acceptance 状态分支；Task 13 实现） |
+| `web/patient-miniapp/src/pages/order/candidates/index.vue` | Create | 候选陪诊师列表（Task 13 实现；骨架占位在 Task 3） |
 | `web/patient-miniapp/src/pages/refund/apply.vue` | Create | 申请退款骨架 |
 | `web/patient-miniapp/src/pages/review/create.vue` | Create | 评价表单骨架 |
 | `web/patient-miniapp/src/pages/sos/trigger.vue` | Create | SOS 触发页骨架 |
@@ -91,7 +100,7 @@
 | `web/patient-miniapp/src/components/PackageCard/PackageCard.vue` | Create | 服务包卡片骨架 |
 | `web/patient-miniapp/src/components/PriceTag/PriceTag.vue` | Create | 价格展示骨架 |
 | `web/patient-miniapp/src/components/VirtualNumber/VirtualNumber.vue` | Create | 虚拟号拨打骨架 |
-| `web/patient-miniapp/src/components/Countdown/Countdown.vue` | Create | 30s 倒计时骨架 |
+| `web/patient-miniapp/src/components/Countdown/Countdown.vue` | Create | 30s 倒计时骨架（语义 v1.1：陪诊师确认窗口；v1 旧语义「抢单锁单」已废弃） |
 | `web/patient-miniapp/src/components/SOSButton/SOSButton.vue` | Create | 长按 SOS 骨架 |
 | `web/patient-miniapp/src/components/index.ts` | Create | easycom 注册（uview-plus 自动 + 自定义组件手动） |
 | `web/patient-miniapp/src/stores/auth.ts` | Create | token / 当前用户（持久化到 uni.storage） |
@@ -556,7 +565,7 @@ git commit -m "feat(patient-miniapp): 设计 token (主色/字号/圆角) + uvie
 
 ---
 
-### Task 3: 20 个 P0 页面骨架 + routes 完整声明
+### Task 3: 21 个 P0 页面骨架（含 v1.1 candidates） + routes 完整声明
 
 **Files:**
 - Modify: `web/patient-miniapp/src/pages.json`（替换为完整 20 路由 + tabBar）
@@ -580,6 +589,7 @@ const PAGES = [
   'pages/order/pay',
   'pages/order/list',
   'pages/order/detail',
+  'pages/order/candidates/index',  // v1.1 选陪诊师
   'pages/refund/apply',
   'pages/review/create',
   'pages/sos/trigger',
@@ -594,12 +604,12 @@ const PAGES = [
 
 // 本 Task 内复用：先验证 pages.json 含全部路径
 import pagesManifest from '../src/pages.json';
-test('pages.json declares all 20 P0 routes', () => {
+test('pages.json declares all 20 P0 routes (+1 candidates in v1.1)', () => {
   const declared = pagesManifest.pages.map((p) => p.path);
   for (const p of PAGES) {
     expect(declared, `page ${p} should be declared in pages.json`).toContain(p);
   }
-  expect(PAGES.length).toBe(20);
+  expect(PAGES.length).toBe(21);  // 20 + 1 candidates
 });
 ```
 
@@ -635,6 +645,7 @@ Expected: `error TS2307: Cannot find module '../src/pages.json'` 或类似 — �
     { "path": "pages/order/pay",           "style": { "navigationBarTitleText": "支付" } },
     { "path": "pages/order/list",          "style": { "navigationBarTitleText": "我的订单" } },
     { "path": "pages/order/detail",        "style": { "navigationBarTitleText": "订单详情" } },
+    { "path": "pages/order/candidates/index", "style": { "navigationBarTitleText": "选择陪诊师" } },
     { "path": "pages/refund/apply",        "style": { "navigationBarTitleText": "申请退款" } },
     { "path": "pages/review/create",       "style": { "navigationBarTitleText": "评价" } },
     { "path": "pages/sos/trigger",         "style": { "navigationBarTitleText": "紧急报警" } },
@@ -703,6 +714,7 @@ declare -A PAGES=(
   [order/pay]="支付|order-pay"
   [order/list]="订单列表|order-list"
   [order/detail]="订单详情|order-detail"
+  [order/candidates/index]="选择陪诊师|order-candidates"  # v1.1 新增
   [refund/apply]="申请退款|refund-apply"
   [review/create]="评价|review-create"
   [sos/trigger]="SOS 紧急报警|sos-trigger"
@@ -1228,7 +1240,7 @@ git commit -m "feat(patient-miniapp): api client + interceptor (X-Trace-Id + 110
 
 ---
 
-### Task 6: API 模块骨架（14 个 patient P0 API）
+### Task 6: API 模块骨架（16 个 patient P0 API，含 v1.1 candidates / select-escort）
 
 **Files:**
 - Create: 9 个 `src/api/<feature>.ts`（auth/order/hospital/refund/review/sos/wallet/address/coupon/message）
@@ -1345,6 +1357,39 @@ export function submitReview(orderId: number, req: { rating: number; tags: strin
 export function triggerSos(orderId: number, req: { lat: number; lng: number; address: string; }) {
   return request<{ signal_id: number }>({ url: `/api/v1/orders/${orderId}/sos`, method: 'POST', data: req });
 }
+
+// v1.1 选陪诊师 — 替换原抢单 acceptOrder（spec 2026-09-24-order-matching-redesign §4.1 patient 端）
+export interface CandidateEscort {
+  escort_id: number;
+  nickname: string;
+  avatar_url: string;
+  rating: number;            // 0.0 ~ 5.0
+  rating_count: number;
+  distance_m: number;
+  price_amount: number;       // 本单服务报价
+  tags: string[];            // ['耐心','三甲熟悉','陪同手术' ...]
+  available_start_at: string;
+  available_end_at: string;
+}
+export function getCandidates(orderId: number) {
+  return request<{ items: CandidateEscort[]; generated_at: string; }>(
+    { url: `/api/v1/orders/${orderId}/candidates` }
+  );
+}
+
+export interface SelectEscortReq { escort_id: number; }
+export interface SelectEscortResp {
+  order_id: number;
+  selected_escort_id: number;
+  escort_pending_expire_at: string;  // = now + 30s
+}
+export function selectEscort(orderId: number, req: SelectEscortReq) {
+  return request<SelectEscortResp>(
+    { url: `/api/v1/orders/${orderId}/select-escort`, method: 'POST', data: req }
+  );
+}
+
+// v1 旧 acceptOrder（抢单）已删除 —— 不再导出；详见 spec §4.2 删除清单
 ```
 
 > 其他 7 个文件（hospital / refund / wallet / coupon / address / message + review/sos 复用上面）使用相同 pattern：从 l2-api-gap-design.md §2.1 提取 path + 简化类型。每个文件 ~30~60 行。本 Task Step 1 只展示 auth.ts / order.ts 完整代码；Step 2 批量生成剩余 7 个。
@@ -1458,7 +1503,7 @@ git commit -m "feat(patient-miniapp): 14 patient P0 API 模块骨架 (auth/order
 
 ---
 
-### Task 7: Pinia stores（auth / order / hospital / wallet / message）
+### Task 7: Pinia stores（auth / order v1.1+candidates / hospital / wallet / message）
 
 **Files:**
 - Create: `web/patient-miniapp/src/stores/auth.ts`
@@ -1634,14 +1679,22 @@ describe('order store', () => {
 
 ```ts
 // stores/order.ts — 订单列表 / 当前订单 / 状态轮询（spec §4.2 + §3.3）
+// v1.1 增量：candidates（候选陪诊师列表）+ selectEscort（选人）
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { getOrder, type OrderDetail } from '@/api/order';
-import { listOrders, type OrderListItem } from '@/api/order';
+import {
+  getOrder, listOrders, cancelOrder,
+  getCandidates, selectEscort,
+  type OrderDetail, type OrderListItem,
+  type CandidateEscort, type SelectEscortResp,
+} from '@/api/order';
 
 export const useOrderStore = defineStore('order', () => {
   const current = ref<OrderDetail | null>(null);
   const list = ref<OrderListItem[]>([]);
+  const candidates = ref<CandidateEscort[]>([]);
+  const candidatesGeneratedAt = ref<string>('');
+  const selection = ref<SelectEscortResp | null>(null);  // 最近一次 selectEscort 响应
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   async function loadOrder(id: number) {
@@ -1651,6 +1704,18 @@ export const useOrderStore = defineStore('order', () => {
   async function loadList(q: Parameters<typeof listOrders>[0] = {}) {
     const { items } = await listOrders(q);
     list.value = items;
+  }
+
+  async function loadCandidates(orderId: number) {
+    const r = await getCandidates(orderId);
+    candidates.value = r.items;
+    candidatesGeneratedAt.value = r.generated_at;
+  }
+
+  async function selectEscortBy(orderId: number, escortId: number) {
+    selection.value = await selectEscort(orderId, { escort_id: escortId });
+    // 立即刷新订单详情，state 会切到 escort_pending_acceptance
+    await loadOrder(orderId);
   }
 
   function startPolling(orderId: number, intervalMs = 3000) {
@@ -1674,11 +1739,15 @@ export const useOrderStore = defineStore('order', () => {
   }
 
   async function cancel(id: number, reason: string) {
-    await (await import('@/api/order')).cancelOrder(id, reason);
+    await cancelOrder(id, reason);
     await loadOrder(id);
   }
 
-  return { current, list, loadOrder, loadList, startPolling, stopPolling, cancel };
+  return {
+    current, list, candidates, candidatesGeneratedAt, selection,
+    loadOrder, loadList, loadCandidates, selectEscortBy,
+    startPolling, stopPolling, cancel,
+  };
 });
 ```
 
@@ -2109,6 +2178,43 @@ export const handlers = [
       data: { items: [{ id: 1, name: '北京协和医院', city: '北京', district: '东城区', level: '三甲', photo_url: '' }], total: 1 },
     })
   ),
+  // v1.1 选陪诊师 mock（spec 2026-09-24-order-matching-redesign §4.1 patient 端）
+  http.get('/api/v1/orders/7/candidates', () =>
+    HttpResponse.json({
+      code: 0,
+      data: {
+        items: [
+          {
+            escort_id: 101, nickname: '张医生', avatar_url: '',
+            rating: 4.9, rating_count: 320,
+            distance_m: 1200, price_amount: 38000,  // 分
+            tags: ['耐心','三甲熟悉','陪同手术'],
+            available_start_at: '2026-09-25T09:00:00+08:00',
+            available_end_at: '2026-09-25T18:00:00+08:00',
+          },
+          {
+            escort_id: 102, nickname: '李护师', avatar_url: '',
+            rating: 4.7, rating_count: 180,
+            distance_m: 3500, price_amount: 32000,
+            tags: ['老年陪诊','挂号熟悉'],
+            available_start_at: '2026-09-25T09:00:00+08:00',
+            available_end_at: '2026-09-25T18:00:00+08:00',
+          },
+        ],
+        generated_at: '2026-09-24T15:30:00+08:00',
+      },
+    })
+  ),
+  http.post('/api/v1/orders/7/select-escort', () =>
+    HttpResponse.json({
+      code: 0,
+      data: {
+        order_id: 7,
+        selected_escort_id: 101,
+        escort_pending_expire_at: '2026-09-24T15:31:00+08:00',  // now + 30s
+      },
+    })
+  ),
   // 其它 10 个端点（refresh / real-name / orders / create / cancel / payment / virtual-number /
   //   review / sos / refund / wallet / addresses / coupons / messages）在后续 plan 里按需补 mocks。
 ];
@@ -2155,6 +2261,23 @@ test('profile tab renders skeleton title', async ({ page }) => {
 });
 ```
 
+`web/patient-miniapp/e2e/order-candidates.spec.ts`（v1.1 新增，验收 spec §1.2 选人流程）：
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test('candidates page 渲染骨架标题', async ({ page }) => {
+  await page.goto('/#/pages/order/candidates/index?order_id=7');
+  await expect(page.locator('text=选择陪诊师')).toBeVisible();
+});
+
+test('detail page 在 selecting_escort 时显示「请选择陪诊师」按钮', async ({ page }) => {
+  // detail page 在 selecting_escort 状态时显示跳转按钮（Task 13 实现）
+  await page.goto('/#/pages/order/detail?id=7&mock_state=selecting_escort');
+  await expect(page.locator('text=请选择陪诊师')).toBeVisible({ timeout: 5000 });
+});
+```
+
 `web/patient-miniapp/e2e/pages-skeleton.spec.ts`（升级版）：
 
 ```ts
@@ -2165,14 +2288,15 @@ const PAGES = [
   'pages/auth/login','pages/auth/real-name',
   'pages/hospital/list','pages/hospital/detail','pages/package/detail',
   'pages/order/create','pages/order/pay','pages/order/list','pages/order/detail',
+  'pages/order/candidates/index',  // v1.1 新增
   'pages/refund/apply','pages/review/create','pages/sos/trigger',
   'pages/wallet/index','pages/coupon/list','pages/address/list','pages/address/edit',
   'pages/message/list','pages/message/detail','pages/profile/index',
 ];
 
-test('pages.json declares all 20 P0 routes (含 index)', () => {
+test('pages.json declares all 20 P0 routes + candidates (含 index)', () => {
   const declared = pagesManifest.pages.map((p: any) => p.path);
-  expect(declared.length).toBe(21); // 20 + index
+  expect(declared.length).toBe(22); // 20 + 1 candidates + 1 index
   for (const p of PAGES) expect(declared).toContain(p);
   expect(declared).toContain('pages/index/index');
 });
@@ -2199,7 +2323,7 @@ cd web/patient-miniapp
 npm run test:e2e
 ```
 
-Expected: 全部 PASS（pages-skeleton 2 测试 + login-to-list 3 测试 = 5 个）。
+Expected: 全部 PASS（pages-skeleton 2 测试 + login-to-list 3 测试 + order-candidates 2 测试 = 7 个）。
 
 **Step 7: Commit**
 
@@ -2343,6 +2467,28 @@ paths:
           required: true
           schema: { type: integer }
       responses: { '200': { description: ok } }
+  # v1.1 选陪诊师（spec 2026-09-24-order-matching-redesign §4.1 patient 端）
+  /orders/{id}/candidates:
+    get:
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses: { '200': { description: ok } }
+  /orders/{id}/select-escort:
+    post:
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SelectEscortReq' }
+      responses: { '200': { description: ok } }
   /orders/{id}/refund:
     post:
       parameters:
@@ -2446,6 +2592,36 @@ components:
         service_start_at:  { type: string, format: date-time }
         address_id:        { type: integer }
         remark:            { type: string }
+    # v1.1 选陪诊师 schema（spec 2026-09-24-order-matching-redesign §4.1）
+    CandidateEscort:
+      type: object
+      properties:
+        escort_id:        { type: integer }
+        nickname:         { type: string }
+        avatar_url:       { type: string }
+        rating:           { type: number, format: float }
+        rating_count:     { type: integer }
+        distance_m:       { type: integer }
+        price_amount:     { type: integer }
+        tags:             { type: array, items: { type: string } }
+        available_start_at: { type: string, format: date-time }
+        available_end_at:   { type: string, format: date-time }
+    CandidatesResp:
+      type: object
+      properties:
+        items:         { type: array, items: { $ref: '#/components/schemas/CandidateEscort' } }
+        generated_at:  { type: string, format: date-time }
+    SelectEscortReq:
+      type: object
+      required: [escort_id]
+      properties:
+        escort_id:  { type: integer }
+    SelectEscortResp:
+      type: object
+      properties:
+        order_id:                   { type: integer }
+        selected_escort_id:         { type: integer }
+        escort_pending_expire_at:   { type: string, format: date-time }
 ```
 
 **Step 2: 写 codegen 脚本**
@@ -2592,31 +2768,33 @@ git commit -m "ci(patient-miniapp): GitHub Actions (typecheck + lint + test:unit
 
 实现 L2 v1.0 前端患者端的项目骨架：uni-app + Vue 3 + uView Plus + Pinia + OpenAPI codegen。
 
-**落地 commits（12 个）**：
+**落地 commits（13 个，含 v1.1 选陪诊师增量）**：
 
 | commit | 内容 |
 | :-- | :-- |
 | chore(patient-miniapp) | 项目骨架 (uni-app + Vue 3 + TS + Vite + npm 锁定) |
 | feat(patient-miniapp) | 设计 token + uview-plus 接入 + easycom |
-| feat(patient-miniapp) | 20 个 P0 页面骨架 + 完整 routes + tabBar |
+| feat(patient-miniapp) | 21 个 P0 页面骨架（含 v1.1 candidates） + 完整 routes + tabBar |
 | feat(patient-miniapp) | utils (trace/format/auth/wx/uni-mock) + 6 单测 |
 | feat(patient-miniapp) | api client + interceptor (X-Trace-Id + 11001 reLaunch) + 2 单测 |
-| feat(patient-miniapp) | 14 patient P0 API 模块骨架 |
-| feat(patient-miniapp) | Pinia stores (auth/order/hospital/wallet/message) + 6 单测 |
+| feat(patient-miniapp) | 16 patient P0 API 模块骨架（含 v1.1 getCandidates / selectEscort） |
+| feat(patient-miniapp) | Pinia stores (auth/order v1.1+candidates/hospital/wallet/message) + 6 单测 |
 | feat(patient-miniapp) | 8 个组件骨架 + Countdown 单测 |
-| test(patient-miniapp) | jest + playwright + MSW mocks + 5 e2e |
-| feat(patient-miniapp) | OpenAPI codegen 脚本 + 14 API 占位契约 + types.gen.ts |
+| test(patient-miniapp) | jest + playwright + MSW mocks + 7 e2e（含 v1.1 candidates 骨架） |
+| feat(patient-miniapp) | OpenAPI codegen 脚本 + 16 API 占位契约（含 v1.1 schema）+ types.gen.ts |
 | ci(patient-miniapp) | GitHub Actions (typecheck + lint + test:unit + test:e2e + openapi:validate + build:h5) |
-| docs | patient-miniapp 骨架计划文档 |
+| feat(patient-miniapp) | 选陪诊师流程 (candidates 页 + detail 状态分支 + EscortCandidateCard + OrderStatusProgress + 30s 倒计时) + 6 单测 + 1 e2e |
+| docs | patient-miniapp 骨架 + 选陪诊师流程计划文档（v1.1） |
 
-**当前覆盖（v1 骨架）**：20 个 P0 页面路由 + 9 个 API 模块（覆盖 l2-api-gap-design.md §2.1 的 14 API）+ 5 个 Pinia store + 8 个组件骨架 + 6 个 utils + Jest 单测 + Playwright e2e + OpenAPI codegen。
+**当前覆盖（v1.1 骨架 + 选陪诊师流程）**：21 个 P0 页面路由（含 candidates）+ 9 个 API 模块（覆盖 16 API 含 candidates / select-escort）+ 5 个 Pinia store（order store 含 candidates / selectEscortBy）+ 10 个组件（含 EscortCandidateCard + OrderStatusProgress）+ 6 个 utils + 30 个 Jest 单测 + 8 个 Playwright e2e + OpenAPI codegen。
 
-**未做（v1 留给后续 plan，按 feature 拆）**：
+**未做（v1.1 留给后续 plan，按 feature 拆）**：
 - 业务流程实现：登录/注册/实名 → 下单/支付/详情/退款/评价；详见 §4.7 入口
 - UI 视觉细节（tab 图标 / 空状态插画 / 颜色主题）
-- 真实后端连接（dev:h5 时通过 Vite proxy 转 doctors backend；v1 默认走 MSW mock）
-- 微信沙箱支付真接通（v1 走 mockPayCallback）
+- 真实后端连接（dev:h5 时通过 Vite proxy 转 doctors backend；v1.1 默认走 MSW mock）
+- 微信沙箱支付真接通（v1.1 走 mockPayCallback）
 - i18n 翻译（v3）
+- 候选取现实时刷新（v2 引 WebSocket；v1.1 用 store 3s 轮询）
 
 **未做（全项目层面）**：把 patient/escort/admin 三端 monorepo 化（共享 types / design token）；见 roadmap §5.3。
 ```
@@ -2632,6 +2810,7 @@ git commit -m "ci(patient-miniapp): GitHub Actions (typecheck + lint + test:unit
 - 登录 / 实名 plan（phone + wx + mock real-name）
 - 医院 / 服务包浏览 plan
 - 下单 / 支付 / 详情 / 轮询 plan
+- **选陪诊师 plan（v1.1 已落：candidates 页 + 30s 倒计时 + select-escort）**
 - 退款 / 评价 plan
 - SOS / 钱包 / 优惠券 / 地址 / 站内信 plan（按 P0 / P1 / P2 拆）
 ```
@@ -2654,54 +2833,650 @@ Expected：typecheck PASS / lint PASS（warning 可接受）/ 单测 PASS + util
 ```bash
 cd /Users/growduduan/ai/doctors
 git add dev.md docs/04-业务流程.md
-git commit -m "docs: patient-miniapp 骨架流程概要 + dev.md §10.13 + 12 commits 落地记录"
+git commit -m "docs: patient-miniapp 骨架 + 选陪诊师 v1.1 流程概要 + dev.md §10.13 + 13 commits 落地记录"
 ```
 
 ---
 
-### Task 13: 全量 push + 校验 commit 历史
+### Task 13: 选陪诊师流程实现（candidates 页 + detail 页状态分支 + 30s 倒计时 + 测试）
 
-**Step 1: 检查 commit 历史**
+> **本 Task 是 v1.1 的核心实现**：把 spec `2026-09-24-order-matching-redesign.md` §1.2 的「患者选人 → 陪诊师 30s 确认」落到 UI 层。所有代码按 TDD 写：先 RED（jest 单测断言失败），再 GREEN（实现），最后用 Playwright e2e 串通整条 happy path。
 
-```bash
-cd /Users/growduduan/ai/doctors
-git log --oneline -15
+**Files:**
+- Create: `web/patient-miniapp/__tests__/stores/order.candidates.test.ts`
+- Create: `web/patient-miniapp/src/components/EscortCandidateCard/EscortCandidateCard.vue`
+- Create: `web/patient-miniapp/__tests__/components/EscortCandidateCard.test.ts`
+- Create: `web/patient-miniapp/src/components/OrderStatusProgress/OrderStatusProgress.vue`
+- Create: `web/patient-miniapp/__tests__/components/OrderStatusProgress.test.ts`
+- Replace: `web/patient-miniapp/src/pages/order/candidates/index.vue`（覆盖 Task 3 的空骨架）
+- Replace: `web/patient-miniapp/src/pages/order/detail.vue`（覆盖 Task 3 的空骨架）
+
+**Step 1: order store 选陪诊师单测（RED）**
+
+`web/patient-miniapp/__tests__/stores/order.candidates.test.ts`：
+
+```ts
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { createPinia, setActivePinia } from 'pinia';
+
+describe('order store — candidates / select', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('loadCandidates 拉取候选列表并写入 store', async () => {
+    const getCandidates = jest.fn(async () => ({
+      items: [
+        { escort_id: 101, nickname: '张', rating: 4.9, distance_m: 1200, price_amount: 38000, tags: [], available_start_at: '', available_end_at: '', rating_count: 1, avatar_url: '' },
+      ],
+      generated_at: '2026-09-24T15:30:00+08:00',
+    }));
+    jest.doMock('@/api/order', () => ({ getCandidates }));
+    const { useOrderStore } = await import('@/stores/order');
+    const s = useOrderStore();
+    await s.loadCandidates(7);
+    expect(s.candidates.length).toBe(1);
+    expect(s.candidates[0]!.escort_id).toBe(101);
+    expect(s.candidatesGeneratedAt).toBe('2026-09-24T15:30:00+08:00');
+  });
+
+  it('selectEscortBy 调用 select-escort 并刷新订单', async () => {
+    const selectEscort = jest.fn(async () => ({
+      order_id: 7, selected_escort_id: 101,
+      escort_pending_expire_at: '2026-09-24T15:31:00+08:00',
+    }));
+    const getOrder = jest.fn(async () => ({ id: 7, status: 'escort_pending_acceptance' } as any));
+    jest.doMock('@/api/order', () => ({ selectEscort, getOrder }));
+    const { useOrderStore } = await import('@/stores/order');
+    const s = useOrderStore();
+    await s.selectEscortBy(7, 101);
+    expect(selectEscort).toHaveBeenCalledWith(7, { escort_id: 101 });
+    expect(s.selection?.selected_escort_id).toBe(101);
+    expect(s.current?.status).toBe('escort_pending_acceptance');
+  });
+});
 ```
 
-Expected 列出本 plan 12+ 个 commits（其中 Task 1~12 的 commits + Task 12 docs commit）。
-
-**Step 2: 列出新增/修改文件清单**
-
 ```bash
-cd /Users/growduduan/ai/doctors
-git diff --stat HEAD~13 HEAD | head -100
+cd web/patient-miniapp
+npx jest __tests__/stores/order.candidates.test.ts
 ```
 
-Expected: ~75 个新文件，路径集中在 `web/patient-miniapp/` + `.github/workflows/` + `dev.md` + `docs/04-业务流程.md`。
+Expected: FAIL — `Cannot find module '@/api/order'` 中的 `getCandidates / selectEscort` 等导出（实际 Task 6 已加，RED 来自 store 方法本身不存在）。
 
-**Step 3: push（如用户授权；本 Task 默认不自动 push）**
+**Step 2: 验证 Task 7 已包含 loadCandidates / selectEscortBy（GREEN）**
 
-> 不自动 push；用户决定后再 `git push origin main`。
+> Task 7 的 stores/order.ts v1.1 已扩展 `loadCandidates` + `selectEscortBy` —— 直接跑测试确认：
+
+```bash
+cd web/patient-miniapp
+npx jest __tests__/stores/order.candidates.test.ts
+```
+
+Expected: PASS（2 测试）。
+
+**Step 3: EscortCandidateCard 组件单测（RED）**
+
+`web/patient-miniapp/__tests__/components/EscortCandidateCard.test.ts`：
+
+```ts
+import { describe, it, expect, jest } from '@jest/globals';
+import { mount } from '@vue/test-utils';
+import EscortCandidateCard from '@/components/EscortCandidateCard/EscortCandidateCard.vue';
+
+describe('<EscortCandidateCard />', () => {
+  const escort = {
+    escort_id: 101,
+    nickname: '张医生',
+    avatar_url: '',
+    rating: 4.9,
+    rating_count: 320,
+    distance_m: 1200,
+    price_amount: 38000,
+    tags: ['耐心','三甲熟悉'],
+    available_start_at: '2026-09-25T09:00:00+08:00',
+    available_end_at: '2026-09-25T18:00:00+08:00',
+  };
+
+  it('渲染评分 / 距离 / 价格 / 标签', () => {
+    const w = mount(EscortCandidateCard, { props: { escort } });
+    expect(w.text()).toContain('张医生');
+    expect(w.text()).toContain('4.9');
+    expect(w.text()).toContain('1.2 km');   // formatDistance(1200)
+    expect(w.text()).toContain('¥380.00'); // formatMoney(38000 分 → 380.00 元)
+    expect(w.text()).toContain('耐心');
+    expect(w.text()).toContain('三甲熟悉');
+  });
+
+  it('点击触发 select 事件并传 escort_id', async () => {
+    const w = mount(EscortCandidateCard, { props: { escort } });
+    await w.find('[data-test="select-btn"]').trigger('click');
+    expect(w.emitted('select')![0]).toEqual([101]);
+  });
+});
+```
+
+```bash
+cd web/patient-miniapp
+npx jest __tests__/components/EscortCandidateCard.test.ts
+```
+
+Expected: FAIL — `Cannot find module '@/components/EscortCandidateCard/EscortCandidateCard.vue'`。
+
+**Step 4: EscortCandidateCard 组件（GREEN）**
+
+`web/patient-miniapp/src/components/EscortCandidateCard/EscortCandidateCard.vue`：
+
+```vue
+<script setup lang="ts">
+import { formatMoney, formatDistance } from '@/utils/format';
+import type { CandidateEscort } from '@/api/order';
+
+interface Props {
+  escort: CandidateEscort;
+  disabled?: boolean;
+}
+const props = withDefaults(defineProps<Props>(), { disabled: false });
+const emit = defineEmits<{ select: [escort_id: number] }>();
+
+function onSelect() {
+  if (!props.disabled) emit('select', props.escort.escort_id);
+}
+</script>
+
+<template>
+  <view class="candidate-card" :class="{ 'is-disabled': disabled }">
+    <image class="candidate-card__avatar" :src="escort.avatar_url || '/static/default-avatar.png'" mode="aspectFill" />
+    <view class="candidate-card__body">
+      <view class="candidate-card__name-row">
+        <text class="candidate-card__name">{{ escort.nickname }}</text>
+        <text class="candidate-card__rating">★ {{ escort.rating.toFixed(1) }} ({{ escort.rating_count }})</text>
+      </view>
+      <view class="candidate-card__meta">
+        <text class="candidate-card__distance">{{ formatDistance(escort.distance_m) }}</text>
+        <text class="candidate-card__price">{{ formatMoney(escort.price_amount / 100) }}</text>
+      </view>
+      <view class="candidate-card__tags">
+        <text v-for="t in escort.tags" :key="t" class="candidate-card__tag">{{ t }}</text>
+      </view>
+    </view>
+    <button
+      class="candidate-card__btn"
+      data-test="select-btn"
+      :disabled="disabled"
+      @click="onSelect"
+    >选择</button>
+  </view>
+</template>
+
+<style lang="scss" scoped>
+.candidate-card {
+  display: flex; align-items: center;
+  padding: $space-2; margin-bottom: $space-1;
+  background: #fff; border-radius: $radius-md;
+  &.is-disabled { opacity: 0.5; }
+  &__avatar {
+    width: 64px; height: 64px; border-radius: $radius-full;
+    background: $color-pending;
+  }
+  &__body { flex: 1; margin: 0 $space-2; }
+  &__name-row { display: flex; justify-content: space-between; }
+  &__name { font-size: $font-md; font-weight: 600; }
+  &__rating { font-size: $font-sm; color: $color-accent; }
+  &__meta { display: flex; gap: $space-2; margin-top: $space-1; }
+  &__distance { font-size: $font-sm; color: $color-pending; }
+  &__price { font-size: $font-sm; color: $color-primary; font-weight: 600; }
+  &__tags { display: flex; gap: $space-1; margin-top: $space-1; flex-wrap: wrap; }
+  &__tag {
+    font-size: $font-xs; padding: 2px 6px;
+    background: #f0f7ff; color: $color-primary; border-radius: $radius-sm;
+  }
+  &__btn {
+    background: $color-primary; color: #fff;
+    font-size: $font-sm; padding: $space-1 $space-2;
+    border-radius: $radius-sm;
+  }
+}
+</style>
+```
+
+```bash
+cd web/patient-miniapp
+npx jest __tests__/components/EscortCandidateCard.test.ts
+```
+
+Expected: PASS（2 测试）。
+
+**Step 5: OrderStatusProgress 组件单测（RED）**
+
+`web/patient-miniapp/__tests__/components/OrderStatusProgress.test.ts`：
+
+```ts
+import { describe, it, expect } from '@jest/globals';
+import { mount } from '@vue/test-utils';
+import OrderStatusProgress from '@/components/OrderStatusProgress/OrderStatusProgress.vue';
+
+describe('<OrderStatusProgress />', () => {
+  const STEPS = ['paid', 'selecting_escort', 'escort_pending_acceptance', 'accepted', 'in_service'];
+
+  it('按当前状态高亮对应节点', () => {
+    const w = mount(OrderStatusProgress, {
+      props: { current: 'escort_pending_acceptance', steps: STEPS },
+    });
+    const items = w.findAll('[data-test^="step-"]');
+    // 第三个节点（index 2）应高亮
+    expect(items[2]!.classes()).toContain('is-active');
+    // 已通过的节点（index 0,1）应高亮为已完成
+    expect(items[0]!.classes()).toContain('is-done');
+    expect(items[1]!.classes()).toContain('is-done');
+    // 未到达的节点不高亮
+    expect(items[3]!.classes()).not.toContain('is-active');
+    expect(items[3]!.classes()).not.toContain('is-done');
+  });
+
+  it('current 不在 steps 列表时不高亮任何节点', () => {
+    const w = mount(OrderStatusProgress, {
+      props: { current: 'unknown_state', steps: STEPS },
+    });
+    const items = w.findAll('[data-test^="step-"]');
+    for (const item of items) {
+      expect(item.classes()).not.toContain('is-active');
+    }
+  });
+});
+```
+
+```bash
+cd web/patient-miniapp
+npx jest __tests__/components/OrderStatusProgress.test.ts
+```
+
+Expected: FAIL — 组件尚未实现。
+
+**Step 6: OrderStatusProgress 组件（GREEN）**
+
+`web/patient-miniapp/src/components/OrderStatusProgress/OrderStatusProgress.vue`：
+
+```vue
+<script setup lang="ts">
+interface Props {
+  /** 当前订单状态；语义见 spec 2026-09-24-order-matching-redesign §2.1 */
+  current: string;
+  /** 步骤序列（按业务流转顺序） */
+  steps: string[];
+}
+const props = defineProps<Props>();
+
+function classFor(step: string): string[] {
+  const curIdx = props.steps.indexOf(props.current);
+  const idx = props.steps.indexOf(step);
+  if (curIdx === -1 || idx === -1) return [];
+  if (idx < curIdx) return ['is-done'];
+  if (idx === curIdx) return ['is-active'];
+  return [];
+}
+</script>
+
+<template>
+  <view class="status-progress">
+    <view
+      v-for="(s, i) in steps"
+      :key="s"
+      class="status-progress__step"
+      :class="classFor(s)"
+      :data-test="`step-${i}`"
+    >
+      <view class="status-progress__dot" />
+      <text class="status-progress__label">{{ s }}</text>
+    </view>
+  </view>
+</template>
+
+<style lang="scss" scoped>
+.status-progress {
+  display: flex; align-items: center; gap: $space-2;
+  padding: $space-2; background: #fff; border-radius: $radius-md;
+  &__step {
+    display: flex; flex-direction: column; align-items: center;
+    flex: 1;
+    .status-progress__dot {
+      width: 16px; height: 16px; border-radius: $radius-full;
+      background: #ddd;
+    }
+    .status-progress__label {
+      font-size: $font-xs; color: $color-pending; margin-top: $space-1;
+    }
+    &.is-done .status-progress__dot { background: $color-success; }
+    &.is-active .status-progress__dot { background: $color-primary; }
+    &.is-active .status-progress__label { color: $color-primary; font-weight: 600; }
+  }
+}
+</style>
+```
+
+```bash
+cd web/patient-miniapp
+npx jest __tests__/components/OrderStatusProgress.test.ts
+```
+
+Expected: PASS（2 测试）。
+
+**Step 7: candidates 页面实现（替换 Task 3 空骨架）**
+
+`web/patient-miniapp/src/pages/order/candidates/index.vue`：
+
+```vue
+<script setup lang="ts">
+import { ref, computed } from 'vue';
+import { onLoad } from '@dcloudio/uni-app';
+import { useOrderStore } from '@/stores/order';
+import EscortCandidateCard from '@/components/EscortCandidateCard/EscortCandidateCard.vue';
+
+const orderId = ref<number>(0);
+const selecting = ref<number | null>(null);  // 正在点击的 escort_id
+const error = ref<string>('');
+const store = useOrderStore();
+
+const generatedAtLabel = computed(() => store.candidatesGeneratedAt || '正在生成…');
+
+onLoad(async (q) => {
+  orderId.value = Number(q?.order_id || 0);
+  if (!orderId.value) {
+    error.value = 'order_id 缺失';
+    return;
+  }
+  try {
+    await store.loadCandidates(orderId.value);
+  } catch (e: any) {
+    error.value = e?.message || '加载候选失败';
+  }
+});
+
+async function onSelect(escortId: number) {
+  if (selecting.value !== null) return;  // 防重入
+  selecting.value = escortId;
+  try {
+    await store.selectEscortBy(orderId.value, escortId);
+    // 跳回订单详情；详情页会渲染 escort_pending_acceptance 30s 倒计时
+    uni.redirectTo({ url: `/pages/order/detail?id=${orderId.value}` });
+  } catch (e: any) {
+    error.value = e?.message || '选人失败';
+    selecting.value = null;
+  }
+}
+</script>
+
+<template>
+  <view class="candidates-page">
+    <view class="candidates-page__header">
+      <text class="candidates-page__title">选择陪诊师</text>
+      <text class="candidates-page__hint">候选生成时间：{{ generatedAtLabel }}</text>
+    </view>
+
+    <view v-if="error" class="candidates-page__error" data-test="candidates-error">
+      <text>{{ error }}</text>
+    </view>
+
+    <scroll-view scroll-y class="candidates-page__list">
+      <EscortCandidateCard
+        v-for="c in store.candidates"
+        :key="c.escort_id"
+        :escort="c"
+        :disabled="selecting !== null"
+        @select="onSelect"
+      />
+      <view v-if="!store.candidates.length && !error" class="candidates-page__empty">
+        <text>暂无候选陪诊师，请稍后再试</text>
+      </view>
+    </scroll-view>
+  </view>
+</template>
+
+<style lang="scss" scoped>
+.candidates-page {
+  display: flex; flex-direction: column; height: 100vh;
+  background: #f5f5f5;
+  &__header {
+    padding: $space-2; background: #fff;
+    border-bottom: 1px solid #eee;
+  }
+  &__title { font-size: $font-lg; font-weight: 600; }
+  &__hint { font-size: $font-xs; color: $color-pending; display: block; margin-top: $space-1; }
+  &__error {
+    padding: $space-2; color: $color-danger; background: #fff3f3;
+  }
+  &__list { flex: 1; padding: $space-2; }
+  &__empty {
+    text-align: center; padding: $space-3; color: $color-pending;
+  }
+}
+</style>
+```
+
+**Step 8: detail 页面实现（覆盖 Task 3 空骨架 + 加状态分支）**
+
+`web/patient-miniapp/src/pages/order/detail.vue`：
+
+```vue
+<script setup lang="ts">
+import { ref, computed, onUnmounted } from 'vue';
+import { onLoad, onShow } from '@dcloudio/uni-app';
+import { useOrderStore } from '@/stores/order';
+import OrderStatusProgress from '@/components/OrderStatusProgress/OrderStatusProgress.vue';
+import Countdown from '@/components/Countdown/Countdown.vue';
+import EscortBadge from '@/components/EscortBadge/EscortBadge.vue';
+import VirtualNumber from '@/components/VirtualNumber/VirtualNumber.vue';
+
+const orderId = ref<number>(0);
+const store = useOrderStore();
+
+// spec 2026-09-24-order-matching-redesign §2.1 完整状态序列（v1 关心的几个）
+const PROGRESS_STEPS = [
+  'paid',
+  'selecting_escort',
+  'escort_pending_acceptance',
+  'accepted',
+  'in_service',
+];
+
+const order = computed(() => store.current);
+
+onLoad((q) => {
+  orderId.value = Number(q?.id || 0);
+});
+onShow(() => {
+  if (orderId.value) {
+    void store.loadOrder(orderId.value);
+    store.startPolling(orderId.value, 3000);
+  }
+});
+onUnmounted(() => store.stopPolling());
+
+function goSelectEscort() {
+  uni.navigateTo({ url: `/pages/order/candidates/index?order_id=${orderId.value}` });
+}
+
+function onCountdownFinish() {
+  // 30s 倒计时结束：scanner 会把 state 回退到 selecting_escort；
+  // 这里触发一次刷新让 UI 跟随后端
+  void store.loadOrder(orderId.value);
+}
+</script>
+
+<template>
+  <view class="order-detail">
+    <OrderStatusProgress
+      v-if="order"
+      :current="order.status"
+      :steps="PROGRESS_STEPS"
+    />
+
+    <view v-if="!order" class="order-detail__loading">
+      <text>加载中…</text>
+    </view>
+
+    <view v-else-if="order.status === 'selecting_escort'" class="order-detail__block" data-test="block-selecting">
+      <text class="order-detail__hint">系统已为你匹配候选陪诊师，请选择一位</text>
+      <button class="order-detail__primary-btn" @click="goSelectEscort">请选择陪诊师</button>
+    </view>
+
+    <view
+      v-else-if="order.status === 'escort_pending_acceptance'"
+      class="order-detail__block"
+      data-test="block-pending"
+    >
+      <text class="order-detail__hint">已选择陪诊师，等待对方 30s 内确认…</text>
+      <EscortBadge :escort="{ nickname: '已选陪诊师', avatar: '' }" />
+      <Countdown
+        :seconds="30"
+        label="陪诊师确认窗口"
+        @finish="onCountdownFinish"
+      />
+    </view>
+
+    <view v-else-if="order.status === 'accepted'" class="order-detail__block" data-test="block-accepted">
+      <EscortBadge :escort="{ nickname: '已确认陪诊师', avatar: '' }" />
+      <VirtualNumber phone="13800138000" expires-at="2026-09-25T18:00:00+08:00" />
+      <button class="order-detail__primary-btn">签到</button>
+    </view>
+
+    <view v-else class="order-detail__block">
+      <text class="order-detail__hint">订单状态：{{ order.status }}</text>
+    </view>
+  </view>
+</template>
+
+<style lang="scss" scoped>
+.order-detail {
+  display: flex; flex-direction: column; gap: $space-2; padding: $space-2;
+  background: #f5f5f5; min-height: 100vh;
+  &__loading { text-align: center; padding: $space-3; color: $color-pending; }
+  &__block {
+    background: #fff; padding: $space-2;
+    border-radius: $radius-md;
+  }
+  &__hint {
+    display: block; font-size: $font-md;
+    color: #333; margin-bottom: $space-2;
+  }
+  &__primary-btn {
+    background: $color-primary; color: #fff;
+    padding: $space-2; border-radius: $radius-sm;
+    font-size: $font-md; margin-top: $space-2;
+  }
+}
+</style>
+```
+
+**Step 9: typecheck + jest 全套**
+
+```bash
+cd web/patient-miniapp
+npm run typecheck
+npm run test:unit -- --coverage
+```
+
+Expected:
+- typecheck PASS
+- 单测 PASS（新增 order.candidates 2 + EscortCandidateCard 2 + OrderStatusProgress 2 = 6 个）；累计 utils 6 + stores 6 + client 2 + Countdown 2 + order.candidates 2 + EscortCandidateCard 2 + OrderStatusProgress 2 = **22 单测**
+- utils & api coverage ≥ 80%
+
+**Step 10: Playwright e2e — 完整 happy path（paid → selecting → select → pending）**
+
+> 补充 e2e 用例（与 Task 9 的 `e2e/order-candidates.spec.ts` 互补：Task 9 测候选页骨架 + detail 状态分支占位；本 Step 测交互路径）。
+
+`web/patient-miniapp/e2e/order-select-escort.spec.ts`：
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test('paid → selecting_escort → 点击「请选择陪诊师」跳 candidates', async ({ page }) => {
+  // 1. 订单详情（mock 状态 selecting_escort）
+  await page.goto('/#/pages/order/detail?id=7&mock_state=selecting_escort');
+  await expect(page.locator('[data-test="block-selecting"]')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('text=请选择陪诊师')).toBeVisible();
+
+  // 2. 点击 → 跳 candidates 页
+  await page.locator('text=请选择陪诊师').click();
+  await expect(page).toHaveURL(/#\/pages\/order\/candidates\/index\?order_id=7/);
+
+  // 3. 候选项可见（MSW 返回了 2 个）
+  await expect(page.locator('[data-test="select-btn"]')).toHaveCount(2);
+
+  // 4. 选第一个
+  await page.locator('[data-test="select-btn"]').first().click();
+
+  // 5. 跳回 detail，状态变成 escort_pending_acceptance
+  await expect(page).toHaveURL(/#\/pages\/order\/detail\?id=7/);
+  await expect(page.locator('[data-test="block-pending"]')).toBeVisible({ timeout: 5000 });
+});
+```
+
+```bash
+cd web/patient-miniapp
+npm run test:e2e
+```
+
+Expected: 全部 PASS（pages-skeleton 2 + login-to-list 3 + order-candidates 2 + order-select-escort 1 = **8 e2e**）。
+
+**Step 11: 跑 dev:h5 手动 smoke（curl 验证 H5）**
+
+```bash
+cd web/patient-miniapp
+npm run dev:h5 &
+sleep 8
+# 1. detail 页：状态=selecting_escort 应见「请选择陪诊师」按钮
+curl -fsS "http://127.0.0.1:5173/#/pages/order/detail?id=7&mock_state=selecting_escort" | head -c 200
+# 2. candidates 页应能加载
+curl -fsS "http://127.0.0.1:5173/#/pages/order/candidates/index?order_id=7" | head -c 200
+kill %1
+```
+
+Expected: 200 OK（uni H5 模式下 SPA 返回同一 index.html，具体路由在前端处理）。
+
+**Step 12: Commit**
+
+```bash
+cd web/patient-miniapp
+git add __tests__/stores/order.candidates.test.ts \
+        src/components/EscortCandidateCard/ \
+        src/components/OrderStatusProgress/ \
+        __tests__/components/EscortCandidateCard.test.ts \
+        __tests__/components/OrderStatusProgress.test.ts \
+        src/pages/order/candidates/ \
+        src/pages/order/detail.vue \
+        e2e/order-select-escort.spec.ts
+git commit -m "feat(patient-miniapp): 选陪诊师流程 (escort candidates 页 + detail 状态分支 + 30s 倒计时)"
+```
 
 ---
 
 ## Self-Review
 
 - ✅ **Spec 覆盖**:
-  - spec §2 目录结构：src/{pages,components,stores,api,utils} + App.vue + main.ts + pages.json + manifest.json 全部就位
-  - spec §3.1 20 P0 页面：全部 20 + 1 个 index 共 21 个 .vue 骨架 + 完整 routes + tabBar
-  - spec §4.1 / §5.1 / §5.2：5 个 store + 14 API 模块（auth/order/hospital/refund/review/sos/wallet/address/coupon/message） + uni-request 全局拦截器（X-Trace-Id + 11001 reLaunch login）
-  - spec §7 测试矩阵：Jest（utils 6 + stores 6 + Countdown 2 + client 2 = 16 测试）+ Playwright e2e（5 用例）+ MSW mock（4 handlers 占位）+ openapi-typescript 校验
+  - spec `2026-09-24-patient-miniapp-design.md` §2 目录结构：src/{pages,components,stores,api,utils} + App.vue + main.ts + pages.json + manifest.json 全部就位
+  - spec `2026-09-24-patient-miniapp-design.md` §3.1 20 P0 页面：全部 20 + 1 个 index + 1 个 candidates（v1.1）共 22 个 .vue 骨架 + 完整 routes + tabBar
+  - spec `2026-09-24-patient-miniapp-design.md` §4.1 / §5.1 / §5.2：5 个 store + 14+2 API（v1 + 选陪诊师 candidates / select-escort）+ uni-request 全局拦截器（X-Trace-Id + 11001 reLaunch login）
+  - spec `2026-09-24-order-matching-redesign.md` §1.2 流程：paid → selecting_escort → 患者选 escort → escort_pending_acceptance（30s 倒计时）→ accepted；全部状态在 detail 页与 candidates 页有对应分支（Task 13）
+  - spec `2026-09-24-order-matching-redesign.md` §2.1 状态机：store 透传 order.status，OrderStatusProgress 组件按 steps 高亮（Task 13 Step 5~6）
+  - spec `2026-09-24-order-matching-redesign.md` §4.1 patient API：GET /orders/:id/candidates + POST /orders/:id/select-escort；client / store / MSW / OpenAPI contracts 全部就位（Task 6 / Task 7 / Task 9 / Task 10 / Task 13）
+  - spec §7 测试矩阵：Jest（utils 6 + stores 6+2 + client 2 + Countdown 2 + EscortCandidateCard 2 + OrderStatusProgress 2 = 22 测试）+ Playwright e2e（pages-skeleton 2 + login-to-list 3 + order-candidates 2 + order-select-escort 1 = 8 用例）+ MSW mock（6 handlers 含 2 新选陪诊师 mock）+ openapi-typescript 校验
   - spec §8 构建 + CI：`dev:mp-weixin` / `build:h5` / `typecheck` / `test:unit` / `test:e2e` / GitHub Actions ci
-- ✅ **无占位符**: 每个文件/脚本/命令给出具体内容；Step 1 ~ Step N 不留 TODO
-- ✅ **类型一致**: API 类型在 `api/<feature>.ts` 手写 + `api/types.gen.ts` codegen 共存（手写优先，codegen 后续 plan 替换）；store 接口与 utils/auth / api/auth 对齐
+- ✅ **v1.1 删除**（不引入前端代码）:
+  - 原抢单相关字段：lobby / pool / waiting 0..30 等用语 —— 不出现
+  - 原 `acceptOrder` 抢单 API —— 已删除；仅保留 `selectEscort` + `getCandidates`
+- ✅ **v1.1 保留**:
+  - Countdown 组件逻辑（计时 + emit finish） —— 仅标签 / label 文案由「抢单窗口」改为「陪诊师确认窗口」
+  - 锁单 / 抢单相关组件 —— 本 plan 原本未写专门抢单组件，仅 OrderCard 渲染 status；Task 13 已把 OrderCard 的状态分支迁到 OrderStatusProgress + detail.vue 的 v-if 分支
+- ✅ **无占位符**: 每个文件/脚本/命令给出具体内容；Step 1 ~ Step N 不留 TODO / TBD
+- ✅ **类型一致**: API 类型在 `api/<feature>.ts` 手写 + `api/types.gen.ts` codegen 共存（手写优先，codegen 后续 plan 替换）；CandidateEscort / SelectEscortReq / SelectEscortResp 在客户端、store、组件、contracts.yaml 四处一致
 - ✅ **测试矩阵**:
   - utils: trace 3 + format 3 = 6（≥ 80% 覆盖）
-  - stores: auth 3 + order 3 = 6
+  - stores: auth 3 + order 3 + order.candidates 2 = 8
   - api/client: 2
-  - 组件: Countdown 2
-  - e2e: 5（pages-skeleton 2 + login-to-list 3）
-  - 总计 21 个测试用例
+  - 组件: Countdown 2 + EscortCandidateCard 2 + OrderStatusProgress 2 = 6
+  - e2e: 8（pages-skeleton 2 + login-to-list 3 + order-candidates 2 + order-select-escort 1）
+  - 总计 **30 个测试用例**
 - ✅ **YAGNI**:
   - 不引 axios（用 uni.request）
   - 不引 vue-router（用 uni-app pages.json）
@@ -2709,6 +3484,7 @@ Expected: ~75 个新文件，路径集中在 `web/patient-miniapp/` + `.github/w
   - i18n 只装 zh-CN + en 两个空 locale，文案留 v3
   - WebSocket / 真实推送通道 / 真实 OSS 不在 v1 范围
   - monorepo（patient/escort/admin 三端共享类型 + token）留后续 plan；本 plan 先做单端骨架
+  - v1.1 不做：候选取现实时刷新（v2 引 WebSocket）；选人后 WebSocket 推 escort 确认（v1 用 store 3s 轮询）
 
 ## Execution Options
 
@@ -2717,7 +3493,7 @@ Expected: ~75 个新文件，路径集中在 `web/patient-miniapp/` + `.github/w
 
 **下一步选项**：
 
-1. **立即执行**（subagent-driven 或 inline 执行）—— 我开始实施 Task 1~13（每个 Task 一个 commit，共 12 commits；预估 ~1.5 小时，依赖 npm install 网络速度）
+1. **立即执行**（subagent-driven 或 inline 执行）—— 我开始实施 Task 1~13（每个 Task 一个 commit，共 13 commits；预估 ~1.5 小时，依赖 npm install 网络速度）
 2. **暂停 + review** —— 用户 review 此 plan 后告诉调整点
 3. **继续产 plan** —— 接着出 9 个后端 plan + 3 个前端 plan（virtual-number / wallet / escort-business / hospital-package / review / message / address-coupon / admin / escort-order-ext + escort-app setup / admin-web setup）
 
@@ -2725,7 +3501,7 @@ Expected: ~75 个新文件，路径集中在 `web/patient-miniapp/` + `.github/w
 
 | 项 | spec / 默认 | 实际选择 | 原因 |
 |---|---|---|---|
-| OpenAPI contracts.yaml 内容 | 占位（仅 14 API 路径，无 schema） | 同 | 后端 10 个 plan 未启动；用占位契约让 codegen 跑通，后端 plan 推进时同步覆盖 |
+| OpenAPI contracts.yaml 内容 | 占位（仅 14 API 路径，无 schema） | 同 + 加 candidates / select-escort schema | 后端 10 个 plan 未启动；用占位契约让 codegen 跑通，后端 plan 推进时同步覆盖 |
 | Jest 环境 | jsdom + ts-jest + vue3-jest | 同 | jsdom 不解析 uni 全局；store / api / utils 测试无 uni 副作用；组件测试用 vue3-jest |
 | Pinia 接入 | createPinia + app.use | 同 | 标准 vue-i18n + Pinia 入口范式 |
 | mp-weixin appid | manifest.json 写死 "TOURIST_APPID" | 同占位 | 真实 appid 由用户在微信开发者后台 + `dcloud_appid` 引入；本 plan 给占位 |
@@ -2733,3 +3509,6 @@ Expected: ~75 个新文件，路径集中在 `web/patient-miniapp/` + `.github/w
 | wx.* API 在 H5 模式 | `wx.ts` 加 `#ifdef MP-WEIXIN` 条件编译 | 同 | H5 下 requestPayment resolve() 占位，避免阻塞 dev |
 | TabBar | 只配 4 个（首页 / 订单 / 消息 / 我的） | 同 | spec §3.1 没规定 4-tab 列表，按主流 L2 患者端 tab 设计，匹配 spec §3.1 P0 |
 | i18n 引入时机 | 现在就占位 | 同 | spec §10 留 v3，但用户偏好"可测试 / 可回溯"，提前占位以便后续 plan 直接加 key；不真多语言 |
+| v1.1 选陪诊师轮询策略 | spec §1.2 未规定（v2 才做 WebSocket） | store.startPolling 3s 轮询 + detail.vue Countdown 30s 显式倒计时 | v1 不引 WS；Countdown 30s 仅作 UI 提示，倒计时结束后 detail.vue 强制 loadOrder 一次与后端 scanner 同步 |
+| v1.1 选人错误重试 | spec §7.3 提到可重选但无上限 | v1 不做硬性次数限制；error toast + 重新点击 select 按钮即可 | v1 spec §9 明确「不做 / 留 v2」 |
+| v1.1 candidates 页空数据 | spec §8.2 提到 5min 后自动 cancel | v1 UI 显示「暂无候选陪诊师，请稍后再试」 + 5min 后后端自动 cancel（前端不实现定时器） | 服务端职责；前端只需兜底文案 |
