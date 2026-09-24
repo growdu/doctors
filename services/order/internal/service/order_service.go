@@ -296,6 +296,10 @@ func (s *Service) Cancel(ctx context.Context, orderID, actorID int64, reason str
 
 // Finish 陪诊师把订单置为 completed（实际业务需要 in_service → completed 的两步流程，
 // 这里 v1 简化为一步直接完成，便于 mock）。
+//
+// v1.2（wallet-t+7）：写库成功后 best-effort 发布 OrderCompletedEvent；
+//   wallet-service 消费后入 frozen + billings，T+7 由 scanner 释放冻结。
+//   发布失败仅 log，不影响订单已完成的事实（DB 已写）。
 func (s *Service) Finish(ctx context.Context, orderID, actorID int64) error {
 	o, err := s.orders.FindByID(ctx, orderID)
 	if err != nil {
@@ -316,6 +320,21 @@ func (s *Service) Finish(ctx context.Context, orderID, actorID int64) error {
 	actor := actorID
 	if err := s.orders.InsertEvent(ctx, orderID, &fromStr, string(to), &actor, nil); err != nil {
 		return errs.Wrap(errs.CodeInternal, "insert event", err)
+	}
+
+	// 发布 OrderCompletedEvent（v1.2 wallet-t+7 前置；best-effort）
+	// EscortID 为 *int64：未接单（异常单）则为 0；wallet 消费时按 0 跳过冻结入账。
+	if s.publisher != nil {
+		var escortID int64
+		if o.EscortID != nil {
+			escortID = *o.EscortID
+		}
+		_ = s.publisher.PublishOrderCompleted(ctx, contracts.OrderCompletedEvent{
+			OrderID:     o.ID,
+			EscortID:    escortID,
+			Amount:      o.Amount,
+			CompletedAt: s.clockNow(),
+		})
 	}
 	return nil
 }

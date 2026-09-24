@@ -440,6 +440,60 @@ func TestNoPublisher_NilSafe(t *testing.T) {
 	require.NoError(t, svc.Cancel(context.Background(), o.ID, o.PatientID, "x"))
 }
 
+// TestFinish_PublishesOrderCompletedEvent 验证 Finish 成功后 best-effort 发布
+// OrderCompletedEvent，且字段（OrderID / EscortID / Amount / CompletedAt）正确（v1.2 wallet-t+7）。
+//
+// 流程：Create → accepted（模拟）→ in_service → Finish → 断言 fakePub.lastCompleted。
+// 状态机 accepted → in_service → completed，这里走 fakeRepo.UpdateStatus 手动推 2 次。
+func TestFinish_PublishesOrderCompletedEvent(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+	pub := &fakePub{}
+	svc.WithPublisher(pub)
+
+	// 1) Create
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+
+	// 2) accepted（手动推）
+	escortID := int64(7)
+	require.NoError(t, oRepo.UpdateStatus(context.Background(), o.ID, string("accepted"), o.Version, &escortID))
+
+	// 3) in_service（accepted → in_service 是状态机合法转移）
+	current, err := oRepo.FindByID(context.Background(), o.ID)
+	require.NoError(t, err)
+	require.NoError(t, oRepo.UpdateStatus(context.Background(), o.ID, string("in_service"), current.Version, nil))
+
+	// 4) Finish
+	require.NoError(t, svc.Finish(context.Background(), o.ID, escortID))
+
+	// 5) 断言
+	assert.Equal(t, 1, pub.completed, "PublishOrderCompleted 应被调用一次")
+	require.NotNil(t, pub.lastCompleted, "应记录最近一次 OrderCompletedEvent")
+	assert.Equal(t, o.ID, pub.lastCompleted.OrderID)
+	assert.Equal(t, int64(7), pub.lastCompleted.EscortID)
+	assert.Equal(t, 200.00, pub.lastCompleted.Amount, "Amount 应来自 order.Amount")
+	assert.WithinDuration(t, time.Now(), pub.lastCompleted.CompletedAt, 5*time.Second)
+}
+
+// TestFinish_NoPublisher_NilSafe 验证 publisher=nil 时 Finish 不 panic（v1.2 wallet-t+7）。
+func TestFinish_NoPublisher_NilSafe(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo) // 不调 WithPublisher
+
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+
+	escortID := int64(7)
+	require.NoError(t, oRepo.UpdateStatus(context.Background(), o.ID, string("accepted"), o.Version, &escortID))
+	current, err := oRepo.FindByID(context.Background(), o.ID)
+	require.NoError(t, err)
+	require.NoError(t, oRepo.UpdateStatus(context.Background(), o.ID, string("in_service"), current.Version, nil))
+	require.NoError(t, svc.Finish(context.Background(), o.ID, escortID))
+}
+
 // ensure contracts imported (avoid unused).
 var _ = contracts.OrderCreatedEvent{}
 
