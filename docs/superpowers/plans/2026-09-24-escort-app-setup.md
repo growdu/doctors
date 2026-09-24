@@ -39,6 +39,30 @@
 
 ---
 
+## 修订记录
+
+### v1.1（2026-09-24，Flutter Web PWA 增量）
+
+**触发**：刚 commit 的 spec `docs/superpowers/specs/2026-09-24-escort-app-design.md` §15 多端构建矩阵规定：除 iOS / Android 外，escort-app v1.1 必须落地 **Flutter Web + PWA** 形态，且 Web 必须用 `kIsWeb` 条件编译 + Lighthouse PWA Score ≥ 90。
+
+**v1.1 增量**（基于 v1 已 commit 的 19 个 Task 之上追加 4 个 Task 20-23）：
+- **Task 20 — Flutter Web 启用**：加 `web/index.html` + `web/manifest.json` + `web/icons/`，`flutter run -d chrome` 跑通 + `flutter build web` 产物可静态服务
+- **Task 21 — PWA service worker + offline shell**：`flutter build web --pwa` 注册 service worker + `web/offline.html` fallback
+- **Task 22 — kIsWeb 条件编译适配**：4 个核心模块（`location_service` / `secure_storage` / `push_service` / `image_picker`）按 `kIsWeb` 降级
+- **Task 23 — Lighthouse CI + Web e2e**：`.lighthouserc.json`（PWA ≥ 90 阻断）+ GitHub Actions `lhci autorun` + Playwright `e2e/pwa-install.spec.ts` + `e2e/pwa-offline.spec.ts`
+
+**v1.1 不变更**：24 个 P0 页面骨架 / 8 个 provider / 7 个 API / 7 个 widget / iOS / Android 端代码（v1 已 19 commits 锁定的部分保持不变）
+
+**v1.1 不做**（明确剔除范围）：
+- Web 端专属 SEO / SSR（Flutter Web 不支持 SSR；v1.1 仅 SPA）
+- 浏览器原生 Push API（`firebase_messaging` v2 仍 mock；service worker 仅缓存 shell）
+- Web 端 i18n / 视频陪诊 / 离线编辑（同 v1 不做范围）
+- Lighthouse Performance Score ≥ 95（仅要求 ≥ 80；≥ 95 留 v1.2 性能优化）
+
+**commit 增量**：v1.1 新增 ~5 commits（Task 20/21/22/23 + 全量回归），详见 Execution Options 表格。
+
+---
+
 ## File Structure
 
 > 仅列本 plan 新增 / 修改的文件；`escort-app/` 下其他 Flutter 模板文件（`ios/Runner.xcodeproj`、`android/gradle/`、`pubspec.lock` 等）由 `flutter create` 生成。
@@ -161,6 +185,22 @@
 | `escort-app/android/app/src/main/AndroidManifest.xml` | Modify | ACCESS_FINE_LOCATION / CAMERA / READ_MEDIA_IMAGES 权限 |
 | `escort-app/integration_test/app_test.dart` | Create | E2E：splash → login → register → onboarding 引导链 |
 | `escort-app/integration_test/invitations_test.dart` | **Create** | E2E：mock invitations → 30s 倒计时 → 确认按钮 → 状态切换（**替代原 `feed_test.dart`**） |
+| `escort-app/web/index.html` | **Create** | Web 入口 HTML：viewport meta + theme color + manifest link + service worker 注册脚本（v1.1） |
+| `escort-app/web/manifest.json` | **Create** | PWA manifest：name / short_name / start_url / display=standalone / icons 192+512+maskable-512（v1.1） |
+| `escort-app/web/icons/Icon-192.png` | **Create** | PWA icon 192×192（v1.1） |
+| `escort-app/web/icons/Icon-512.png` | **Create** | PWA icon 512×512（v1.1） |
+| `escort-app/web/icons/Icon-maskable-512.png` | **Create** | PWA maskable icon 512×512（Android home screen 安装用；v1.1） |
+| `escort-app/web/offline.html` | **Create** | Service worker 离线 fallback 页面（v1.1） |
+| `escort-app/.lighthouserc.json` | **Create** | Lighthouse CI 配置：`assert.assertions.pwa-score ≥ 90` 阻断 + Performance ≥ 80 + Accessibility ≥ 90（v1.1） |
+| `escort-app/.github/workflows/lhci.yml` | **Create** | GitHub Actions：每次 PR 跑 `lhci autorun`（v1.1） |
+| `escort-app/e2e/pwa-install.spec.ts` | **Create** | Playwright e2e：访问 → manifest ready → 触发 beforeinstallprompt → userChoice 接受（v1.1） |
+| `escort-app/e2e/pwa-offline.spec.ts` | **Create** | Playwright e2e：service worker 注册 → Network offline → 刷新 → 验证 offline.html shell（v1.1） |
+| `escort-app/playwright.config.ts` | **Create** | Playwright 配置：base URL = `http://localhost:8080`（flutter build web 本地服务端口；v1.1） |
+| `escort-app/lib/main.dart` | **Modify** | 加 `if (kIsWeb)` 路由差异（web 不支持 deep link 用 query param 替代；v1.1） |
+| `escort-app/lib/core/location/location_service.dart` | **Modify** | Web 走 `geolocator` web adapter（自动 fallback `navigator.geolocation`；v1.1） |
+| `escort-app/lib/core/storage/secure_storage.dart` | **Modify** | Web 走 `window.localStorage` 降级（v1 mock 安全存；v1.1） |
+| `escort-app/lib/core/push/push_service.dart` | **Modify** | Web 不接 push；in-app SnackBar 替代（v1.1） |
+| `escort-app/lib/core/image/image_picker.dart` | **Modify** | Web 用 `image_picker_for_web`（自动 fallback `<input type=file>`；v1.1） |
 | `dev.md` | Modify | §10.x 加 escort-app setup 落地记录 |
 
 > **修订要点**（对比原 plan）：
@@ -5223,6 +5263,646 @@ git commit -m "chore(escort-app): 全量验证（flutter analyze + test + build�
 
 ---
 
+### Task 20: Flutter Web 启用 + manifest + icons + Chrome 调试跑通（v1.1）
+
+**Files:**
+- Create: `escort-app/web/index.html`
+- Create: `escort-app/web/manifest.json`
+- Create: `escort-app/web/icons/Icon-192.png`（手画或占位 PNG）
+- Create: `escort-app/web/icons/Icon-512.png`
+- Create: `escort-app/web/icons/Icon-maskable-512.png`
+
+**Step 1: `flutter config` 启用 web + 跑 `flutter create` 注入 web 模板**
+
+```bash
+cd /Users/growduduan/ai/doctors/escort-app
+flutter config --enable-web
+flutter create --platforms=web .
+```
+
+Expected: `web/index.html` + `web/manifest.json` + `web/icons/` 自动生成（flutter create 已提供默认占位，我们覆盖）。
+
+**Step 2: 改写 `web/index.html`**（覆写 flutter create 生成的版本）
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1989FA">
+  <meta name="description" content="Doctors Escort App — 陪诊师端">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <title>Doctors Escort App</title>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
+```
+
+**Step 3: 写 `web/manifest.json`**
+
+```json
+{
+  "name": "Doctors Escort App",
+  "short_name": "Escort",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1989FA",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icons/Icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/Icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/Icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
+```
+
+**Step 4: 准备 3 个 icon**（v1.1 用 1x1 占位 PNG 也可；后续替换为正式品牌资源）
+
+```bash
+# v1.1 占位：用 ImageMagick 生成纯色 192/512 PNG
+cd /Users/growduduan/ai/doctors/escort-app/web/icons
+convert -size 192x192 xc:'#1989FA' -gravity center -fill white -pointsize 48 -annotate +0+0 'Escort' Icon-192.png
+convert -size 512x512 xc:'#1989FA' -gravity center -fill white -pointsize 128 -annotate +0+0 'Escort' Icon-512.png
+convert -size 512x512 xc:'#1989FA' -gravity center -fill white -pointsize 96 -annotate +0+0 'Escort' Icon-maskable-512.png
+```
+
+> `convert` 命令来自 ImageMagick；macOS 可用 `brew install imagemagick` 安装。如果环境无 imagemagick，临时用任意 192/512 PNG 替代即可（满足 PWA 验收即可）。
+
+**Step 5: 跑 `flutter run -d chrome` 验证无报错**
+
+```bash
+cd /Users/growduduan/ai/doctors/escort-app
+flutter run -d chrome --web-port=8080
+```
+
+Expected:
+- Chrome 打开 `http://localhost:8080`
+- Console 无 Flutter framework error
+- 看到 splash → login 路由（v1 已落地的路由表直接复用）
+
+**Step 6: 跑 `flutter build web` 验证产物 + 检查 gzip 体积**
+
+```bash
+flutter build web --release
+# 产物在 build/web/
+du -sh build/web/main.dart.js build/web/flutter.js
+gzip -c build/web/main.dart.js | wc -c   # 检查 gzipped 首屏 < 3MB
+```
+
+Expected:
+- `build/web/` 生成 `index.html` + `main.dart.js` + `flutter.js` + `assets/` + `canvaskit/`
+- gzipped `main.dart.js` < 3MB（Flutter 3.24+ 默认 ~1.5MB）
+- Exit code 0
+
+**Step 7: 跑 `flutter test` 验证既有单测不被 web 平台破坏**
+
+```bash
+flutter test
+```
+
+Expected: PASS（v1 已 ~99 个测试全过；v1.1 不新增 web 单测，统一在 chrome 跑 `flutter test --platform chrome` 由 Task 22 覆盖）。
+
+**Step 8: Commit**
+
+```bash
+cd /Users/growduduan/ai/doctors
+git add escort-app/web/ escort-app/pubspec.yaml escort-app/.gitignore
+git commit -m "feat(escort-app): Flutter Web 启用 + manifest.json + icons + Chrome DevTools 跑通 (v1.1)"
+```
+
+---
+
+### Task 21: PWA service worker + offline shell（v1.1）
+
+**Files:**
+- Modify: `escort-app/web/index.html`（加 service worker 注册脚本）
+- Create: `escort-app/web/offline.html`
+
+**Step 1: 跑 `flutter build web --pwa` 生成 service worker**
+
+```bash
+cd /Users/growduduan/ai/doctors/escort-app
+flutter build web --pwa --release
+```
+
+Expected: `build/web/flutter_service_worker.js` 自动生成（包含 precache 列表 + runtime caching 策略 `cacheFirst` for `flutter.js` / `main.dart.js` / `assets/`）。
+
+**Step 2: 加 service worker 注册代码到 `web/index.html`**
+
+在 `<body>` 末尾、`<script src="flutter_bootstrap.js">` 之前插入：
+
+```html
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('flutter-first-frame', function () {
+      navigator.serviceWorker.register('flutter_service_worker.js');
+    });
+  }
+</script>
+```
+
+> 注意：service worker 必须在 `flutter-first-frame` 事件后注册，避免阻塞首屏；这是 Flutter 官方推荐做法（参见 flutter.dev web deployment 文档）。
+
+**Step 3: 写 `web/offline.html`（离线 fallback 页面）**
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>离线 — Doctors Escort</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 40px 20px; text-align: center; color: #333; }
+    h1 { color: #1989FA; font-size: 24px; }
+    p { color: #666; font-size: 16px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>当前处于离线状态</h1>
+  <p>请检查网络连接后刷新页面。</p>
+  <p>已缓存的页面仍可继续使用。</p>
+</body>
+</html>
+```
+
+**Step 4: 把 `offline.html` 加到 service worker 缓存列表**
+
+> ⚠️ Flutter 生成的 `flutter_service_worker.js` 是自动产物，**不**手动改它。`offline.html` 作为静态资源通过 precache 包含（pubspec.yaml 的 web 部分声明），`Network offline` 时用户导航到未缓存路径 → service worker 触发 → 仍可访问 `offline.html`（因 `offline.html` 不在 SPA 路由表，是真实独立 HTML）。
+
+验证：
+
+```bash
+cd /Users/growduduan/ai/doctors/escort-app
+flutter build web --pwa --release
+ls build/web/offline.html build/web/flutter_service_worker.js
+```
+
+Expected: 两个文件均在 `build/web/` 下。
+
+**Step 5: 本地验证 service worker 注册 + 离线 shell**
+
+```bash
+# 启静态服务
+cd build/web
+python3 -m http.server 8080 &
+
+# Chrome DevTools 手动验证（无法在 CLI 自动化）：
+# 1. 访问 http://localhost:8080
+# 2. F12 → Application → Service Workers → 看到 flutter_service_worker.js registered (activated)
+# 3. Network tab → 勾 Offline → 刷新页面 → 应仍能看到已加载的 shell（SPA 路由内跳转由 service worker cache 处理）
+```
+
+Expected:
+- DevTools Application 面板显示 worker status = activated
+- Offline 模式刷新仍可见 splash shell（路由 / 内 SPA 跳转可能 404，但 service worker 不接管 fallback 路由 → 留给 Task 22 `kIsWeb` 适配层处理离线提示）
+
+**Step 6: 跑 `flutter test` 回归（不应被 service worker 注入破坏）**
+
+```bash
+flutter test
+```
+
+Expected: PASS。
+
+**Step 7: Commit**
+
+```bash
+cd /Users/growduduan/ai/doctors
+git add escort-app/web/index.html escort-app/web/offline.html
+git commit -m "feat(escort-app): PWA service worker + offline shell + 离线 fallback 页 (v1.1)"
+```
+
+---
+
+### Task 22: kIsWeb 条件编译适配（v1.1）
+
+**Files:**
+- Modify: `escort-app/lib/main.dart`
+- Modify: `escort-app/lib/core/location/location_service.dart`
+- Modify: `escort-app/lib/core/storage/secure_storage.dart`
+- Modify: `escort-app/lib/core/push/push_service.dart`
+- Modify: `escort-app/lib/core/image/image_picker.dart`
+- Create: `escort-app/lib/core/k_is_web.dart`（条件编译辅助）
+- Create: `escort-app/test/core/k_is_web_adapt_test.dart`（web 平台单测）
+
+**Step 1: 加 `kIsWeb` 条件编译辅助文件**
+
+```dart
+// lib/core/k_is_web.dart
+import 'package:flutter/foundation.dart';
+
+/// Web 平台路由差异：deep link 用 query param 替代
+String buildRouteUri(String path, {Map<String, String>? query}) {
+  if (kIsWeb) {
+    final q = query?.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&');
+    return q == null || q.isEmpty ? '/#$path' : '/#$path?$q';
+  }
+  return path; // iOS / Android：原生 deep link
+}
+
+/// Web 平台推送降级：调用方走 SnackBar 而非 push 通道
+bool isWebPushDisabled() => kIsWeb;
+```
+
+**Step 2: 改 `lib/main.dart` 接入路由差异**
+
+```dart
+// 在 runApp() 之前：
+final initialLocation = kIsWeb
+    ? Uri.base.fragment.isNotEmpty
+        ? Uri.base.fragment.substring(1)  // '/home/invitations' 去掉 '/'
+        : '/splash'
+    : '/splash';
+runApp(ProviderScope(
+  overrides: [initialLocationProvider.overrideWithValue(initialLocation)],
+  child: const DoctorsEscortApp(),
+));
+```
+
+Expected: Web 端访问 `https://escort.doctors.example/#/home/invitations?orderId=123` → 自动解析为 `/home/invitations` 路由 + query `orderId=123`，等价于原生 deep link。
+
+**Step 3: 改 `lib/core/location/location_service.dart`（web 用 geolocator web adapter）**
+
+```dart
+import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart' as geo;
+
+class LocationService {
+  Future<Position> currentPosition() async {
+    if (kIsWeb) {
+      // geolocator_for_web 自动 fallback navigator.geolocation
+      return geo.Geolocator.getCurrentPosition(
+        locationSettings: geo.LocationSettings(accuracy: geo.LocationAccuracy.high),
+      );
+    }
+    return geo.Geolocator.getCurrentPosition(
+      locationSettings: geo.LocationSettings(accuracy: geo.LocationAccuracy.high),
+    );
+  }
+}
+```
+
+> `geolocator` 13.x 内置 web adapter，无需额外依赖。pubspec.yaml 已声明 `geolocator: ^13.0.0`，web build 自动拉 `geolocator_for_web`。
+
+**Step 4: 改 `lib/core/storage/secure_storage.dart`（web 走 localStorage 降级）**
+
+```dart
+import 'package:flutter/foundation.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html show window;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+abstract class SecureStorage {
+  Future<String?> read(String key);
+  Future<void> write(String key, String value);
+  Future<void> delete(String key);
+}
+
+class SecureStorageImpl implements SecureStorage {
+  final FlutterSecureStorage _native = const FlutterSecureStorage();
+  final bool _isWeb = kIsWeb;
+
+  @override Future<String?> read(String key) async {
+    if (_isWeb) return html.window.localStorage[key];
+    return _native.read(key: key);
+  }
+
+  @override Future<void> write(String key, String value) async {
+    if (_isWeb) { html.window.localStorage[key] = value; return; }
+    await _native.write(key: key, value: value);
+  }
+
+  @override Future<void> delete(String key) async {
+    if (_isWeb) { html.window.localStorage.removeItem(key); return; }
+    await _native.delete(key: key);
+  }
+}
+```
+
+> v1.1 Web 端只用于开发/演示，不存真实 token。生产 Web 部署时应接 HttpOnly cookie（v1.2 计划）。
+
+**Step 5: 改 `lib/core/push/push_service.dart`（web 不接 push，in-app SnackBar 替代）**
+
+```dart
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+abstract class PushService {
+  Future<void> init();
+  Future<void> showLocal({required String title, required String body});
+}
+
+class NopPushService implements PushService {
+  @override Future<void> init() async {
+    if (kIsWeb) return; // web：不初始化 push 通道
+  }
+
+  @override Future<void> showLocal({required String title, required String body}) async {
+    if (kIsWeb) {
+      // web：走 in-app SnackBar；由调用方（provider）注入 BuildContext
+      debugPrint('[Push Web Stub] $title: $body');
+      return;
+    }
+    // iOS / Android：v1 mock（v2 接 firebase_messaging）
+    debugPrint('[Push Stub] $title: $body');
+  }
+}
+```
+
+调用方（`lib/providers/invitation_provider.dart`）改造：web 端不调用 `PushService.showLocal`，改为返回 `invitation` 列表由 UI 层 `ScaffoldMessenger` 渲染 SnackBar。
+
+**Step 6: 改 `lib/core/image/image_picker.dart`（web 用 image_picker_for_web）**
+
+```dart
+import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart' as ip;
+
+class AppImagePicker {
+  final ip.ImagePicker _native = ip.ImagePicker();
+  final bool _isWeb = kIsWeb;
+
+  Future<ip.XFile?> pickFromGallery() async {
+    if (_isWeb) {
+      return _native.pickImage(source: ip.ImageSource.gallery); // image_picker_for_web 自动 fallback <input type=file accept="image/*">
+    }
+    return _native.pickImage(source: ip.ImageSource.gallery);
+  }
+
+  Future<ip.XFile?> takePhoto() async {
+    if (_isWeb) {
+      throw UnsupportedError('Web 端不支持拍照，请使用「从相册选择」');
+    }
+    return _native.pickImage(source: ip.ImageSource.camera);
+  }
+}
+```
+
+> `image_picker` 1.x 已内置 web adapter；pubspec.yaml 已声明。
+
+**Step 7: 写 web 平台单测**
+
+```dart
+// test/core/k_is_web_adapt_test.dart
+import 'package:flutter/foundation.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:escort_app/core/k_is_web.dart';
+
+void main() {
+  test('kIsWeb 在非 web 平台为 false', () {
+    expect(kIsWeb, isFalse); // 单测默认走 VM，非 web
+  });
+
+  test('buildRouteUri 在 web 平台用 query param', () {
+    if (kIsWeb) {
+      expect(
+        buildRouteUri('/home/invitations', query: {'orderId': '123'}),
+        '/#/home/invitations?orderId=123',
+      );
+    }
+  });
+
+  test('isWebPushDisabled 在 web 平台为 true', () {
+    if (kIsWeb) expect(isWebPushDisabled(), isTrue);
+  });
+}
+```
+
+**Step 8: 跑 web 平台单测 + Chrome 手测**
+
+```bash
+cd /Users/growduduan/ai/doctors/escort-app
+flutter test --platform chrome                 # web 单测通过
+flutter run -d chrome --web-port=8080          # 手测 5 个页面：
+# 1. /splash → /login → 渲染正常
+# 2. /home/invitations → ListView 渲染（空数据 OK）
+# 3. /home/availability → 新增按钮可见
+# 4. /home/wallet → 余额占位渲染
+# 5. /profile → 「我的空余时段」入口可见
+```
+
+Expected: 5 个页面均无 web-specific runtime error（如 `dart:html` 缺失、`dart:io` 平台不支持等）。
+
+**Step 9: Commit**
+
+```bash
+cd /Users/growduduan/ai/doctors
+git add escort-app/lib/main.dart \
+        escort-app/lib/core/k_is_web.dart \
+        escort-app/lib/core/location/location_service.dart \
+        escort-app/lib/core/storage/secure_storage.dart \
+        escort-app/lib/core/push/push_service.dart \
+        escort-app/lib/core/image/image_picker.dart \
+        escort-app/test/core/k_is_web_adapt_test.dart
+git commit -m "feat(escort-app): kIsWeb 条件编译（location/storage/push/image_picker 4 模块适配） (v1.1)"
+```
+
+---
+
+### Task 23: Lighthouse PWA CI + Playwright Web e2e（v1.1）
+
+**Files:**
+- Create: `escort-app/.lighthouserc.json`
+- Create: `escort-app/.github/workflows/lhci.yml`
+- Create: `escort-app/e2e/pwa-install.spec.ts`
+- Create: `escort-app/e2e/pwa-offline.spec.ts`
+- Create: `escort-app/playwright.config.ts`
+- Create: `escort-app/package.json`（devDependencies: `@lhci/cli`, `@playwright/test`）
+
+**Step 1: 写 `.lighthouserc.json`（PWA 验收门槛）**
+
+```json
+{
+  "ci": {
+    "collect": {
+      "url": ["http://localhost:8080/"],
+      "startServerCommand": "cd build/web && python3 -m http.server 8080",
+      "numberOfRuns": 1,
+      "settings": {
+        "preset": "desktop",
+        "skipAudits": ["uses-http2"]
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:pwa": ["error", { "minScore": 0.9 }],
+        "categories:performance": ["warn", { "minScore": 0.8 }],
+        "categories:accessibility": ["error", { "minScore": 0.9 }]
+      }
+    },
+    "upload": { "target": "temporary-public-storage" }
+  }
+}
+```
+
+> PWA Score ≥ 90 设为 `error`（CI 阻断）；Performance ≥ 80 设为 `warn`（不阻断，留 v1.2 优化）。
+
+**Step 2: 写 `.github/workflows/lhci.yml`**
+
+```yaml
+name: lighthouse-ci
+on: [pull_request]
+jobs:
+  lhci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build web --pwa --release
+      - name: Run Lighthouse CI
+        run: npx -y @lhci/cli@0.13.x autorun
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+```
+
+**Step 3: 写 `playwright.config.ts`**
+
+```typescript
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 30_000,
+  use: {
+    baseURL: 'http://localhost:8080',
+    trace: 'on-first-retry',
+  },
+  webServer: {
+    command: 'cd build/web && python3 -m http.server 8080',
+    url: 'http://localhost:8080',
+    reuseExistingServer: true,
+    timeout: 60_000,
+  },
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+  ],
+});
+```
+
+**Step 4: 写 `package.json`**（devDependencies）
+
+```json
+{
+  "name": "escort-app-web-e2e",
+  "private": true,
+  "devDependencies": {
+    "@lhci/cli": "^0.13.0",
+    "@playwright/test": "^1.48.0"
+  }
+}
+```
+
+**Step 5: 写 `e2e/pwa-install.spec.ts`（manifest + beforeinstallprompt）**
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+test('PWA 可安装：manifest 有效 + beforeinstallprompt 触发 + userChoice 接受', async ({ page }) => {
+  // 1. 访问根路径
+  await page.goto('/');
+
+  // 2. 验证 manifest 可访问 + 字段完整
+  const manifest = await page.evaluate(async () => {
+    const res = await fetch('/manifest.json');
+    return res.json();
+  });
+  expect(manifest.name).toBe('Doctors Escort App');
+  expect(manifest.short_name).toBe('Escort');
+  expect(manifest.start_url).toBe('/');
+  expect(manifest.display).toBe('standalone');
+  expect(manifest.icons.length).toBeGreaterThanOrEqual(2);
+
+  // 3. mock beforeinstallprompt + 验证 install button 出现
+  await page.evaluate(() => {
+    const event = new Event('beforeinstallprompt');
+    (event as any).prompt = async () => ({ outcome: 'accepted', platform: 'web' });
+    (event as any).userChoice = Promise.resolve({ outcome: 'accepted', platform: 'web' });
+    window.dispatchEvent(event);
+  });
+
+  // 4. 触发自定义 install button 渲染（v1.1 简化为任意元素）
+  const installBtn = await page.locator('[data-testid="pwa-install-button"]').first();
+  if (await installBtn.count() > 0) {
+    await installBtn.click();
+  }
+  // （v1.1 阶段：仅验证 beforeinstallprompt 事件能 dispatch + manifest 字段完整；install button UI 留 v1.2）
+});
+```
+
+**Step 6: 写 `e2e/pwa-offline.spec.ts`（service worker 离线 shell）**
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+test('PWA 离线 shell：service worker 注册 + offline 刷新仍可见 fallback', async ({ page, context }) => {
+  // 1. 首次访问
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+
+  // 2. 等 service worker registered
+  const swRegistered = await page.evaluate(async () => {
+    if (!('serviceWorker' in navigator)) return false;
+    const reg = await navigator.serviceWorker.getRegistration();
+    return reg !== undefined && (reg.active !== null || reg.installing !== null || reg.waiting !== null);
+  });
+  expect(swRegistered).toBe(true);
+
+  // 3. 设 Network offline
+  await context.setOffline(true);
+
+  // 4. 直接访问 offline.html（service worker precache 之外的路径：fallback）
+  await page.goto('http://localhost:8080/offline.html');
+  await expect(page.locator('h1')).toContainText('离线');
+
+  // 5. 恢复在线
+  await context.setOffline(false);
+});
+```
+
+**Step 7: 跑全量回归**
+
+```bash
+cd /Users/growduduan/ai/doctors/escort-app
+flutter pub get
+flutter analyze                       # 0 issue
+flutter test                          # ~99 单测 + web 单测全过
+flutter build web --pwa --release     # web 产物
+npx lhci autorun                      # PWA ≥ 90 + Performance ≥ 80 + A11y ≥ 90
+npx playwright install chromium       # 首次下载
+npx playwright test                   # 2 个 web e2e 全过
+```
+
+Expected:
+- `flutter analyze` → 0 issue
+- `flutter test` → all pass
+- `flutter build web --pwa` → exit 0
+- `lhci autorun` → PWA assertion pass（≥ 90）；Performance / A11y pass 阈值
+- `playwright test` → 2 passed
+
+**Step 8: Commit**
+
+```bash
+cd /Users/growduduan/ai/doctors
+git add escort-app/.lighthouserc.json \
+        escort-app/.github/workflows/lhci.yml \
+        escort-app/e2e/pwa-install.spec.ts \
+        escort-app/e2e/pwa-offline.spec.ts \
+        escort-app/playwright.config.ts \
+        escort-app/package.json
+git commit -m "feat(escort-app): Lighthouse PWA CI (≥90) + Playwright PWA e2e (install/offline) (v1.1)"
+```
+
+---
+
 ## Self-Review
 
 - ✅ **Spec 覆盖**（`specs/2026-09-24-order-matching-redesign.md`）：
@@ -5282,6 +5962,20 @@ git commit -m "chore(escort-app): 全量验证（flutter analyze + test + build�
     - **不**做 WebSocket 推送（spec/2026-09-24-order-matching-redesign §7.1 强制约束；用 5s 轮询）
     - **不**实现前端时段冲突检测（依赖后端 UNIQUE 索引 + 错误码 13103）
 
+- ✅ **v1.1 多端构建矩阵**（`specs/2026-09-24-escort-app-design.md` §15）：
+    - **iOS + Android**：v1 已 19 commits 覆盖；保持不变
+    - **Web + PWA**：v1.1 新增 4 个 Task（20~23）覆盖 Flutter Web 启用 / manifest / icons / service worker / offline shell / `kIsWeb` 条件编译 / Lighthouse CI ≥ 90 / Playwright web e2e
+    - **任务数**：19 → 23（v1.1 新增 4 个 Task + 修订记录块）
+    - **commit 增量**：v1 19 commits → v1.1 24 commits（+5：Task 20 web 启用 / Task 21 PWA / Task 22 kIsWeb 适配 / Task 23 Lighthouse CI / 1 个全量回归 commit）
+    - **spec §15 PWA 验收清单**：
+        - ✅ `manifest.json` 含 name / short_name / start_url / display=standalone / icons 192+512+maskable-512
+        - ✅ `service worker` registered via `flutter-first-frame` 事件（不阻塞首屏）
+        - ✅ `offline.html` fallback（service worker precache 之外的路径）
+        - ✅ `kIsWeb` 条件编译覆盖 4 模块（location / secure_storage / push / image_picker）
+        - ✅ Lighthouse PWA Score ≥ 90 + Performance ≥ 80 + A11y ≥ 90（CI 阻断）
+        - ✅ Web `secure_storage` 走 `localStorage` 降级（v1.1 mock 安全存，v1.2 改 HttpOnly cookie）
+        - ✅ Playwright 2 个 e2e 覆盖 install + offline shell
+
 ## Execution Options
 
 > Plan 已 commit 到 `docs/superpowers/plans/2026-09-24-escort-app-setup.md`。
@@ -5297,6 +5991,7 @@ git commit -m "chore(escort-app): 全量验证（flutter analyze + test + build�
 - 前端：`docs/superpowers/plans/2026-09-24-admin-web-setup.md`（订单列表：新增"是否已选 escort"列 + 状态机新颜色）— 与本 plan 的 `OrderStatus` / `StatusChip` 一致
 
 **下一步选项**：
-1. **进入实施** —— 实施 Task 1~19（subagent-driven 推荐）
-2. **暂停 + review** —— 调整 plan（页面骨架 vs UI 完善 / mock E2E 时机 / `invitationsProvider` 轮询节奏 5s 是否合适 / `AvailabilityTile` 「已预订」状态视觉 / `HomeShell` 4 tabs 是否需要「我的空余时段」独立入口）
-3. **继续产 plan** —— 接着出 escort-availability（新）/ escort-order-ext / order-lock 改写 等后端 plan
+1. **进入实施** —— 实施 Task 1~19（v1，iOS + Android 骨架；subagent-driven 推荐） + Task 20~23（v1.1，Flutter Web + PWA + Lighthouse CI + Playwright e2e；共 +5 commits）
+2. **暂停 + review** —— 调整 plan（页面骨架 vs UI 完善 / mock E2E 时机 / `invitationsProvider` 轮询节奏 5s 是否合适 / `AvailabilityTile` 「已预订」状态视觉 / `HomeShell` 4 tabs 是否需要「我的空余时段」独立入口 / v1.1 Web 端 `secure_storage` 走 localStorage 是否可接受 / Lighthouse Performance ≥ 80 是否过紧）
+4. **v1.1 拆批** —— 优先跑 Task 20（web 启用） + Task 23（Lighthouse CI），Task 21/22（service worker + kIsWeb）后置，避免一次性 PWA 复杂度阻塞
+5. **继续产 plan** —— 接着出 escort-availability（新）/ escort-order-ext / order-lock 改写 等后端 plan
