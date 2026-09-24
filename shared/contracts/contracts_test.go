@@ -73,25 +73,80 @@ func TestTopicConstants(t *testing.T) {
 	assert.Equal(t, "order.created", TopicOrderCreated)
 	assert.Equal(t, "order.accepted", TopicOrderAccepted)
 	assert.Equal(t, "order.cancelled", TopicOrderCancelled)
-	assert.Equal(t, "order.matching", TopicOrderMatching)
+	// v1.1 删除 TopicOrderMatching（抢单→选人重构）
+	assert.Equal(t, "order.selecting_escort", TopicOrderSelectingEscort)
+	assert.Equal(t, "order.escort_selected", TopicOrderEscortSelected)
+	assert.Equal(t, "order.escort_confirmed", TopicOrderEscortConfirmed)
+	assert.Equal(t, "order.escort_rejected", TopicOrderEscortRejected)
 	assert.Equal(t, "user.registered", TopicUserRegistered)
 	assert.Equal(t, "escort.available", TopicEscortAvailable)
 	assert.Equal(t, "payment.completed", TopicPaymentCompleted)
 	assert.Equal(t, "refund.completed", TopicRefundCompleted)
 }
 
-// TestOrderMatchingEvent_RoundTrip 验证 OrderMatchingEvent 序列化可逆。
-func TestOrderMatchingEvent_RoundTrip(t *testing.T) {
+// TestOrderSelectingEscortEvent_RoundTrip 验证 OrderSelectingEscortEvent 序列化可逆（v1.1 新增）。
+func TestOrderSelectingEscortEvent_RoundTrip(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	ev := OrderMatchingEvent{
-		OrderID:   100,
-		EscortID:  7,
-		Reason:    "lock_expired",
-		RetriedAt: now,
+	ev := OrderSelectingEscortEvent{
+		OrderID:    100,
+		PatientID:  50,
+		City:       "shanghai",
+		OccurredAt: now,
 	}
 	data, err := json.Marshal(ev)
 	require.NoError(t, err)
-	var got OrderMatchingEvent
+	var got OrderSelectingEscortEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestOrderEscortSelectedEvent_RoundTrip 验证 OrderEscortSelectedEvent 序列化可逆（v1.1 新增）。
+func TestOrderEscortSelectedEvent_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	expire := now.Add(30 * time.Second)
+	ev := OrderEscortSelectedEvent{
+		OrderID:               100,
+		PatientID:             50,
+		SelectedEscortID:      7,
+		EscortPendingExpireAt: expire,
+		OccurredAt:            now,
+	}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got OrderEscortSelectedEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestOrderEscortConfirmedEvent_RoundTrip 验证 OrderEscortConfirmedEvent 序列化可逆（v1.1 新增）。
+func TestOrderEscortConfirmedEvent_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ev := OrderEscortConfirmedEvent{
+		OrderID:     100,
+		PatientID:   50,
+		EscortID:    7,
+		ConfirmedAt: now,
+	}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got OrderEscortConfirmedEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
+}
+
+// TestOrderEscortRejectedEvent_RoundTrip 验证 OrderEscortRejectedEvent 序列化可逆（v1.1 新增）。
+func TestOrderEscortRejectedEvent_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ev := OrderEscortRejectedEvent{
+		OrderID:    100,
+		PatientID:  50,
+		EscortID:   7,
+		Reason:     "lock_expired",
+		OccurredAt: now,
+	}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got OrderEscortRejectedEvent
 	require.NoError(t, json.Unmarshal(data, &got))
 	assert.Equal(t, ev, got)
 }

@@ -14,11 +14,14 @@ import "time"
 // ---------- Kafka topic 常量 ----------
 
 const (
-	TopicOrderCreated   = "order.created"
-	TopicOrderAccepted  = "order.accepted"
-	TopicOrderCancelled = "order.cancelled"
-	TopicOrderReviewed  = "order.reviewed"
-	TopicOrderMatching  = "order.matching" // 锁单超时 / 拒接 → 回退 matching，重新进入匹配池
+	TopicOrderCreated                 = "order.created"
+	TopicOrderAccepted                = "order.accepted"
+	TopicOrderCancelled               = "order.cancelled"
+	TopicOrderReviewed                = "order.reviewed"
+	TopicOrderSelectingEscort         = "order.selecting_escort"          // 进入选人阶段
+	TopicOrderEscortSelected            = "order.escort_selected"           // 患者已选 1 位
+	TopicOrderEscortConfirmed         = "order.escort_confirmed"          // 陪诊师 30s 内 confirm → accepted
+	TopicOrderEscortRejected          = "order.escort_rejected"           // 陪诊师拒/超时 → 回退 selecting_escort
 
 	TopicUserRegistered   = "user.registered"
 	TopicUserRealNameDone = "user.real_name.done"
@@ -75,13 +78,49 @@ type OrderReviewedEvent struct {
 	ReviewedAt time.Time `json:"reviewed_at"`
 }
 
-// OrderMatchingEvent 订单重新进入匹配池（锁单超时回退 或 陪诊师拒接）。
-// order-service → match-service：重新推送候选陪诊师。
-type OrderMatchingEvent struct {
-	OrderID   int64     `json:"order_id"`
-	EscortID  int64     `json:"escort_id"`           // 拒接的 escort（超时则为 0）
-	Reason    string    `json:"reason"`              // "lock_expired" | "escort_declined"
-	RetriedAt time.Time `json:"retried_at"`
+// OrderMatchingEvent 已删除（v1.1 抢单→选人重构）：
+//   - 旧 OrderMatchingEvent 用于锁单超时回退 matching。
+//   - v1.1 新流程是 selecting_escort → escort_pending_acceptance（30s 确认窗口）。
+//   - 超时回退逻辑由 OrderEscortRejectedEvent(reason="lock_expired") 替代。
+//   - 保留此注释避免 commit history 误读；不要重新引入 OrderMatchingEvent。
+
+// OrderSelectingEscortEvent 订单进入选人阶段（order-service → match-service：生成候选陪诊师）。
+// 触发时机：paid → selecting_escort。
+type OrderSelectingEscortEvent struct {
+	OrderID    int64     `json:"order_id"`
+	PatientID  int64     `json:"patient_id"`
+	City       string    `json:"city"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// OrderEscortSelectedEvent 患者已选 1 位陪诊师（order-service → notification：通知被选陪诊师）。
+// 触发时机：selecting_escort → escort_pending_acceptance。
+type OrderEscortSelectedEvent struct {
+	OrderID                  int64     `json:"order_id"`
+	PatientID                int64     `json:"patient_id"`
+	SelectedEscortID         int64     `json:"selected_escort_id"`
+	EscortPendingExpireAt    time.Time `json:"escort_pending_expire_at"`
+	OccurredAt               time.Time `json:"occurred_at"`
+}
+
+// OrderEscortConfirmedEvent 陪诊师 30s 内 confirm（order-service → billing / match：移除候选池 + 启动结算）。
+// 触发时机：escort_pending_acceptance → accepted。
+type OrderEscortConfirmedEvent struct {
+	OrderID    int64     `json:"order_id"`
+	PatientID  int64     `json:"patient_id"`
+	EscortID   int64     `json:"escort_id"`
+	ConfirmedAt time.Time `json:"confirmed_at"`
+}
+
+// OrderEscortRejectedEvent 陪诊师拒接或 30s 超时（order-service → notification + match）。
+// 触发时机：escort_pending_acceptance → selecting_escort（回退）。
+// Reason: "lock_expired" | "escort_declined"。
+type OrderEscortRejectedEvent struct {
+	OrderID    int64     `json:"order_id"`
+	PatientID  int64     `json:"patient_id"`
+	EscortID   int64     `json:"escort_id"`     // 拒接的 escort（超时则为 0）
+	Reason     string    `json:"reason"`
+	OccurredAt time.Time `json:"occurred_at"`
 }
 
 // ---------- User 事件 ----------
