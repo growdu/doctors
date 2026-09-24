@@ -1,0 +1,33 @@
+# escort-app / escort-service OpenAPI Generator 配置（v2 增量）
+#
+# 说明：
+# - 本文件是 `openapi-generator-cli` 的 generator config —— 描述输入 schema 路径
+#   与 dart-dio 输出目录；
+# - 输入契约从 admin-web/openapi/contracts.yaml 同步（与 patient-miniapp 一致：
+#   三端共享同一份 v2 OrderDetail 字段定义）；
+# - 真正可被 openapi-generator-cli 消费的 input 是 ../admin-web/openapi/contracts.yaml；
+#   本文件只声明 config（input/output/options），供 scripts/gen-api.sh 引用。
+#
+# 用法（本地手动跑）：
+#   bash scripts/gen-api.sh
+# 依赖：`dart pub global activate openapi_generator_cli` 后 PATH 中有
+# `openapi-generator-cli`（pubspec.yaml dev_dependencies 已声明）。
+#
+# 对应 spec：2026-09-24-order-matching-redesign.md §4.1
+#           2026-09-24-escort-app-setup.md §A1-A7
+generator:
+  # 目标语言：dart-dio（escort-app 已用 dio 5.7 做 HTTP）
+  name: dart-dio
+  # 输入契约：从 admin-web 同步（含 v2 选人模式 3 字段 + 2 状态）
+  input: ../admin-web/openapi/contracts.yaml
+  # 输出目录：lib/api/generated/
+  output: lib/api/generated/
+
+# 生成器 options（dart-dio 默认参数；按需追加）
+options:
+  # 关闭 pubspec 生成（外层 pubspec.yaml 已存在，不要覆盖）
+  generateAliasClasses: "false"
+  # enum 用 wireName 直出（与 escort-app/lib/models/order.dart 的 wireValue 对齐）
+  useEnumExtension: "true"
+  # 不生成 example 文件
+  generateExamples: "false"

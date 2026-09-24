@@ -37,6 +37,8 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # OpenAPI 客户端生成器（v2 增量：从 ../admin-web/openapi/contracts.yaml 同步选人模式 3 字段 + 2 状态）
+  openapi_generator_cli: ^1.0.0
 
 flutter:
   uses-material-design: true
