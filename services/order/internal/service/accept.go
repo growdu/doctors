@@ -16,12 +16,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/growdu/doctors/services/order/internal/repo"
 	"github.com/growdu/doctors/services/order/internal/state"
+	"github.com/growdu/doctors/shared/contracts"
 )
 
 // Accept 使用的错误。
@@ -124,6 +126,15 @@ func (s *Service) Accept(ctx context.Context, orderID, escortID int64) (*AcceptR
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// 发布 OrderAcceptedEvent（best-effort）
+	if s.publisher != nil {
+		_ = s.publisher.PublishOrderAccepted(ctx, contracts.OrderAcceptedEvent{
+			OrderID:    orderID,
+			EscortID:   escortID,
+			AcceptedAt: time.Now(),
+		})
 	}
 	return result, nil
 }

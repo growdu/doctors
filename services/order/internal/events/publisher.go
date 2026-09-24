@@ -1,9 +1,11 @@
 // Package events 是 order-service 的事件发布层。
 //
 // 设计要点：
-//   - Publisher 接口只暴露业务关心的事件：OrderCreated / OrderAccepted。
+//   - Publisher 接口只暴露业务事件：OrderCreated / OrderAccepted。
 //   - 默认实现是 KafkaPublisher，用 segmentio/kafka-go。
-//   - 集成测试用 //go:build integration 隔离。
+//   - 入参用 shared/contracts 的事件类型（不是 repo.Order），避免暴露 DB 结构。
+//   - Topic 名复用 contracts 常量。
+//   - Publish 失败只 log，不阻塞业务（事件 best-effort）。
 package events
 
 import (
@@ -16,19 +18,14 @@ import (
 
 	"github.com/segmentio/kafka-go"
 
-	"github.com/growdu/doctors/services/order/internal/repo"
-)
-
-// Topic 命名常量（与 docs/03 数据契约对齐）。
-const (
-	TopicOrderCreated  = "order.created"
-	TopicOrderAccepted = "order.accepted"
+	"github.com/growdu/doctors/shared/contracts"
 )
 
 // Publisher 抽象订单事件发布。
 type Publisher interface {
-	PublishOrderCreated(ctx context.Context, o *repo.Order) error
-	PublishOrderAccepted(ctx context.Context, o *repo.Order) error
+	PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error
+	PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error
+	PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error
 	Close() error
 }
 
@@ -37,7 +34,7 @@ type KafkaPublisher struct {
 	writer *kafka.Writer
 }
 
-// NewKafkaPublisher 构造 publisher；writer 必须指向一个 broker。
+// NewKafkaPublisher 构造 publisher。
 func NewKafkaPublisher(brokers []string) *KafkaPublisher {
 	return &KafkaPublisher{
 		writer: &kafka.Writer{
@@ -53,49 +50,60 @@ func NewKafkaPublisher(brokers []string) *KafkaPublisher {
 // Close 关闭底层 writer。
 func (p *KafkaPublisher) Close() error { return p.writer.Close() }
 
-// publish 写一条 JSON 到 topic；key = order_id 字符串。
-func (p *KafkaPublisher) publish(ctx context.Context, topic string, o *repo.Order) error {
+// publish 写一条 JSON 到 topic。
+func (p *KafkaPublisher) publish(ctx context.Context, topic string, key string, body any) error {
 	if p == nil || p.writer == nil {
 		return errors.New("publisher: writer is nil")
 	}
-	body, err := json.Marshal(o)
+	data, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("marshal order: %w", err)
+		return fmt.Errorf("marshal %s: %w", topic, err)
 	}
-	msg := kafka.Message{
+	return p.writer.WriteMessages(ctx, kafka.Message{
 		Topic: topic,
-		Key:   []byte(strconv.FormatInt(o.ID, 10)),
-		Value: body,
+		Key:   []byte(key),
+		Value: data,
 		Time:  time.Now(),
-	}
-	return p.writer.WriteMessages(ctx, msg)
+	})
 }
 
 // PublishOrderCreated 发布 order.created 事件。
-func (p *KafkaPublisher) PublishOrderCreated(ctx context.Context, o *repo.Order) error {
-	return p.publish(ctx, TopicOrderCreated, o)
+func (p *KafkaPublisher) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
+	return p.publish(ctx, contracts.TopicOrderCreated, strconv.FormatInt(ev.OrderID, 10), ev)
 }
 
 // PublishOrderAccepted 发布 order.accepted 事件。
-func (p *KafkaPublisher) PublishOrderAccepted(ctx context.Context, o *repo.Order) error {
-	return p.publish(ctx, TopicOrderAccepted, o)
+func (p *KafkaPublisher) PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error {
+	return p.publish(ctx, contracts.TopicOrderAccepted, strconv.FormatInt(ev.OrderID, 10), ev)
 }
 
-// NopPublisher 是测试或 dev 占位实现；不打 broker，只记日志。
+// PublishOrderCancelled 发布 order.cancelled 事件。
+func (p *KafkaPublisher) PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error {
+	return p.publish(ctx, contracts.TopicOrderCancelled, strconv.FormatInt(ev.OrderID, 10), ev)
+}
+
+// NopPublisher 是测试或 dev 占位实现。
 type NopPublisher struct {
-	CreatedCount  int
-	AcceptedCount int
+	CreatedCount   int
+	AcceptedCount  int
+	CancelledCount int
 }
 
 // PublishOrderCreated 计数 + 返回。
-func (p *NopPublisher) PublishOrderCreated(ctx context.Context, o *repo.Order) error {
+func (p *NopPublisher) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
 	p.CreatedCount++
 	return nil
 }
 
 // PublishOrderAccepted 计数 + 返回。
-func (p *NopPublisher) PublishOrderAccepted(ctx context.Context, o *repo.Order) error {
+func (p *NopPublisher) PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error {
 	p.AcceptedCount++
+	return nil
+}
+
+// PublishOrderCancelled 计数 + 返回。
+func (p *NopPublisher) PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error {
+	p.CancelledCount++
 	return nil
 }
 

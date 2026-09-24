@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/services/order/internal/repo"
+	"github.com/growdu/doctors/shared/contracts"
 )
 
 // ---------- fake ----------
@@ -46,7 +47,17 @@ func (r *fakeOrderRepo) ListByPatient(ctx context.Context, patientID int64, limi
 	return out, nil
 }
 func (r *fakeOrderRepo) UpdateStatus(ctx context.Context, id int64, to string, ver int, escortID *int64) error {
-	return errors.New("not implemented in fake")
+	for _, o := range r.orders {
+		if o.ID == id && o.Version == ver {
+			o.Status = to
+			o.Version = ver + 1
+			if escortID != nil {
+				o.EscortID = escortID
+			}
+			return nil
+		}
+	}
+	return errors.New("fake: order not found or version mismatch")
 }
 func (r *fakeOrderRepo) InsertEvent(ctx context.Context, orderID int64, from *string, to string, actorID *int64, payload []byte) error {
 	r.events = append(r.events, &repo.OrderEvent{
@@ -78,8 +89,9 @@ func newFakeUserRepo() *fakeUserRepo {
 
 func newService(t *testing.T, oRepo OrderRepo, uRepo UserLookup) *Service {
 	return &Service{
-		orders: oRepo,
-		users:  uRepo,
+		orders:    oRepo,
+		users:     uRepo,
+		clockNow:  time.Now,
 	}
 }
 
@@ -186,4 +198,66 @@ func TestGet_NotFound(t *testing.T) {
 	svc := newService(t, newFakeOrderRepo(), newFakeUserRepo())
 	_, err := svc.Get(context.Background(), 999)
 	assert.Error(t, err)
+}
+// fakePub 验证事件发布被调用。
+type fakePub struct {
+	created   int
+	accepted  int
+	cancelled int
+}
+
+func (p *fakePub) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
+	p.created++
+	return nil
+}
+func (p *fakePub) PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error {
+	p.accepted++
+	return nil
+}
+func (p *fakePub) PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error {
+	p.cancelled++
+	return nil
+}
+func (p *fakePub) Close() error { return nil }
+
+// TestCreate_PublishesOrderCreated 验证 Create 后 OrderCreatedEvent 被发布。
+func TestCreate_PublishesOrderCreated(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	pub := &fakePub{}
+	svc.WithPublisher(pub)
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pub.created)
+	assert.NotZero(t, o.ID)
+}
+
+// TestCancel_PublishesOrderCancelled 验证 Cancel 后 OrderCancelledEvent 被发布。
+func TestCancel_PublishesOrderCancelled(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	pub := &fakePub{}
+	svc.WithPublisher(pub)
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	require.NoError(t, svc.Cancel(context.Background(), o.ID, o.PatientID, "patient changed mind"))
+	assert.Equal(t, 1, pub.cancelled)
+}
+
+// TestNoPublisher_NilSafe 验证 publisher=nil 时业务能跑。
+func TestNoPublisher_NilSafe(t *testing.T) {
+	uRepo := seedVerifiedPatient(newFakeUserRepo())
+	svc := newService(t, newFakeOrderRepo(), uRepo)
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	require.NoError(t, svc.Cancel(context.Background(), o.ID, o.PatientID, "x"))
+}
+
+// ensure contracts imported (avoid unused).
+var _ = contracts.OrderCreatedEvent{}
+
+// helper to seed a verified patient at id=10.
+func seedVerifiedPatient(uRepo *fakeUserRepo) *fakeUserRepo {
+	uRepo.users[10] = &UserSnapshot{ID: 10, Role: "patient", RealNameVerified: true}
+	return uRepo
 }

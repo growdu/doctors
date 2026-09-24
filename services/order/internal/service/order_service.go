@@ -16,8 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/growdu/doctors/services/order/internal/events"
 	"github.com/growdu/doctors/services/order/internal/repo"
 	"github.com/growdu/doctors/services/order/internal/state"
+	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/errs"
 )
 
@@ -45,19 +47,33 @@ type UserSnapshot struct {
 
 // Service 是 order 业务编排器。
 type Service struct {
-	orders   OrderRepo
-	users    UserLookup
-	txRunner TxRunner // 可选；抢单 (Accept) 时必需
+	orders    OrderRepo
+	users     UserLookup
+	txRunner  TxRunner  // 可选；抢单 (Accept) 时必需
+	publisher  events.Publisher // 可选；nil 时不发布事件
+	clockNow  func() time.Time // 用于测试注入时间
 }
 
 // New 装配一个 Service。
 func New(orders OrderRepo, users UserLookup) *Service {
-	return &Service{orders: orders, users: users}
+	return &Service{orders: orders, users: users, clockNow: time.Now}
 }
 
 // WithTx 注入事务执行器（阶段 3.6 接通 PG 后由 main 调）。
 func (s *Service) WithTx(tx TxRunner) *Service {
 	s.txRunner = tx
+	return s
+}
+
+// WithPublisher 注入事件发布器。
+func (s *Service) WithPublisher(p events.Publisher) *Service {
+	s.publisher = p
+	return s
+}
+
+// WithClock 注入时钟（测试用）。
+func (s *Service) WithClock(now func() time.Time) *Service {
+	s.clockNow = now
 	return s
 }
 
@@ -111,6 +127,18 @@ func (s *Service) Create(ctx context.Context, req CreateReq) (*repo.Order, error
 	if err := s.orders.InsertEvent(ctx, o.ID, &from, o.Status, &actor, nil); err != nil {
 		return nil, errs.Wrap(errs.CodeInternal, "insert event", err)
 	}
+
+	// 发布 OrderCreatedEvent（best-effort，不影响主流程）
+	if s.publisher != nil {
+		_ = s.publisher.PublishOrderCreated(ctx, contracts.OrderCreatedEvent{
+			OrderID:        o.ID,
+			PatientID:      o.PatientID,
+			HospitalID:     o.HospitalID,
+			PackageID:      o.PackageID,
+			ServiceStartAt: o.ServiceStartAt.(time.Time),
+			Amount:         o.Amount,
+		})
+	}
 	return o, nil
 }
 
@@ -155,6 +183,16 @@ func (s *Service) Cancel(ctx context.Context, orderID, actorID int64, reason str
 	payload := []byte(fmt.Sprintf(`{"reason":%q}`, reason))
 	if err := s.orders.InsertEvent(ctx, orderID, &fromStr, string(state.StatusCanceled), &actor, payload); err != nil {
 		return errs.Wrap(errs.CodeInternal, "insert event", err)
+	}
+
+	// 发布 OrderCancelledEvent
+	if s.publisher != nil {
+		_ = s.publisher.PublishOrderCancelled(ctx, contracts.OrderCancelledEvent{
+			OrderID:     orderID,
+			CancelledBy: actorID,
+			Reason:      reason,
+			CancelledAt: s.clockNow(),
+		})
 	}
 	return nil
 }
