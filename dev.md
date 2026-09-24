@@ -1201,3 +1201,50 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 
 - 三端契约统一后，把 `lib/models/order.dart` 的 `OrderStatus` 枚举 / `selectedEscortId` 字段改用 generator 生成的代码（v2.1）
 - admin-web OverviewReport 6 指标 → patient-miniapp PatientOverview 4 指标 + admin 自己看的 2 个（pending_refunds / pending_escorts）拆分（v2.1）
+
+---
+
+## 17.6 admin-web 12 类目 MSW handlers 补齐（2026-09-24 admin-web v1 §H1-H8）
+
+**目标**：补齐 admin-web 后台 8 个模块的 MSW handler（除已做的 orders/reports/users/escorts/refunds/wallets），让 admin-web 22 路由全部有可消费的 mock 数据。
+
+**9 个 commit（按 handler 模块 + 汇总顺序）**：
+
+| commit | 内容 | 端点数 |
+| :-- | :-- | :--: |
+| `06217bf` | `feat(admin-web)` MSW handlers work-orders（列表/详情/创建/分配/关闭） | 5 |
+| `8f569f9` | `feat(admin-web)` MSW handlers reviews（列表/详情/审核/回复） | 4 |
+| `2b6b0d8` | `feat(admin-web)` MSW handlers messages（列表/详情/发送/广播） | 4 |
+| `65d36fe` | `feat(admin-web)` MSW handlers sos（列表/详情/处置/升级） | 4 |
+| `5656f98` | `feat(admin-web)` MSW handlers patients（列表/详情/封禁/解封） | 4 |
+| `65e0167` | `feat(admin-web)` MSW handlers hospitals（列表/详情/创建/更新） | 4 |
+| `0051d06` | `feat(admin-web)` MSW handlers packages（列表/详情/创建/更新） | 4 |
+| `15a0926` | `feat(admin-web)` MSW handlers coupons（列表/详情/创建/停用） | 4 |
+| `2335ff8` | `feat(admin-web)` MSW handlers 汇总新增 8 模块导出 | — |
+
+**关键设计**：
+
+1. **响应统一**：`{ code: 0, data: ..., trace_id: "admin-msw-{ms}-{rand}" }`；错误响应 `{ code, message, data: null, trace_id }`，HTTP 200
+2. **错误码 3 档**：`10001` 参数无效（query 缺参）/ `12001` 资源不存在（id 没找到）/ `11003` admin_forbidden（未带 Authorization 头）
+3. **8 个 handler 全部用 `requireAuth(request)` 守卫**：简化 RBAC（仅校验 token 头存在性，与现有 escorts/refunds 等一致）
+4. **每个 handler 配套 .test.ts**：含 5-7 个 vitest + msw/node 用例（按「不实际跑测试」约束；契约样待 vitest 工具链启用后跑）
+5. **seed.ts 已就绪**（§15 commit `cf00383`）：8 模块 fixture 30+ 条，无需新增
+
+**累计**：
+
+- **8 个 handler 文件** + **8 个 test 文件**（共 16 新文件、1598 行）
+- **33 个端点**（work_orders:5 + 其余各 4）
+- **52 个测试用例**
+
+**未做（留给后续）**：
+
+1. 页面侧（`pages/{work-orders,reviews,messages,sos,patients,hospitals,packages,coupons}/*Page.tsx`）仍为 TODO 占位——本批次仅补 handler 骨架，页面接 API 留后续 worker
+2. vitest + msw/node 实际跑测试留待 vitest 工具链在 admin-web 启用后
+3. RBAC 真实角色权限校验未实现（仅做 token 头存在性检查，与现有 escorts/refunds 简化策略一致）
+4. 全部 22 admin-web 路由的菜单挂载（侧边栏 Menu 仍只显示 dashboard/escorts/orders 3 项）
+
+**端到端联通（v1.2 目标）**：
+
+- patient-miniapp 选陪诊师 → match-service 推邀请 → escort-app 30s 倒计时确认 → order-service `accepted → completed` + publish OrderCompletedEvent → wallet T+7 scanner → admin-web 22 路由（dashboard / orders / escorts / refunds / wallets / work-orders / reviews / messages / sos / patients / hospitals / packages / coupons）全部有 mock 数据可消费
+- 三端 trace-id 三处共用：`mp-{ms}-{rand6}` / `escort-{ms}-{rand6}` / 后端 logger.FromContext
+- 全量回归 44 个测试包 0 FAIL
