@@ -1,1380 +1,1241 @@
-# Order Service 陪诊视角扩展（escort list + checkin/checkout）Implementation Plan
+# order-service escort 视角扩展 plan (v2：选人模式)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Spec：`docs/superpowers/specs/2026-09-24-order-matching-redesign.md` §1.2 + §4.1
+> Revision history:
+> - v1 (2026-09-24)：基于「匹配池+抢单」模型，含 `Accept` + `lock_owner`。
+> - v2 (2026-09-24)：切换为「患者选人」模型，删除 `Accept` + `lock_owner`，新增 `SelectEscort` / `ConfirmAccept` / `RejectAccept` 三步流程。配套 state-machine plan (commit 3860cab) 与 order-lock plan (commit bg_e38a70e2) 同步生效。
 
-**Goal:** 解决 `docs/superpowers/specs/2026-09-24-l2-api-gap-design.md` §2.2 escort 端 P0 缺口：`GET /api/v1/orders?role=escort&status=matching`（抢单池 Feed）+ `POST /api/v1/orders/:id/checkin`（到院签到）+ `POST /api/v1/orders/:id/checkout`（服务完成打卡）。复用既有 `state` 状态机 + `repo` 仓储 + `service` 业务编排；不抢 escort-business plan 的 escort 业务字段。
+## Header
 
-**Architecture:** 扩展既有 `services/order`（最小侵入）：迁移 `0006_orders_checkin.up.sql` 加 `checkin_at` / `checkout_at` 列；`repo.OrderRepo` 加 `ListMatching` / `ListByEscort` / `UpdateCheckin` / `UpdateCheckout`；`service.Service` 把 `List(uid, limit, offset)` 重构为 `List(uid, ListParams)`（patient 向后兼容） + 加 `Checkin` / `Checkout` 方法；`handler` 加 `?role=&status=` query 参数透传 + `POST /:id/checkin` + `POST /:id/checkout` 路由；状态机增加 `accepted → in_service` 与 `in_service → completed` 已有动作（无需修改 `transitions`，因为 `accepted → in_service` 和 `in_service → completed` 已存在于既有状态机 `state/machine.go`）。
+### Goal
 
-**Tech Stack:** Go 1.24+ · pgx v5.7 · testify v1.11 · gin v1.10。
+实现 order-service 中"患者从候选 escort 中选定一人，被邀请方在 30 秒窗口内确认/拒绝"的核心交互链。替换 v1 的"匹配池+抢单 Accept"流程，使订单状态机进入 `selecting_escort` → `escort_pending_acceptance` → `accepted`（或回退）。配套新增四个领域事件、三个 HTTP 端点、两个 service 方法（service 侧另有 `RejectAccept`），并接入 Redis `orders:confirm:{order_id}` SETNX 30s 邀请有效期。
 
-**前置依赖:**
-- `2026-09-24-state-machine.md`（transitions 已含 `accepted → in_service` 与 `in_service → completed`）
-- `2026-09-24-order-lock.md`（lock 字段已用 `lock_owner` / `lock_expire_at`，本 plan 不动）
-- `2026-09-24-l2-api-gap-design.md` §2.2 P0 escort 端 API 清单
+### Architecture
 
-**不抢（边界）:**
-- escort 实名 / 健康证 / 培训 / 上线 等业务字段（escort-business plan 处理）
-- GPS 距离校验（escort-business plan 处理；本 plan v1 只验 status）
-- 状态机本身（已有 `accepted → in_service` 与 `in_service → completed`，不修改 `transitions`）
-- review 评价字段（review plan 处理）
+- **DDD 分层**：handler → service → repository，保持现有边界。
+- **状态机**：由 state-machine plan (3860cab) 提供，本 plan 仅消费 `selecting_escort` / `escort_pending_acceptance` 两个新状态。
+- **邀请有效期**：Redis SETNX key `orders:confirm:{order_id}`，TTL 30s，值 `selected_escort_id`。`ConfirmAccept` 必须先 GET 命中且未过期；`RejectAccept` 不消费 TTL，回退到 `selecting_escort` 即清 key。过期由 scheduler 异步检测并强制回退。
+- **依赖接口**：`CandidatesLookup`（按 orderID 返 escortID 列表）与 `AvailabilityLookup`（按 escortID + service_start_at 时间窗返 bool）。两接口由 escort-service 经 gRPC 提供，本 plan 在 `service/port.go` 中定义抽象。
+- **事件总线**：在 `OrderCreated` 之后由匹配模块产出 `OrderCandidatesReadyEvent`；`OrderEscortInvitedEvent` / `OrderEscortConfirmedEvent` / `OrderEscortRejectedEvent` 由本 plan 新增。
 
----
+### Tech Stack
+
+- Go 1.22+ / internal 模块
+- Redis 7 (订单邀请锁与过期扫描)
+- PostgreSQL (订单持久化 + outbox)
+- testify (单测) + testcontainers-go (集成)
+
+### 前置依赖
+
+- state-machine plan 已合并（commit `3860cab`）：状态 `selecting_escort` / `escort_pending_acceptance` 已注册。
+- order-lock plan 已合并（commit `bg_e38a70e2`）：`lock_owner` / `lock_expire_at` 字段已删除；`selected_escort_id` / `escort_pending_expire_at` 字段已迁移；`orders:confirm:{order_id}` Redis SETNX 工具方法 `acquireConfirmLock` / `releaseConfirmLock` 已就绪。
+- matching 模块能产出 `OrderCandidatesReadyEvent`（独立 plan，不在本 plan 范围）。
 
 ## Global Constraints
 
-- Go 1.24+（toolchain go1.24.3）
-- pgx v5.7.1 + gin v1.10
-- 测试覆盖率：业务包 ≥ 80%
-- Commit 节奏：每个 Task 完成立即 commit；前缀 `feat:` / `test:` / `fix:` / `docs:`
-- 所有响应走 `shared/httpx`（业务码在 body）
-- 错误统一 `shared/errs.Error`（业务码 5 位 / 系统码 6 位）
-- v1 checkin 只校验 `status='accepted'`，不引 GPS；escort 业务层的 GPS 校验在 escort-business plan 实现
-- v1 checkout 只校验 `status='in_service'`，且 `checkin_at IS NOT NULL`
-- `ListParams.Role='escort'&Status='matching'` → 抢单池（全局 matching 订单，不限定 escort_id）；其它 escort status → 仅本 escort 的订单
-- `ListParams.Role='escort'&Status=''` → 仅本 escort 的全部订单
-- 向后兼容：patient 不传 `role` 默认走 `ListByPatient`（与既有行为一致）
-- 列新增：`checkin_at TIMESTAMPTZ` / `checkout_at TIMESTAMPTZ`（orders 表，迁移 `0006`）
-
----
+- 每个 task 必须包含 RED → GREEN → Commit 三步；RED 阶段单测必须先失败。
+- 单测必须可独立运行：`go test ./internal/order/service/... -run TestXxx`；集成测试：`go test ./test/integration/... -tags=integration`。
+- 任何修改现存文件的 task 必须保留已有 v1 review 关注的 checkin/checkout 路径（`/orders/:id/checkin`、 `/orders/:id/checkout`）与字段 `0006_orders_checkin` 不动。
+- 所有时间字段统一 UTC；service 层不直接 `time.Now()`，全部通过 `Clock` 注入，便于单测。
+- 错误一律返回 sentinel（`ErrNotInCandidates` / `ErrNotAvailable` / `ErrNotSelected` / `ErrInvitationExpired`），handler 层翻译为 HTTP 4xx。
+- 禁止使用 `panic` 处理业务错误；禁止在 service 内直接调用 DB driver（必须经 repository）。
+- 不在本 plan 修改：state-machine 表（已在 3860cab）、order-lock 工具方法（已在 bg_e38a70e2）、matching 模块（独立 plan）。
+- 每个 commit 信息遵循 Conventional Commits；plan 自身 commit 单独一条 `docs(plan): ...`。
 
 ## File Structure
 
-| 路径 | 变更 | 职责 |
-|------|------|------|
-| `migrations/0006_orders_checkin.up.sql` | Create | orders 表加 `checkin_at` / `checkout_at` 列 + 索引 |
-| `migrations/0006_orders_checkin.down.sql` | Create | 逆向 |
-| `migrations/migrations_test.go` | Modify | 加 `Test0006OrdersCheckinUpDown` |
-| `services/order/internal/repo/order_repo.go` | Modify | `Order` 加字段；`baseSelect` 加列；加 `ListMatching` / `ListByEscort` / `UpdateCheckin` / `UpdateCheckout` |
-| `services/order/internal/repo/order_repo_integration_test.go` | Modify | 加 4 个集成测试（ListMatching / ListByEscort / UpdateCheckin / UpdateCheckout） |
-| `services/order/internal/service/order_service.go` | Modify | `List` 改用 `ListParams`；加 `Checkin` / `Checkout`；`OrderRepo` 接口加 4 个方法 |
-| `services/order/internal/service/order_service_test.go` | Modify | 既有测试适配新签名；加 Checkin / Checkout 单测 |
-| `services/order/internal/handler/order.go` | Modify | `List` 解析 `role` / `status` query；加 `Checkin` / `Checkout` handler；`RegisterRoutes` 加 2 路由 |
-| `services/order/internal/handler/order_test.go` | Modify | `fakeRepo` 加 4 方法；加 List 参数透传测试 + Checkin / Checkout handler 测试 |
-| `docs/04-业务流程.md` | Modify | §5 陪诊端流程加 checkin / checkout |
-| `dev.md` | Modify | §10.13 加 escort-order-ext plan 落地记录 |
+| 路径 | Mode | 职责 |
+|---|---|---|
+| `shared/contracts/events.go` | Modify | 删除 `OrderMatchingEvent`；新增 `OrderCandidatesReadyEvent` / `OrderEscortInvitedEvent` / `OrderEscortConfirmedEvent` / `OrderEscortRejectedEvent` |
+| `internal/order/service/port.go` | Modify | 新增 `CandidatesLookup` / `AvailabilityLookup` 接口 |
+| `internal/order/service/escort_selection.go` | Create | 实现 `SelectEscort` / `ConfirmAccept` / `RejectAccept` |
+| `internal/order/service/errors.go` | Modify | 新增 `ErrNotInCandidates` / `ErrNotAvailable` / `ErrNotSelected` / `ErrInvitationExpired` |
+| `internal/order/repository/order_repo.go` | Modify | 新增 `UpdateSelectedEscort` / `ClearSelectedEscort` / `MarkEscortConfirmed`（涉及字段 `selected_escort_id` / `escort_pending_expire_at` / `escort_id`，由 order-lock plan 提供迁移） |
+| `internal/order/handler/order_handler.go` | Modify | 删除 `Accept`；新增 `SelectEscort` / `ConfirmAccept` / `RejectAccept` handler 方法 |
+| `internal/order/handler/router.go` | Modify | 路由注册：删除 `POST /orders/:id/accept`，新增 `POST /orders/:id/select-escort`、`POST /orders/:id/confirm-accept`、`POST /orders/:id/reject-accept` |
+| `internal/order/handler/list_filter.go` | Modify | `status=invitations` 过滤改为 `escort_pending_acceptance`；保留原有 `pending` / `accepted` / `in_service` 等 |
+| `cmd/order-service/main.go` | Modify | 装配 `CandidatesLookup` / `AvailabilityLookup`（默认实现调 escort-service gRPC stub），注入 `EscortSelectionService` |
+| `internal/scheduler/escort_invite_expiry.go` | Create | 每 5s 扫描 `escort_pending_expire_at < now()` 的订单，强制回退到 `selecting_escort` 并发 `OrderEscortRejectedEvent(reason=timeout)` |
+| `test/integration/escort_selection_e2e_test.go` | Create | 端到端：选人 → 邀请 → 确认；选人拒收回退；邀请超时回退 |
 
 ---
 
-### Task 1: 数据库迁移（orders 加 checkin_at / checkout_at）
+## Task 1: shared/contracts/events.go 事件定义迁移
 
-**Files:**
-- Create: `migrations/0006_orders_checkin.up.sql`
-- Create: `migrations/0006_orders_checkin.down.sql`
-- Modify: `migrations/migrations_test.go`
+### 目标
 
-**Step 1: 写集成测试**
+事件层从"匹配池广播"切到"定向邀请"。删除 `OrderMatchingEvent`，新增四个定向事件。
 
-在 `migrations_test.go` 的 `Test0004RefundsUpDown` 之后追加：
+### Step 1.1 RED — 写测试
+
+新建 `shared/contracts/events_test.go`：
 
 ```go
-// Test0006OrdersCheckinUpDown 验证 0006_orders_checkin 加 checkin_at / checkout_at + 索引。
-// 依赖 0001_users + 0002_orders + 0003_orders_state；测试结束回滚所有变更。
-func Test0006OrdersCheckinUpDown(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := pgx.Connect(ctx, dsn())
-	require.NoError(t, err)
-	defer conn.Close(ctx)
+package contracts
 
-	// 先建 users + orders + state（0006 依赖 lock_owner 等列）
-	for _, f := range []string{"0001_users.up.sql", "0002_orders.up.sql", "0003_orders_state.up.sql"} {
-		sql, _ := os.ReadFile(f)
-		_, err = conn.Exec(ctx, string(sql))
-		require.NoError(t, err)
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestEventNames_Registration(t *testing.T) {
+	// 必须存在的四个事件名
+	for _, name := range []string{
+		"order.candidates.ready",
+		"order.escort.invited",
+		"order.escort.confirmed",
+		"order.escort.rejected",
+	} {
+		_, ok := EventRegistry[name]
+		assert.Truef(t, ok, "event %s must be registered", name)
 	}
-	t.Cleanup(func() {
-		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cleanCancel()
-		cleanConn, err := pgx.Connect(cleanCtx, dsn())
-		if err != nil {
-			return
-		}
-		defer cleanConn.Close(cleanCtx)
-		for _, f := range []string{"0003_orders_state.down.sql", "0002_orders.down.sql", "0001_users.down.sql"} {
-			sql, _ := os.ReadFile(f)
-			_, _ = cleanConn.Exec(cleanCtx, string(sql))
-		}
+}
+
+func TestOrderMatchingEvent_Removed(t *testing.T) {
+	_, ok := EventRegistry["order.matching"]
+	assert.False(t, ok, "OrderMatchingEvent must be removed in v2")
+}
+
+func TestOrderEscortInvitedEvent_PayloadShape(t *testing.T) {
+	ev := OrderEscortInvitedEvent{
+		OrderID:      "ord_123",
+		PatientID:    "pat_1",
+		EscortID:     "esc_2",
+		ExpiresAt:    time.Now().Add(30 * time.Second),
+		ServiceStart: time.Now().Add(2 * time.Hour),
+	}
+	assert.Equal(t, "order.escort.invited", ev.Name())
+	assert.NotEmpty(t, ev.SchemaVersion())
+	assert.NotZero(t, ev.ExpiresAt)
+}
+```
+
+Run:
+
+```
+go test ./shared/contracts/... -run TestEventNames_Registration
+```
+
+Expected: FAIL — `EventRegistry` 不存在；`OrderEscortInvitedEvent` 未定义。
+
+### Step 1.2 GREEN — 实现
+
+修改 `shared/contracts/events.go`：
+
+```go
+package contracts
+
+import "time"
+
+// EventRegistry 全局事件名→类型映射，由各事件 init() 注册。
+var EventRegistry = map[string]Event{}
+
+// Event 最小事件接口
+type Event interface {
+	Name() string
+	SchemaVersion() string
+}
+
+// === 新增事件 ===
+
+type OrderCandidatesReadyEvent struct {
+	OrderID      string    `json:"order_id"`
+	PatientID    string    `json:"patient_id"`
+	CandidateIDs []string  `json:"candidate_ids"`
+	GeneratedAt  time.Time `json:"generated_at"`
+}
+
+func (OrderCandidatesReadyEvent) Name() string           { return "order.candidates.ready" }
+func (OrderCandidatesReadyEvent) SchemaVersion() string  { return "1.0" }
+func init() { EventRegistry["order.candidates.ready"] = OrderCandidatesReadyEvent{} }
+
+type OrderEscortInvitedEvent struct {
+	OrderID      string    `json:"order_id"`
+	PatientID    string    `json:"patient_id"`
+	EscortID     string    `json:"escort_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	ServiceStart time.Time `json:"service_start_at"`
+}
+
+func (OrderEscortInvitedEvent) Name() string          { return "order.escort.invited" }
+func (OrderEscortInvitedEvent) SchemaVersion() string { return "1.0" }
+func init() { EventRegistry["order.escort.invited"] = OrderEscortInvitedEvent{} }
+
+type OrderEscortConfirmedEvent struct {
+	OrderID   string    `json:"order_id"`
+	PatientID string    `json:"patient_id"`
+	EscortID  string    `json:"escort_id"`
+	AcceptedAt time.Time `json:"accepted_at"`
+}
+
+func (OrderEscortConfirmedEvent) Name() string          { return "order.escort.confirmed" }
+func (OrderEscortConfirmedEvent) SchemaVersion() string { return "1.0" }
+func init() { EventRegistry["order.escort.confirmed"] = OrderEscortConfirmedEvent{} }
+
+type OrderEscortRejectedEvent struct {
+	OrderID   string    `json:"order_id"`
+	PatientID string    `json:"patient_id"`
+	EscortID  string    `json:"escort_id"`
+	Reason    string    `json:"reason"` // "patient_rejected" | "timeout" | "explicit_decline"
+	RejectedAt time.Time `json:"rejected_at"`
+}
+
+func (OrderEscortRejectedEvent) Name() string          { return "order.escort.rejected" }
+func (OrderEscortRejectedEvent) SchemaVersion() string { return "1.0" }
+func init() { EventRegistry["order.escort.rejected"] = OrderEscortRejectedEvent{} }
+
+// === 删除 ===
+// OrderMatchingEvent 整段删除；迁移指南见 docs/migrations/v1-to-v2-events.md
+```
+
+Run:
+
+```
+go test ./shared/contracts/...
+```
+
+Expected: PASS。
+
+### Step 1.3 Commit
+
+```
+git add shared/contracts/events.go shared/contracts/events_test.go
+git commit -m "feat(events): replace OrderMatchingEvent with directed escort invitation events
+
+- Remove OrderMatchingEvent (replaced by OrderCandidatesReadyEvent)
+- Add OrderEscortInvitedEvent / OrderEscortConfirmedEvent / OrderEscortRejectedEvent
+- EventRegistry now exposes 4 v2 events with schema version 1.0"
+```
+
+---
+
+## Task 2: service.SelectEscort / ConfirmAccept / RejectAccept 三步实现
+
+### 目标
+
+在 service 层完成"选人→邀请→确认/拒绝"完整业务逻辑，配套 sentinel 错误与仓储更新。
+
+### Step 2.1 RED — service 单测先写
+
+新建 `internal/order/service/escort_selection_test.go`：
+
+```go
+package service
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+)
+
+type MockCandidatesLookup struct{ mock.Mock }
+func (c MockCandidatesLookup) List(ctx context.Context, orderID string) ([]string, error) {
+	args := c.Called(ctx, orderID)
+	return args.Get(0).([]string), args.Error(1)
+}
+type MockAvailabilityLookup struct{ mock.Mock }
+func (a MockAvailabilityLookup) IsAvailable(ctx context.Context, escortID string, at time.Time) (bool, error) {
+	args := a.Called(ctx, escortID, at)
+	return args.Bool(0), args.Error(1)
+}
+
+func TestSelectEscort_RejectsEscortNotInCandidates(t *testing.T) {
+	svc := newTestService(TestDeps{Candidates: MockCandidatesLookup{}})
+	svc.candidates.On("List", mock.Anything, "ord_1").Return([]string{"esc_a"}, nil)
+	err := svc.SelectEscort(context.Background(), "ord_1", "pat_1", "esc_z", time.Now().Add(time.Hour))
+	assert.ErrorIs(t, err, ErrNotInCandidates)
+}
+
+func TestSelectEscort_RejectsUnavailableEscort(t *testing.T) {
+	deps := TestDeps{
+		Candidates: MockCandidatesLookup{},
+		Avail:      MockAvailabilityLookup{},
+	}
+	deps.Candidates.On("List", mock.Anything, "ord_1").Return([]string{"esc_a"}, nil)
+	deps.Avail.On("IsAvailable", mock.Anything, "esc_a", mock.Anything).Return(false, nil)
+	svc := newTestService(deps)
+	err := svc.SelectEscort(context.Background(), "ord_1", "pat_1", "esc_a", time.Now().Add(time.Hour))
+	assert.ErrorIs(t, err, ErrNotAvailable)
+}
+
+func TestConfirmAccept_RejectsNotSelectedEscort(t *testing.T) {
+	svc := newTestService(TestDeps{})
+	_, err := svc.ConfirmAccept(context.Background(), "ord_1", "esc_x")
+	assert.ErrorIs(t, err, ErrNotSelected)
+}
+
+func TestConfirmAccept_RejectsExpired(t *testing.T) {
+	svc := newTestService(TestDeps{Now: func() time.Time { return time.Unix(200, 0) }})
+	svc.selectedEscort = "esc_a"
+	svc.selectedExpireAt = time.Unix(100, 0)
+	_, err := svc.ConfirmAccept(context.Background(), "ord_1", "esc_a")
+	assert.ErrorIs(t, err, ErrInvitationExpired)
+}
+
+func TestRejectAccept_FallsBackToSelectingEscort(t *testing.T) {
+	svc := newTestService(TestDeps{})
+	svc.selectedEscort = "esc_a"
+	err := svc.RejectAccept(context.Background(), "ord_1", "esc_a", "explicit_decline")
+	assert.NoError(t, err)
+	assert.Equal(t, "selecting_escort", svc.currentState)
+	assert.Empty(t, svc.selectedEscort)
+}
+```
+
+Run:
+
+```
+go test ./internal/order/service/... -run TestSelectEscort
+go test ./internal/order/service/... -run TestConfirmAccept
+go test ./internal/order/service/... -run TestRejectAccept
+```
+
+Expected: FAIL — `SelectEscort` / `ConfirmAccept` / `RejectAccept` / sentinel 错误均未定义。
+
+### Step 2.2 GREEN — service 层实现
+
+修改 `internal/order/service/errors.go`：
+
+```go
+package service
+
+import "errors"
+
+var (
+	ErrNotInCandidates   = errors.New("order: escort not in candidates")
+	ErrNotAvailable      = errors.New("order: escort not available in requested window")
+	ErrNotSelected       = errors.New("order: escort is not the selected one")
+	ErrInvitationExpired = errors.New("order: invitation expired")
+)
+```
+
+修改 `internal/order/service/port.go`：
+
+```go
+package service
+
+import (
+	"context"
+	"time"
+)
+
+// CandidatesLookup 返回某订单的候选 escort 列表（由 matching 模块生成）。
+type CandidatesLookup interface {
+	List(ctx context.Context, orderID string) ([]string, error)
+}
+
+// AvailabilityLookup 验证 escort 在某时刻是否空闲。
+type AvailabilityLookup interface {
+	IsAvailable(ctx context.Context, escortID string, at time.Time) (bool, error)
+}
+
+// ConfirmLock 抽象出 Redis SETNX 工具（由 order-lock plan 提供实现）。
+type ConfirmLock interface {
+	Acquire(ctx context.Context, orderID, escortID string, ttl time.Duration) error
+	Get(ctx context.Context, orderID string) (escortID string, err error)
+	Release(ctx context.Context, orderID string) error
+}
+```
+
+新增 `internal/order/service/escort_selection.go`：
+
+```go
+package service
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"doctors/shared/contracts"
+)
+
+// EscortSelectionDeps 注入所有外部依赖，便于单测。
+type EscortSelectionDeps struct {
+	Candidates  CandidatesLookup
+	Avail       AvailabilityLookup
+	Lock        ConfirmLock
+	Repo        OrderRepository
+	Outbox      EventOutbox
+	Clock       func() time.Time // 默认 time.Now
+	InviteTTL   time.Duration    // 默认 30s
+}
+
+// OrderRepository 子集，本任务用到的方法。
+type OrderRepository interface {
+	GetOrder(ctx context.Context, id string) (*Order, error)
+	UpdateSelectedEscort(ctx context.Context, id, escortID string, expireAt time.Time) error
+	ClearSelectedEscort(ctx context.Context, id string) error
+	MarkEscortConfirmed(ctx context.Context, id, escortID string) error
+}
+
+type EventOutbox interface {
+	Append(ctx context.Context, ev contracts.Event) error
+}
+
+// SelectEscort 患者选定 escort；将订单从 selecting_escort 推至 escort_pending_acceptance。
+func (s *OrderService) SelectEscort(ctx context.Context, orderID, patientID, escortID string, serviceStart time.Time) error {
+	if s.clock == nil {
+		s.clock = time.Now
+	}
+	ord, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if ord.PatientID != patientID {
+		return errors.New("order: not owner")
+	}
+	if ord.State != "selecting_escort" {
+		return errors.New("order: invalid state for select")
+	}
+
+	cands, err := s.deps.Candidates.List(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if !contains(cands, escortID) {
+		return ErrNotInCandidates
+	}
+	ok, err := s.deps.Avail.IsAvailable(ctx, escortID, serviceStart)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotAvailable
+	}
+
+	expireAt := s.clock().Add(s.inviteTTL())
+	if err := s.lock.Acquire(ctx, orderID, escortID, s.inviteTTL()); err != nil {
+		return err
+	}
+	if err := s.repo.UpdateSelectedEscort(ctx, orderID, escortID, expireAt); err != nil {
+		_ = s.lock.Release(ctx, orderID)
+		return err
+	}
+	if err := s.repo.TransitionState(ctx, orderID, "escort_pending_acceptance"); err != nil {
+		_ = s.lock.Release(ctx, orderID)
+		return err
+	}
+	return s.outbox.Append(ctx, contracts.OrderEscortInvitedEvent{
+		OrderID:      orderID,
+		PatientID:    patientID,
+		EscortID:     escortID,
+		ExpiresAt:    expireAt,
+		ServiceStart: serviceStart,
 	})
-
-	applyUp(t, "0006_orders_checkin.up.sql", []string{"orders"})
-
-	// 列检查
-	for _, col := range []string{"checkin_at", "checkout_at"} {
-		var found bool
-		err := conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
-			               WHERE table_name='orders' AND column_name=$1)`, col).
-			Scan(&found)
-		require.NoError(t, err)
-		assert.True(t, found, "orders.%s should exist", col)
-	}
-
-	// 索引检查（checkin_at 用于"陪诊师今日已签到订单"查询）
-	var idxExists bool
-	err = conn.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, "idx_orders_escort_checkin").
-		Scan(&idxExists)
-	require.NoError(t, err)
-	assert.True(t, idxExists, "idx_orders_escort_checkin should exist")
-
-	// down 校验
-	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer downCancel()
-	downSQL, err := os.ReadFile("0006_orders_checkin.down.sql")
-	require.NoError(t, err)
-	_, err = conn.Exec(downCtx, string(downSQL))
-	require.NoError(t, err, "apply 0006_orders_checkin.down.sql")
-
-	for _, col := range []string{"checkin_at", "checkout_at"} {
-		var gone bool
-		err := conn.QueryRow(downCtx,
-			`SELECT NOT EXISTS(SELECT 1 FROM information_schema.columns
-			                   WHERE table_name='orders' AND column_name=$1)`, col).
-			Scan(&gone)
-		require.NoError(t, err)
-		assert.True(t, gone, "orders.%s should be gone after down", col)
-	}
-}
-```
-
-**Step 2: 跑测试确认失败**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -tags=integration -count=1 -run Test0006OrdersCheckinUpDown ./migrations/`
-Expected: FAIL — `Test0006OrdersCheckinUpDown` undefined
-
-**Step 3: 写 `0006_orders_checkin.up.sql`**
-
-```sql
--- 0006_orders_checkin.up.sql
--- escort-order-ext plan: 陪诊端 checkin / checkout 时间戳。
--- checkin_at: 陪诊师到院签到（status=accepted → in_service）时写入。
--- checkout_at: 服务完成打卡（status=in_service → completed）时写入。
--- v1 不做 GPS 校验（escort-business plan 处理）；列只记录时间戳。
-
-ALTER TABLE orders
-  ADD COLUMN checkin_at TIMESTAMPTZ,
-  ADD COLUMN checkout_at TIMESTAMPTZ;
-
--- 索引服务于"陪诊师今日已签到订单"等查询（escort-app 个人中心）。
--- 复合 (escort_id, checkin_at DESC) 比单独 (escort_id) 更高效。
-CREATE INDEX idx_orders_escort_checkin ON orders(escort_id, checkin_at DESC)
-  WHERE escort_id IS NOT NULL;
-```
-
-**Step 4: 写 `0006_orders_checkin.down.sql`**
-
-```sql
--- 0006_orders_checkin.down.sql
--- 撤销 0006：删索引 + 删列。
-
-DROP INDEX IF EXISTS idx_orders_escort_checkin;
-ALTER TABLE orders DROP COLUMN IF EXISTS checkout_at;
-ALTER TABLE orders DROP COLUMN IF EXISTS checkin_at;
-```
-
-**Step 5: 跑测试确认通过**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -tags=integration -count=1 -run Test0006OrdersCheckinUpDown ./migrations/`
-Expected: PASS
-
-**Step 6: Commit**
-
-```bash
-git add migrations/
-git commit -m "feat(migrations): 0006 orders checkin_at/checkout_at + idx_orders_escort_checkin"
-```
-
----
-
-### Task 2: repo 扩展 ListMatching / ListByEscort / UpdateCheckin / UpdateCheckout
-
-**Files:**
-- Modify: `services/order/internal/repo/order_repo.go`
-- Modify: `services/order/internal/repo/order_repo_integration_test.go`
-
-**Step 1: 写集成测试（RED）**
-
-在 `services/order/internal/repo/order_repo_integration_test.go` 的 `setupPool` 函数里加 `checkin_at` / `checkout_at` 列定义（确保 schema 与迁移对齐）：
-
-```go
-// setupPool 中的 orders CREATE TABLE 块追加：
-  checkin_at TIMESTAMPTZ,
-  checkout_at TIMESTAMPTZ,
-```
-
-在文件末尾追加 4 个集成测试：
-
-```go
-// TestOrderRepo_ListMatching_GlobalFeed 验证 ListMatching 返回全部 status='matching' 的订单。
-func TestOrderRepo_ListMatching_GlobalFeed(t *testing.T) {
-	pool := setupPool(t)
-	patient1 := seedUser(t, pool, "13800200000", "patient")
-	patient2 := seedUser(t, pool, "13800200001", "patient")
-	r := NewOrderRepo(pool)
-
-	// patient1 一个 matching + 一个 paid（不参与）
-	o1 := sampleOrder(patient1)
-	o1.OrderNo = "O-ext-001"
-	require.NoError(t, r.Create(context.Background(), o1))
-	require.NoError(t, r.UpdateStatus(context.Background(), o1.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o1.ID, "matching", 1, nil))
-
-	// patient2 一个 matching
-	o2 := sampleOrder(patient2)
-	o2.OrderNo = "O-ext-002"
-	require.NoError(t, r.Create(context.Background(), o2))
-	require.NoError(t, r.UpdateStatus(context.Background(), o2.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o2.ID, "matching", 1, nil))
-
-	list, err := r.ListMatching(context.Background(), 10, 0)
-	require.NoError(t, err)
-	assert.Len(t, list, 2, "两个 matching 订单应在抢单池")
 }
 
-// TestOrderRepo_ListMatching_ExcludesOthers 验证 ListMatching 不返回非 matching 订单。
-func TestOrderRepo_ListMatching_ExcludesOthers(t *testing.T) {
-	pool := setupPool(t)
-	patient := seedUser(t, pool, "13800200010", "patient")
-	escort := seedUser(t, pool, "13800200011", "escort")
-	r := NewOrderRepo(pool)
-
-	o := sampleOrder(patient)
-	o.OrderNo = "O-ext-003"
-	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "accepted", 2, &escort))
-
-	list, err := r.ListMatching(context.Background(), 10, 0)
-	require.NoError(t, err)
-	assert.Empty(t, list, "accepted 订单不应在抢单池")
-}
-
-// TestOrderRepo_ListByEscort 验证 ListByEscort 按 escort_id + status 过滤。
-func TestOrderRepo_ListByEscort(t *testing.T) {
-	pool := setupPool(t)
-	patient := seedUser(t, pool, "13800200020", "patient")
-	escort1 := seedUser(t, pool, "13800200021", "escort")
-	escort2 := seedUser(t, pool, "13800200022", "escort")
-	r := NewOrderRepo(pool)
-
-	// escort1 接 2 单（1 个 accepted + 1 个 in_service）
-	o1 := sampleOrder(patient)
-	o1.OrderNo = "O-ext-004"
-	require.NoError(t, r.Create(context.Background(), o1))
-	require.NoError(t, r.UpdateStatus(context.Background(), o1.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o1.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o1.ID, "accepted", 2, &escort1))
-
-	o2 := sampleOrder(patient)
-	o2.OrderNo = "O-ext-005"
-	require.NoError(t, r.Create(context.Background(), o2))
-	require.NoError(t, r.UpdateStatus(context.Background(), o2.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o2.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o2.ID, "accepted", 2, &escort1))
-	require.NoError(t, r.UpdateStatus(context.Background(), o2.ID, "in_service", 3, nil))
-
-	// escort2 接 1 单（accepted）—— 不应出现在 escort1 列表
-	o3 := sampleOrder(patient)
-	o3.OrderNo = "O-ext-006"
-	require.NoError(t, r.Create(context.Background(), o3))
-	require.NoError(t, r.UpdateStatus(context.Background(), o3.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o3.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o3.ID, "accepted", 2, &escort2))
-
-	// 只查 accepted 状态
-	list, err := r.ListByEscort(context.Background(), escort1, "accepted", 10, 0)
-	require.NoError(t, err)
-	assert.Len(t, list, 1)
-	assert.Equal(t, o1.ID, list[0].ID)
-
-	// 只查 in_service 状态
-	list, err = r.ListByEscort(context.Background(), escort1, "in_service", 10, 0)
-	require.NoError(t, err)
-	assert.Len(t, list, 1)
-	assert.Equal(t, o2.ID, list[0].ID)
-
-	// 不传 status：返回 escort1 全部订单（2 条）
-	list, err = r.ListByEscort(context.Background(), escort1, "", 10, 0)
-	require.NoError(t, err)
-	assert.Len(t, list, 2)
-}
-
-// TestOrderRepo_UpdateCheckin_OK 验证 accepted → in_service + 写 checkin_at。
-func TestOrderRepo_UpdateCheckin_OK(t *testing.T) {
-	pool := setupPool(t)
-	patient := seedUser(t, pool, "13800200030", "patient")
-	escort := seedUser(t, pool, "13800200031", "escort")
-	r := NewOrderRepo(pool)
-
-	o := sampleOrder(patient)
-	o.OrderNo = "O-ext-007"
-	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "accepted", 2, &escort))
-
-	require.NoError(t, r.UpdateCheckin(context.Background(), o.ID, 2))
-
-	got, _ := r.FindByID(context.Background(), o.ID)
-	assert.Equal(t, "in_service", got.Status)
-	require.NotNil(t, got.CheckinAt)
-	assert.WithinDuration(t, time.Now(), *got.CheckinAt, 5*time.Second)
-}
-
-// TestOrderRepo_UpdateCheckin_WrongStatus 验证非 accepted 状态签到返回 ErrInvalidStateForCheckin。
-func TestOrderRepo_UpdateCheckin_WrongStatus(t *testing.T) {
-	pool := setupPool(t)
-	patient := seedUser(t, pool, "13800200032", "patient")
-	r := NewOrderRepo(pool)
-
-	o := sampleOrder(patient) // status='created'
-	o.OrderNo = "O-ext-008"
-	require.NoError(t, r.Create(context.Background(), o))
-
-	err := r.UpdateCheckin(context.Background(), o.ID, 0)
-	assert.ErrorIs(t, err, ErrInvalidStateForCheckin)
-}
-
-// TestOrderRepo_UpdateCheckout_OK 验证 in_service → completed + 写 checkout_at。
-func TestOrderRepo_UpdateCheckout_OK(t *testing.T) {
-	pool := setupPool(t)
-	patient := seedUser(t, pool, "13800200040", "patient")
-	escort := seedUser(t, pool, "13800200041", "escort")
-	r := NewOrderRepo(pool)
-
-	o := sampleOrder(patient)
-	o.OrderNo = "O-ext-009"
-	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "accepted", 2, &escort))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "in_service", 3, nil))
-
-	require.NoError(t, r.UpdateCheckout(context.Background(), o.ID, 4))
-
-	got, _ := r.FindByID(context.Background(), o.ID)
-	assert.Equal(t, "completed", got.Status)
-	require.NotNil(t, got.CheckoutAt)
-	assert.WithinDuration(t, time.Now(), *got.CheckoutAt, 5*time.Second)
-}
-
-// TestOrderRepo_UpdateCheckout_NotInService 验证非 in_service 状态打卡返回 ErrInvalidStateForCheckout。
-func TestOrderRepo_UpdateCheckout_NotInService(t *testing.T) {
-	pool := setupPool(t)
-	patient := seedUser(t, pool, "13800200042", "patient")
-	escort := seedUser(t, pool, "13800200043", "escort")
-	r := NewOrderRepo(pool)
-
-	o := sampleOrder(patient)
-	o.OrderNo = "O-ext-010"
-	require.NoError(t, r.Create(context.Background(), o))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "paid", 0, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "matching", 1, nil))
-	require.NoError(t, r.UpdateStatus(context.Background(), o.ID, "accepted", 2, &escort))
-
-	err := r.UpdateCheckout(context.Background(), o.ID, 3)
-	assert.ErrorIs(t, err, ErrInvalidStateForCheckout)
-}
-```
-
-**Step 2: 跑测试确认失败**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -tags=integration -count=1 -run 'TestOrderRepo_(ListMatching|ListByEscort|UpdateCheckin|UpdateCheckout)' ./services/order/internal/repo/`
-Expected: FAIL — `undefined: ListMatching`, `undefined: ListByEscort`, `undefined: UpdateCheckin`, `undefined: UpdateCheckout`, `undefined: ErrInvalidStateForCheckin`, `undefined: ErrInvalidStateForCheckout`
-
-**Step 3: 扩展 order_repo.go**
-
-`services/order/internal/repo/order_repo.go`：
-
-```go
-// Order 映射 orders 表行。CheckinAt / CheckoutAt 由 0006 迁移添加。
-type Order struct {
-	ID             int64
-	OrderNo        string
-	PatientID      int64
-	EscortID       *int64
-	HospitalID     int64
-	PackageID      int64
-	ServiceStartAt any // 借 `time.Time`；这里用 any 是为避免顶层 import 复杂化
-	Amount         float64
-	FinalAmount    float64
-	Status         string
-	Version        int
-	LockOwner      *int64     // pending_acceptance 锁单持有者；nil 表示未锁
-	LockExpireAt   *time.Time // 锁单超时时间；nil 表示未锁
-	CheckinAt      *time.Time // 陪诊端 checkin 时间戳；nil = 未签到
-	CheckoutAt     *time.Time // 陪诊端 checkout 时间戳；nil = 未打卡
-}
-```
-
-哨兵（按既有 `ErrInvalidStateForLock` 紧邻追加）：
-
-```go
-// ErrInvalidStateForCheckin 是 checkin 时订单不在 accepted 的哨兵。
-var ErrInvalidStateForCheckin = errors.New("repo: order not in accepted state for checkin")
-
-// ErrInvalidStateForCheckout 是 checkout 时订单不在 in_service 的哨兵。
-var ErrInvalidStateForCheckout = errors.New("repo: order not in in_service state for checkout")
-```
-
-`baseSelect` 加列：
-
-```go
-// baseSelect 是 SELECT 子句。
-const baseSelect = `
-	SELECT id, order_no, patient_id, escort_id, hospital_id, package_id,
-	       service_start_at, amount, final_amount, status, version,
-	       lock_owner, lock_expire_at, checkin_at, checkout_at
-	FROM orders`
-```
-
-`scanOne` / `scanRow` 同步加列：
-
-```go
-// scanOne 把单行扫描为 *Order。
-func (r *OrderRepo) scanOne(row pgx.Row) (*Order, error) {
-	o := &Order{}
-	if err := row.Scan(
-		&o.ID, &o.OrderNo, &o.PatientID, &o.EscortID, &o.HospitalID, &o.PackageID,
-		&o.ServiceStartAt, &o.Amount, &o.FinalAmount, &o.Status, &o.Version,
-		&o.LockOwner, &o.LockExpireAt, &o.CheckinAt, &o.CheckoutAt,
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrOrderNotFound
-		}
-		return nil, fmt.Errorf("scan order: %w", err)
-	}
-	return o, nil
-}
-
-// scanRow 把 pgx.Rows 的一行扫描为 *Order。
-func (r *OrderRepo) scanRow(rows pgx.Rows) (*Order, error) {
-	o := &Order{}
-	if err := rows.Scan(
-		&o.ID, &o.OrderNo, &o.PatientID, &o.EscortID, &o.HospitalID, &o.PackageID,
-		&o.ServiceStartAt, &o.Amount, &o.FinalAmount, &o.Status, &o.Version,
-		&o.LockOwner, &o.LockExpireAt, &o.CheckinAt, &o.CheckoutAt,
-	); err != nil {
+// ConfirmAccept escort 接受邀请；订单进入 accepted，写 escort_id。
+func (s *OrderService) ConfirmAccept(ctx context.Context, orderID, escortID string) (*Order, error) {
+	ord, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
 		return nil, err
 	}
-	return o, nil
+	if ord.SelectedEscortID != escortID {
+		return nil, ErrNotSelected
+	}
+	if !s.clock().Before(ord.EscortPendingExpireAt) {
+		return nil, ErrInvitationExpired
+	}
+	if err := s.repo.MarkEscortConfirmed(ctx, orderID, escortID); err != nil {
+		return nil, err
+	}
+	if err := s.repo.TransitionState(ctx, orderID, "accepted"); err != nil {
+		return nil, err
+	}
+	_ = s.lock.Release(ctx, orderID)
+	if err := s.outbox.Append(ctx, contracts.OrderEscortConfirmedEvent{
+		OrderID: orderID, PatientID: ord.PatientID, EscortID: escortID, AcceptedAt: s.clock(),
+	}); err != nil {
+		return nil, err
+	}
+	return s.repo.GetOrder(ctx, orderID)
+}
+
+// RejectAccept escort 拒绝邀请；订单回退至 selecting_escort，清 selected_escort_id。
+func (s *OrderService) RejectAccept(ctx context.Context, orderID, escortID, reason string) error {
+	ord, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if ord.SelectedEscortID != escortID {
+		return ErrNotSelected
+	}
+	if err := s.repo.ClearSelectedEscort(ctx, orderID); err != nil {
+		return err
+	}
+	if err := s.repo.TransitionState(ctx, orderID, "selecting_escort"); err != nil {
+		return err
+	}
+	_ = s.lock.Release(ctx, orderID)
+	return s.outbox.Append(ctx, contracts.OrderEscortRejectedEvent{
+		OrderID: orderID, PatientID: ord.PatientID, EscortID: escortID,
+		Reason: reason, RejectedAt: s.clock(),
+	})
+}
+
+func (s *OrderService) inviteTTL() time.Duration {
+	if s.deps.InviteTTL > 0 {
+		return s.deps.InviteTTL
+	}
+	return 30 * time.Second
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }
 ```
 
-4 个新方法（追加到 `LockExpired` 之后）：
+`repository/order_repo.go`（仅本 task 涉及的修改片段）：
 
 ```go
-// ListMatching 返回 status='matching' 的订单（抢单池 Feed；不限定 escort_id）。
-// 按 service_start_at ASC 排序：最先开始的单排前面（陪诊师优先接急单）。
-func (r *OrderRepo) ListMatching(ctx context.Context, limit, offset int) ([]*Order, error) {
-	const q = baseSelect + ` WHERE status = 'matching' AND deleted_at IS NULL
-	                         ORDER BY service_start_at ASC LIMIT $1 OFFSET $2`
-	rows, err := r.pool.Query(ctx, q, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("list matching: %w", err)
-	}
-	defer rows.Close()
-	out := make([]*Order, 0)
-	for rows.Next() {
-		o, err := r.scanRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+func (r *OrderRepo) UpdateSelectedEscort(ctx context.Context, id, escortID string, expireAt time.Time) error {
+	const q = `UPDATE orders SET selected_escort_id=$2, escort_pending_expire_at=$3, updated_at=now() WHERE id=$1`
+	_, err := r.db.ExecContext(ctx, q, id, escortID, expireAt)
+	return err
 }
 
-// ListByEscort 按 escort_id + 可选 status 过滤；status 为空时返回 escort 全部订单。
-// 按 service_start_at DESC 排序：最近的服务排前面。
-func (r *OrderRepo) ListByEscort(ctx context.Context, escortID int64, status string, limit, offset int) ([]*Order, error) {
-	q := baseSelect + ` WHERE escort_id = $1 AND deleted_at IS NULL`
-	args := []any{escortID}
-	if status != "" {
-		q += ` AND status = $2`
-		args = append(args, status)
-		q += ` ORDER BY service_start_at DESC LIMIT $3 OFFSET $4`
-		args = append(args, limit, offset)
-	} else {
-		q += ` ORDER BY service_start_at DESC LIMIT $2 OFFSET $3`
-		args = append(args, limit, offset)
-	}
-	rows, err := r.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list by escort: %w", err)
-	}
-	defer rows.Close()
-	out := make([]*Order, 0)
-	for rows.Next() {
-		o, err := r.scanRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+func (r *OrderRepo) ClearSelectedEscort(ctx context.Context, id string) error {
+	const q = `UPDATE orders SET selected_escort_id=NULL, escort_pending_expire_at=NULL, updated_at=now() WHERE id=$1`
+	_, err := r.db.ExecContext(ctx, q, id)
+	return err
 }
 
-// UpdateCheckin 把 accepted 状态订单签到 → in_service + 写 checkin_at。
-// v1 不引 GPS 校验（escort-business plan 处理）；只校验 status=accepted。
-func (r *OrderRepo) UpdateCheckin(ctx context.Context, id int64, expectVersion int) error {
-	const q = `
-		UPDATE orders
-		   SET status = 'in_service', checkin_at = NOW(),
-		       version = version + 1, updated_at = NOW()
-		 WHERE id = $1 AND version = $2 AND status = 'accepted' AND deleted_at IS NULL`
-	tag, err := r.pool.Exec(ctx, q, id, expectVersion)
-	if err != nil {
-		return fmt.Errorf("update checkin: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		// 区分版本冲突与状态非法
-		var curStatus string
-		var curVer int
-		_ = r.pool.QueryRow(ctx, "SELECT status, version FROM orders WHERE id=$1", id).Scan(&curStatus, &curVer)
-		if curVer != expectVersion {
-			return ErrVersionConflict
-		}
-		return ErrInvalidStateForCheckin
-	}
-	return nil
-}
-
-// UpdateCheckout 把 in_service 状态订单打卡 → completed + 写 checkout_at。
-// 校验 status=in_service 且 checkin_at IS NOT NULL（先签到才能打卡）。
-func (r *OrderRepo) UpdateCheckout(ctx context.Context, id int64, expectVersion int) error {
-	const q = `
-		UPDATE orders
-		   SET status = 'completed', checkout_at = NOW(),
-		       version = version + 1, updated_at = NOW()
-		 WHERE id = $1 AND version = $2 AND status = 'in_service'
-		       AND checkin_at IS NOT NULL AND deleted_at IS NULL`
-	tag, err := r.pool.Exec(ctx, q, id, expectVersion)
-	if err != nil {
-		return fmt.Errorf("update checkout: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		var curStatus string
-		var curVer int
-		_ = r.pool.QueryRow(ctx, "SELECT status, version FROM orders WHERE id=$1", id).Scan(&curStatus, &curVer)
-		if curVer != expectVersion {
-			return ErrVersionConflict
-		}
-		return ErrInvalidStateForCheckout
-	}
-	return nil
+func (r *OrderRepo) MarkEscortConfirmed(ctx context.Context, id, escortID string) error {
+	const q = `UPDATE orders SET escort_id=$2, updated_at=now() WHERE id=$1`
+	_, err := r.db.ExecContext(ctx, q, id, escortID)
+	return err
 }
 ```
-
-**Step 4: 跑测试确认通过**
 
 Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -tags=integration -count=1 -run 'TestOrderRepo_(ListMatching|ListByEscort|UpdateCheckin|UpdateCheckout)' ./services/order/internal/repo/
+
 ```
-Expected: PASS（7 个测试全过）
+go test ./internal/order/service/...
+```
 
-**Step 5: 跑全量集成测试，确认不破坏既有 6 个**
+Expected: PASS。
 
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -tags=integration -count=1 ./services/order/internal/repo/`
-Expected: PASS（既有 6 + 新增 7 = 13 个）
+### Step 2.3 Commit
 
-**Step 6: Commit**
+```
+git add internal/order/service/escort_selection.go \
+        internal/order/service/escort_selection_test.go \
+        internal/order/service/errors.go \
+        internal/order/service/port.go \
+        internal/order/repository/order_repo.go
+git commit -m "feat(order-service): add SelectEscort/ConfirmAccept/RejectAccept three-step flow
 
-```bash
-git add services/order/internal/repo/
-git commit -m "feat(order): repo 加 ListMatching / ListByEscort / UpdateCheckin / UpdateCheckout (7 集成测试)"
+- ErrNotInCandidates / ErrNotAvailable / ErrNotSelected / ErrInvitationExpired sentinels
+- CandidatesLookup + AvailabilityLookup ports
+- EscortSelectionService transitions selecting_escort -> escort_pending_acceptance -> accepted
+- Redis SETNX orders:confirm:{order_id} 30s via ConfirmLock port"
 ```
 
 ---
 
-### Task 3: service 扩展 ListParams + Checkin / Checkout
+## Task 3: handler 路由注册（删 accept，加 select-escort/confirm-accept/reject-accept）
 
-**Files:**
-- Modify: `services/order/internal/service/order_service.go`
-- Modify: `services/order/internal/service/order_service_test.go`
+### 目标
 
-**Step 1: 扩展 service 测试（先 fake repo 加方法 + 写新单测）**
+HTTP 层暴露三个新端点，删除原 `POST /orders/:id/accept`。
 
-在 `services/order/internal/service/order_service_test.go` 的 `fakeRepo`（既有 fake 实现 OrderRepo 接口）追加 4 个方法（参考 `LockForAccept` 等的实现风格，按内存 map 模拟）：
+### Step 3.1 RED — handler 单测
+
+新建 `internal/order/handler/order_handler_test.go`：
 
 ```go
-// 抢单池 Feed（不限定 escort_id）：列出所有 status='matching' 的订单。
-func (r *fakeRepo) ListMatching(ctx context.Context, limit, offset int) ([]*repo.Order, error) {
-	out := make([]*repo.Order, 0)
-	for _, o := range r.orders {
-		if o.Status == "matching" {
-			out = append(out, o)
-		}
-	}
-	return out, nil
+package handler
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestSelectEscortRoute_Registered(t *testing.T) {
+	r := buildTestRouter()
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{"escort_id": "esc_a"})
+	req := httptest.NewRequest(http.MethodPost, "/orders/ord_1/select-escort", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Patient-ID", "pat_1")
+	r.ServeHTTP(w, req)
+	assert.NotEqual(t, http.StatusNotFound, w.Code, "select-escort must be registered")
 }
 
-// 陪诊师视角：按 escort_id + 可选 status 过滤。
-func (r *fakeRepo) ListByEscort(ctx context.Context, escortID int64, status string, limit, offset int) ([]*repo.Order, error) {
-	out := make([]*repo.Order, 0)
-	for _, o := range r.orders {
-		if o.EscortID == nil || *o.EscortID != escortID {
-			continue
-		}
-		if status != "" && o.Status != status {
-			continue
-		}
-		out = append(out, o)
-	}
-	return out, nil
+func TestAcceptRoute_Removed(t *testing.T) {
+	r := buildTestRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/orders/ord_1/accept", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code, "old accept route must be removed")
 }
 
-// 签到：accepted → in_service + 写 checkin_at。
-func (r *fakeRepo) UpdateCheckin(ctx context.Context, id int64, expectVersion int) error {
-	o, ok := r.orders[id]
-	if !ok {
-		return repo.ErrOrderNotFound
-	}
-	if o.Version != expectVersion {
-		return repo.ErrVersionConflict
-	}
-	if o.Status != "accepted" {
-		return repo.ErrInvalidStateForCheckin
-	}
-	now := time.Now()
-	o.Status = "in_service"
-	o.CheckinAt = &now
-	o.Version++
-	return nil
+func TestConfirmAcceptRoute_Registered(t *testing.T) {
+	r := buildTestRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/orders/ord_1/confirm-accept", nil)
+	req.ServeHTTP(w, req)
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
 
-// 打卡：in_service → completed + 写 checkout_at。
-func (r *fakeRepo) UpdateCheckout(ctx context.Context, id int64, expectVersion int) error {
-	o, ok := r.orders[id]
-	if !ok {
-		return repo.ErrOrderNotFound
-	}
-	if o.Version != expectVersion {
-		return repo.ErrVersionConflict
-	}
-	if o.Status != "in_service" {
-		return repo.ErrInvalidStateForCheckout
-	}
-	now := time.Now()
-	o.Status = "completed"
-	o.CheckoutAt = &now
-	o.Version++
-	return nil
+func TestRejectAcceptRoute_Registered(t *testing.T) {
+	r := buildTestRouter()
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{"reason": "explicit_decline"})
+	req := httptest.NewRequest(http.MethodPost, "/orders/ord_1/reject-accept", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
 ```
 
-> **说明**：既有 fakeRepo 的 OrderRepo 接口实现（Create / FindByID / ListByPatient / UpdateStatus / InsertEvent / ListEvents / LockForAccept / ReleaseLock / LockExpired）在既有文件中已存在；本 Task 只追加 4 个新方法。
+Run:
 
-接着在文件末尾追加 service 层的单测：
+```
+go test ./internal/order/handler/...
+```
+
+Expected: FAIL — 新路由未注册，旧 accept 仍在。
+
+### Step 3.2 GREEN — handler 实现
+
+修改 `internal/order/handler/order_handler.go`：
 
 ```go
-// TestService_ListEscortMatching 验证 role=escort&status=matching 走 ListMatching。
-func TestService_ListEscortMatching(t *testing.T) {
-	fr := newFakeRepo()
-	users := map[int64]*service.UserSnapshot{
-		1: {ID: 1, Role: "escort", RealNameVerified: true},
-	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
+package handler
 
-	// 注入一个 matching 订单
-	o := &repo.Order{OrderNo: "O-svc-001", PatientID: 99, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100, Status: "matching", Version: 0}
-	require.NoError(t, fr.Create(context.Background(), o))
+import (
+	"errors"
+	"net/http"
 
-	list, err := svc.List(context.Background(), 1, service.ListParams{
-		Role: "escort", Status: "matching", Limit: 10, Offset: 0,
-	})
-	require.NoError(t, err)
-	assert.Len(t, list, 1, "matching 订单应在抢单池")
+	"github.com/gin-gonic/gin"
+
+	"doctors/internal/order/service"
+)
+
+type SelectEscortReq struct {
+	EscortID string `json:"escort_id" binding:"required"`
 }
 
-// TestService_ListEscortMyOrders 验证 role=escort 不传 status 走 ListByEscort。
-func TestService_ListEscortMyOrders(t *testing.T) {
-	fr := newFakeRepo()
-	escort := int64(1)
-	users := map[int64]*service.UserSnapshot{
-		1: {ID: escort, Role: "escort", RealNameVerified: true},
+func (h *OrderHandler) SelectEscort(c *gin.Context) {
+	orderID := c.Param("id")
+	patientID := c.GetHeader("X-Patient-ID")
+	var req SelectEscortReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	// 注入 escort 已接订单
-	eid := escort
-	o := &repo.Order{OrderNo: "O-svc-002", PatientID: 99, EscortID: &eid, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100, Status: "accepted", Version: 0}
-	require.NoError(t, fr.Create(context.Background(), o))
-
-	list, err := svc.List(context.Background(), escort, service.ListParams{
-		Role: "escort", Limit: 10, Offset: 0,
-	})
-	require.NoError(t, err)
-	assert.Len(t, list, 1, "escort 自己的订单应返回")
+	svcStart, _ := h.fetchServiceStart(c, orderID) // 经 repo 读 service_start_at
+	if err := h.svc.SelectEscort(c.Request.Context(), orderID, patientID, req.EscortID, svcStart); err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"status": "escort_pending_acceptance"})
 }
 
-// TestService_ListPatientBackwards 验证不传 role 默认走 ListByPatient（向后兼容）。
-func TestService_ListPatientBackwards(t *testing.T) {
-	fr := newFakeRepo()
-	patient := int64(1)
-	users := map[int64]*service.UserSnapshot{
-		1: {ID: patient, Role: "patient", RealNameVerified: true},
+type ConfirmAcceptReq struct{}
+
+func (h *OrderHandler) ConfirmAccept(c *gin.Context) {
+	orderID := c.Param("id")
+	escortID := c.GetHeader("X-Escort-ID")
+	ord, err := h.svc.ConfirmAccept(c.Request.Context(), orderID, escortID)
+	if err != nil {
+		writeServiceError(c, err)
+		return
 	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	o := &repo.Order{OrderNo: "O-svc-003", PatientID: patient, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100, Status: "created", Version: 0}
-	require.NoError(t, fr.Create(context.Background(), o))
-
-	list, err := svc.List(context.Background(), patient, service.ListParams{Limit: 10, Offset: 0})
-	require.NoError(t, err)
-	assert.Len(t, list, 1)
+	c.JSON(http.StatusOK, ord)
 }
 
-// TestService_Checkin_OK 验证 accepted 状态签到成功。
-func TestService_Checkin_OK(t *testing.T) {
-	fr := newFakeRepo()
-	escort := int64(2)
-	users := map[int64]*service.UserSnapshot{
-		2: {ID: escort, Role: "escort", RealNameVerified: true},
-	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	eid := escort
-	o := &repo.Order{ID: 100, OrderNo: "O-svc-004", PatientID: 99, EscortID: &eid, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100, Status: "accepted", Version: 5}
-	fr.orders[o.ID] = o
-	fr.events = nil
-
-	err := svc.Checkin(context.Background(), o.ID, escort)
-	require.NoError(t, err)
-	assert.Equal(t, "in_service", o.Status)
-	require.NotNil(t, o.CheckinAt)
-	require.NotEmpty(t, fr.events, "InsertEvent 应被调用")
-	assert.Equal(t, "in_service", fr.events[0].ToStatus)
+type RejectAcceptReq struct {
+	Reason string `json:"reason" binding:"required"`
 }
 
-// TestService_Checkin_NotEscort 验证非 escort 签到返回 CodeForbidden。
-func TestService_Checkin_NotEscort(t *testing.T) {
-	fr := newFakeRepo()
-	users := map[int64]*service.UserSnapshot{
-		1: {ID: 1, Role: "patient", RealNameVerified: true},
+func (h *OrderHandler) RejectAccept(c *gin.Context) {
+	orderID := c.Param("id")
+	escortID := c.GetHeader("X-Escort-ID")
+	var req RejectAcceptReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	err := svc.Checkin(context.Background(), 100, 1)
-	require.Error(t, err)
-	e, ok := errs.As(err)
-	require.True(t, ok)
-	assert.Equal(t, errs.CodeForbidden, e.Code)
+	if err := h.svc.RejectAccept(c.Request.Context(), orderID, escortID, req.Reason); err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "selecting_escort"})
 }
 
-// TestService_Checkin_WrongState 验证非 accepted 状态签到返回 CodeConflict。
-func TestService_Checkin_WrongState(t *testing.T) {
-	fr := newFakeRepo()
-	escort := int64(2)
-	users := map[int64]*service.UserSnapshot{
-		2: {ID: escort, Role: "escort", RealNameVerified: true},
+// Accept 删除；不再导出。
+
+func writeServiceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrNotInCandidates):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrNotAvailable):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrNotSelected):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrInvitationExpired):
+		c.JSON(http.StatusGone, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	o := &repo.Order{ID: 101, OrderNo: "O-svc-005", PatientID: 99, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100, Status: "created", Version: 0}
-	fr.orders[o.ID] = o
-
-	err := svc.Checkin(context.Background(), o.ID, escort)
-	require.Error(t, err)
-	e, ok := errs.As(err)
-	require.True(t, ok)
-	assert.Equal(t, errs.CodeConflict, e.Code)
-}
-
-// TestService_Checkout_OK 验证 in_service + 已签到 → completed。
-func TestService_Checkout_OK(t *testing.T) {
-	fr := newFakeRepo()
-	escort := int64(2)
-	users := map[int64]*service.UserSnapshot{
-		2: {ID: escort, Role: "escort", RealNameVerified: true},
-	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	now := time.Now().Add(-time.Minute)
-	eid := escort
-	o := &repo.Order{ID: 200, OrderNo: "O-svc-006", PatientID: 99, EscortID: &eid, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100,
-		Status: "in_service", Version: 7, CheckinAt: &now}
-	fr.orders[o.ID] = o
-
-	err := svc.Checkout(context.Background(), o.ID, escort)
-	require.NoError(t, err)
-	assert.Equal(t, "completed", o.Status)
-	require.NotNil(t, o.CheckoutAt)
-}
-
-// TestService_Checkout_NotCheckedIn 验证未签到的订单打卡返回 CodeConflict。
-func TestService_Checkout_NotCheckedIn(t *testing.T) {
-	fr := newFakeRepo()
-	escort := int64(2)
-	users := map[int64]*service.UserSnapshot{
-		2: {ID: escort, Role: "escort", RealNameVerified: true},
-	}
-	svc := service.New(fr, &fakeUserLookup{users: users})
-
-	eid := escort
-	o := &repo.Order{ID: 201, OrderNo: "O-svc-007", PatientID: 99, EscortID: &eid, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100,
-		Status: "in_service", Version: 7, CheckinAt: nil}
-	fr.orders[o.ID] = o
-
-	err := svc.Checkout(context.Background(), o.ID, escort)
-	require.Error(t, err)
-	e, ok := errs.As(err)
-	require.True(t, ok)
-	assert.Equal(t, errs.CodeConflict, e.Code)
 }
 ```
 
-**Step 2: 跑测试确认失败**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 -run 'TestService_(ListEscortMatching|ListEscortMyOrders|ListPatientBackwards|Checkin|Checkout)' ./services/order/internal/service/`
-Expected: FAIL — `undefined: service.ListParams`, `undefined: Service.Checkin`, `undefined: Service.Checkout`
-
-**Step 3: 扩展 order_service.go**
-
-`OrderRepo` 接口加 4 个方法（紧邻既有 `LockExpired` 之后）：
+修改 `internal/order/handler/router.go`：
 
 ```go
-// OrderRepo 是仓储最小契约。
+package handler
+
+import "github.com/gin-gonic/gin"
+
+func RegisterOrderRoutes(r *gin.Engine, h *OrderHandler) {
+	g := r.Group("/orders")
+	g.GET("", h.List)
+	g.POST("", h.Create)
+	g.GET(":id", h.Get)
+	g.POST(":id/cancel", h.Cancel)
+	g.POST(":id/checkin", h.CheckIn)    // v1 review 保留
+	g.POST(":id/checkout", h.CheckOut)  // v1 review 保留
+	g.POST(":id/select-escort", h.SelectEscort)
+	g.POST(":id/confirm-accept", h.ConfirmAccept)
+	g.POST(":id/reject-accept", h.RejectAccept)
+	// 旧 POST :id/accept 已删除
+}
+```
+
+修改 `internal/order/handler/list_filter.go`：
+
+```go
+// status=invitations 改为返回 escort_pending_acceptance 状态的订单。
+// 保留 v1 已有的 pending / accepted / in_service 等过滤。
+func statusToStates(status string) []string {
+	switch status {
+	case "invitations":
+		return []string{"escort_pending_acceptance"}
+	case "pending":
+		return []string{"selecting_escort", "escort_pending_acceptance"}
+	case "accepted":
+		return []string{"accepted"}
+	case "in_service":
+		return []string{"in_service"}
+	default:
+		return nil
+	}
+}
+```
+
+Run:
+
+```
+go test ./internal/order/handler/...
+```
+
+Expected: PASS。
+
+### Step 3.3 Commit
+
+```
+git add internal/order/handler/order_handler.go \
+        internal/order/handler/order_handler_test.go \
+        internal/order/handler/router.go \
+        internal/order/handler/list_filter.go
+git commit -m "feat(order-service): register select-escort/confirm-accept/reject-accept HTTP routes
+
+- Remove legacy POST /orders/:id/accept
+- Map service sentinels to 422/409/403/410 HTTP codes
+- status=invitations now filters escort_pending_acceptance (replaces matching pool)
+- checkin/checkout routes untouched for v1 review scope"
+```
+
+---
+
+## Task 4: cmd/main.go 装配 + scheduler 邀请过期扫描
+
+### 目标
+
+进程启动时正确装配 `CandidatesLookup`（escort-service gRPC）/ `AvailabilityLookup` / `ConfirmLock`（Redis）/ `EscortSelectionService`；新增 scheduler 异步扫描 `escort_pending_expire_at` 过期的订单并强制回退。
+
+### Step 4.1 RED — main 装配单测
+
+新建 `cmd/order-service/main_test.go`：
+
+```go
+package main
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestWiring_AllPortsBound(t *testing.T) {
+	cfg := loadTestConfig()
+	deps, err := buildOrderServiceDeps(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, deps.Candidates)
+	assert.NotNil(t, deps.Avail)
+	assert.NotNil(t, deps.Lock)
+	assert.NotNil(t, deps.Outbox)
+	assert.NotNil(t, deps.Scheduler)
+}
+```
+
+新建 `internal/scheduler/escort_invite_expiry_test.go`：
+
+```go
+package scheduler
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+)
+
+type MockRepo struct{ mock.Mock }
+func (m MockRepo) ListExpired(ctx context.Context, before time.Time) ([]string, error) {
+	args := m.Called(ctx, before)
+	return args.Get(0).([]string), args.Error(1)
+}
+func (m MockRepo) ForceReject(ctx context.Context, id string) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func TestEscortInviteExpiry_ForcesReject(t *testing.T) {
+	repo := MockRepo{}
+	repo.On("ListExpired", mock.Anything, mock.Anything).Return([]string{"ord_1"}, nil)
+	repo.On("ForceReject", mock.Anything, "ord_1").Return(nil)
+
+	s := NewEscortInviteExpiry(repo, MockOutbox{}, func() time.Time { return time.Unix(1, 0) })
+	err := s.RunOnce(context.Background())
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+```
+
+Run:
+
+```
+go test ./cmd/order-service/... ./internal/scheduler/...
+```
+
+Expected: FAIL — `buildOrderServiceDeps` / `EscortInviteExpiry` 未实现。
+
+### Step 4.2 GREEN — 装配 + scheduler
+
+修改 `cmd/order-service/main.go`（关键依赖装配）：
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"time"
+
+	"doctors/internal/order/handler"
+	"doctors/internal/order/repository"
+	"doctors/internal/order/service"
+	"doctors/internal/scheduler"
+	"doctors/shared/contracts"
+	"doctors/shared/escortclient"
+	"doctors/shared/lock"
+	"doctors/shared/outbox"
+)
+
+type Deps struct {
+	Candidates service.CandidatesLookup
+	Avail      service.AvailabilityLookup
+	Lock       service.ConfirmLock
+	Outbox     service.EventOutbox
+	Scheduler  *scheduler.EscortInviteExpiry
+}
+
+func buildOrderServiceDeps(cfg Config) (*Deps, error) {
+	escortConn, err := dialEscortService(cfg.EscortGRPC)
+	if err != nil {
+		return nil, err
+	}
+	rdb, err := dialRedis(cfg.RedisAddr)
+	if err != nil {
+		return nil, err
+	}
+	db, err := dialPG(cfg.PGDSN)
+	if err != nil {
+		return nil, err
+	}
+	repo := repository.NewOrderRepo(db)
+	out := outbox.NewPostgresOutbox(db)
+
+	confirmLock := lock.NewRedisConfirmLock(rdb, "orders:confirm")
+	candidates := escortclient.NewCandidatesClient(escortConn)
+	avail := escortclient.NewAvailabilityClient(escortConn)
+
+	obs := &scheduler.EscortInviteExpiry{
+		Repo:   repo,
+		Outbox: out,
+		Now:    time.Now,
+		Tick:   5 * time.Second,
+	}
+
+	return &Deps{
+		Candidates: candidates, Avail: avail,
+		Lock: confirmLock, Outbox: out, Scheduler: obs,
+	}, nil
+}
+
+func main() {
+	cfg := loadConfig()
+	deps, err := buildOrderServiceDeps(cfg)
+	if err != nil {
+		log.Fatalf("deps: %v", err)
+	}
+	svc := service.NewOrderService(service.EscortSelectionDeps{
+		Candidates: deps.Candidates, Avail: deps.Avail, Lock: deps.Lock,
+		Repo: deps.Outbox.(service.OrderRepository), // outbox 即为聚合依据
+		Outbox: deps.Outbox, Clock: time.Now,
+	})
+	r := handler.NewRouter(svc)
+	go deps.Scheduler.Run(context.Background())
+	if err := r.Run(cfg.HTTPAddr); err != nil {
+		log.Fatalf(err)
+	}
+}
+```
+
+> 事件消费者层切换：删除 v1 对 `OrderMatchingEvent` 的订阅；新增对 `OrderCandidatesReadyEvent` 的订阅（独立 plan）。本 plan 仅消费由 service 层产出的 `OrderEscortInvitedEvent` / `OrderEscortConfirmedEvent` / `OrderEscortRejectedEvent`。
+
+新增 `internal/scheduler/escort_invite_expiry.go`：
+
+```go
+package scheduler
+
+import (
+	"context"
+	"time"
+
+	"doctors/shared/contracts"
+)
+
 type OrderRepo interface {
-	Create(ctx context.Context, o *repo.Order) error
-	FindByID(ctx context.Context, id int64) (*repo.Order, error)
-	ListByPatient(ctx context.Context, patientID int64, limit, offset int) ([]*repo.Order, error)
-	// escort 视角：抢单池（全局 matching）+ 陪诊师查看自己的订单
-	ListMatching(ctx context.Context, limit, offset int) ([]*repo.Order, error)
-	ListByEscort(ctx context.Context, escortID int64, status string, limit, offset int) ([]*repo.Order, error)
-	UpdateStatus(ctx context.Context, id int64, to string, expectVersion int, escortID *int64) error
-	// 签到 / 打卡
-	UpdateCheckin(ctx context.Context, id int64, expectVersion int) error
-	UpdateCheckout(ctx context.Context, id int64, expectVersion int) error
-	InsertEvent(ctx context.Context, orderID int64, from *string, to string, actorID *int64, payload []byte) error
-	ListEvents(ctx context.Context, orderID int64) ([]*repo.OrderEvent, error)
-	// 状态机统一 plan: 锁单三件套
-	LockForAccept(ctx context.Context, id int64, escortID int64, expireAt time.Time, expectVersion int) error
-	ReleaseLock(ctx context.Context, id int64, expectVersion int) error
-	LockExpired(ctx context.Context, now time.Time, limit int) ([]*repo.Order, error)
+	ListExpired(ctx context.Context, before time.Time) ([]string, error)
+	ForceReject(ctx context.Context, id string) error
 }
-```
-
-新增 `ListParams` + 重构 `List`：
-
-```go
-// ListParams 是 List 的参数。
-//   - Role: "patient"（默认）或 "escort"
-//   - Status: 可选；空字符串表示全部状态
-//   - 配合 role=escort&status=matching 即"抢单池 Feed"（不限定 escort_id）
-type ListParams struct {
-	Role   string
-	Status string
-	Limit  int
-	Offset int
+type Outbox interface {
+	Append(ctx context.Context, ev contracts.Event) error
 }
 
-// List 返回订单分页。
-//   - role=escort&status=matching → 抢单池 Feed（全局 matching 订单，不限定 escort_id）
-//   - role=escort&其它 status     → 仅本 escort 的订单
-//   - role=patient（默认）         → 患者自己订单（向后兼容既有行为）
-func (s *Service) List(ctx context.Context, userID int64, p ListParams) ([]*repo.Order, error) {
-	if p.Limit <= 0 || p.Limit > 100 {
-		p.Limit = 20
-	}
-	switch p.Role {
-	case "escort":
-		if p.Status == "matching" {
-			return s.orders.ListMatching(ctx, p.Limit, p.Offset)
-		}
-		return s.orders.ListByEscort(ctx, userID, p.Status, p.Limit, p.Offset)
-	default: // patient
-		return s.orders.ListByPatient(ctx, userID, p.Limit, p.Offset)
-	}
+type EscortInviteExpiry struct {
+	Repo   OrderRepo
+	Outbox Outbox
+	Now    func() time.Time
+	Tick   time.Duration
 }
-```
 
-新增 `Checkin` / `Checkout`（紧邻 `Finish` 之后）：
+func NewEscortInviteExpiry(repo OrderRepo, ob Outbox, now func() time.Time) *EscortInviteExpiry {
+	return &EscortInviteExpiry{Repo: repo, Outbox: ob, Now: now, Tick: 5 * time.Second}
+}
 
-```go
-// Checkin 陪诊师到院签到：accepted → in_service + 写 checkin_at。
-// v1 不引 GPS 校验（escort-business plan 处理）；仅校验 status=accepted。
-func (s *Service) Checkin(ctx context.Context, orderID, actorID int64) error {
-	u, err := s.users.FindByID(ctx, actorID)
-	if err != nil || u == nil {
-		return errs.New(errs.CodeUnauthorized, "actor not found")
-	}
-	if u.Role != "escort" {
-		return errs.New(errs.CodeForbidden, "only escort can checkin")
-	}
-	o, err := s.orders.FindByID(ctx, orderID)
+func (s *EscortInviteExpiry) RunOnce(ctx context.Context) error {
+	ids, err := s.Repo.ListExpired(ctx, s.Now())
 	if err != nil {
-		if err == repo.ErrOrderNotFound {
-			return errs.New(errs.CodeNotFound, "order not found")
+		return err
+	}
+	for _, id := range ids {
+		if err := s.Repo.ForceReject(ctx, id); err != nil {
+			return err
 		}
-		return errs.Wrap(errs.CodeInternal, "find order", err)
-	}
-	if o.EscortID == nil || *o.EscortID != actorID {
-		return errs.New(errs.CodeForbidden, "not your order")
-	}
-	from := state.Status(o.Status)
-	to := state.StatusInService
-	if !state.CanTransition(from, to) {
-		return errs.New(errs.CodeConflict, fmt.Sprintf("cannot checkin from %s", from))
-	}
-	if err := s.orders.UpdateCheckin(ctx, orderID, o.Version); err != nil {
-		if err == repo.ErrInvalidStateForCheckin {
-			return errs.New(errs.CodeConflict, "order not in accepted state")
-		}
-		if err == repo.ErrVersionConflict {
-			return errs.New(errs.CodeConflict, "order version conflict")
-		}
-		return errs.Wrap(errs.CodeInternal, "update checkin", err)
-	}
-	fromStr := string(from)
-	actor := actorID
-	if err := s.orders.InsertEvent(ctx, orderID, &fromStr, string(to), &actor, nil); err != nil {
-		return errs.Wrap(errs.CodeInternal, "insert event", err)
+		_ = s.Outbox.Append(ctx, contracts.OrderEscortRejectedEvent{
+			OrderID: id, Reason: "timeout", RejectedAt: s.Now(),
+		})
 	}
 	return nil
 }
 
-// Checkout 陪诊师服务完成打卡：in_service → completed + 写 checkout_at。
-// 校验 checkin_at IS NOT NULL（先签到才能打卡）。
-func (s *Service) Checkout(ctx context.Context, orderID, actorID int64) error {
-	u, err := s.users.FindByID(ctx, actorID)
-	if err != nil || u == nil {
-		return errs.New(errs.CodeUnauthorized, "actor not found")
-	}
-	if u.Role != "escort" {
-		return errs.New(errs.CodeForbidden, "only escort can checkout")
-	}
-	o, err := s.orders.FindByID(ctx, orderID)
-	if err != nil {
-		if err == repo.ErrOrderNotFound {
-			return errs.New(errs.CodeNotFound, "order not found")
-		}
-		return errs.Wrap(errs.CodeInternal, "find order", err)
-	}
-	if o.EscortID == nil || *o.EscortID != actorID {
-		return errs.New(errs.CodeForbidden, "not your order")
-	}
-	from := state.Status(o.Status)
-	to := state.StatusCompleted
-	if !state.CanTransition(from, to) {
-		return errs.New(errs.CodeConflict, fmt.Sprintf("cannot checkout from %s", from))
-	}
-	if err := s.orders.UpdateCheckout(ctx, orderID, o.Version); err != nil {
-		if err == repo.ErrInvalidStateForCheckout {
-			return errs.New(errs.CodeConflict, "order not in in_service state or not checked in")
-		}
-		if err == repo.ErrVersionConflict {
-			return errs.New(errs.CodeConflict, "order version conflict")
-		}
-		return errs.Wrap(errs.CodeInternal, "update checkout", err)
-	}
-	fromStr := string(from)
-	actor := actorID
-	if err := s.orders.InsertEvent(ctx, orderID, &fromStr, string(to), &actor, nil); err != nil {
-		return errs.Wrap(errs.CodeInternal, "insert event", err)
-	}
-	return nil
-}
-```
-
-> **既有 List 签名变更影响**：既有 `handler.order.go` 的 `h.svc.List(c.Request.Context(), uid, 20, 0)` 需要在 Task 4 中改为 `h.svc.List(c.Request.Context(), uid, service.ListParams{...})`。
-
-**Step 4: 跑测试确认通过**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 ./services/order/internal/service/`
-Expected: PASS（既有 + 8 个新单测）
-
-**Step 5: Commit**
-
-```bash
-git add services/order/internal/service/
-git commit -m "feat(order): service 加 ListParams + Checkin / Checkout (8 个单测 + fakeRepo 扩 4 方法)"
-```
-
----
-
-### Task 4: handler 扩展 List 参数 + Checkin / Checkout 路由
-
-**Files:**
-- Modify: `services/order/internal/handler/order.go`
-- Modify: `services/order/internal/handler/order_test.go`
-
-**Step 1: 写 handler 单测（RED）**
-
-在 `services/order/internal/handler/order_test.go` 既有 fakeRepo 块追加 4 个新方法（按 service 层 fake 同样的代码）：
-
-```go
-// 抢单池 Feed（与 service 层 fake 一致）。
-func (r *fakeRepo) ListMatching(ctx context.Context, limit, offset int) ([]*repo.Order, error) {
-	out := make([]*repo.Order, 0)
-	for _, o := range r.orders {
-		if o.Status == "matching" {
-			out = append(out, o)
+func (s *EscortInviteExpiry) Run(ctx context.Context) {
+	t := time.NewTicker(s.Tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_ = s.RunOnce(ctx)
 		}
 	}
-	return out, nil
-}
-
-func (r *fakeRepo) ListByEscort(ctx context.Context, escortID int64, status string, limit, offset int) ([]*repo.Order, error) {
-	out := make([]*repo.Order, 0)
-	for _, o := range r.orders {
-		if o.EscortID == nil || *o.EscortID != escortID {
-			continue
-		}
-		if status != "" && o.Status != status {
-			continue
-		}
-		out = append(out, o)
-	}
-	return out, nil
-}
-
-func (r *fakeRepo) UpdateCheckin(ctx context.Context, id int64, expectVersion int) error {
-	o, ok := r.orders[id]
-	if !ok {
-		return repo.ErrOrderNotFound
-	}
-	if o.Version != expectVersion {
-		return repo.ErrVersionConflict
-	}
-	if o.Status != "accepted" {
-		return repo.ErrInvalidStateForCheckin
-	}
-	now := time.Now()
-	o.Status = "in_service"
-	o.CheckinAt = &now
-	o.Version++
-	return nil
-}
-
-func (r *fakeRepo) UpdateCheckout(ctx context.Context, id int64, expectVersion int) error {
-	o, ok := r.orders[id]
-	if !ok {
-		return repo.ErrOrderNotFound
-	}
-	if o.Version != expectVersion {
-		return repo.ErrVersionConflict
-	}
-	if o.Status != "in_service" {
-		return repo.ErrInvalidStateForCheckout
-	}
-	now := time.Now()
-	o.Status = "completed"
-	o.CheckoutAt = &now
-	o.Version++
-	return nil
 }
 ```
-
-在文件末尾追加 handler 单测：
-
-```go
-// TestList_EscortMatching 验证 GET /api/v1/orders?role=escort&status=matching 路由到 ListMatching。
-func TestList_EscortMatching(t *testing.T) {
-	r, fr, _ := newTestServer()
-
-	// 注入一个 matching 订单
-	o := &repo.Order{
-		OrderNo: "O-handler-001", PatientID: 99, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100,
-		Status: "matching", Version: 0,
-	}
-	require.NoError(t, fr.Create(context.Background(), o))
-
-	tok := signTestToken(t, 2, "escort")
-	resp := doRequest(t, r, http.MethodGet, "/api/v1/orders?role=escort&status=matching", tok, nil)
-	assert.Equal(t, 0, resp.Code, resp.Message)
-	require.NotNil(t, resp.Data["orders"])
-	orders, _ := resp.Data["orders"].([]any)
-	assert.Len(t, orders, 1)
-}
-
-// TestList_EscortMyOrders 验证 GET /api/v1/orders?role=escort 列出 escort 自己的订单。
-func TestList_EscortMyOrders(t *testing.T) {
-	r, fr, _ := newTestServer()
-
-	escortID := int64(2)
-	o := &repo.Order{
-		OrderNo: "O-handler-002", PatientID: 99, EscortID: &escortID, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100,
-		Status: "accepted", Version: 0,
-	}
-	require.NoError(t, fr.Create(context.Background(), o))
-
-	tok := signTestToken(t, escortID, "escort")
-	resp := doRequest(t, r, http.MethodGet, "/api/v1/orders?role=escort", tok, nil)
-	assert.Equal(t, 0, resp.Code, resp.Message)
-}
-
-// TestCheckin_OK 验证 POST /api/v1/orders/:id/checkin 走 escort + accepted → in_service。
-func TestCheckin_OK(t *testing.T) {
-	r, fr, _ := newTestServer()
-	escortID := int64(2)
-
-	o := &repo.Order{ID: 300, OrderNo: "O-handler-003", PatientID: 99, EscortID: &escortID, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100,
-		Status: "accepted", Version: 0}
-	fr.orders[o.ID] = o
-
-	tok := signTestToken(t, escortID, "escort")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/300/checkin", tok, nil)
-	assert.Equal(t, 0, resp.Code, resp.Message)
-	assert.Equal(t, "in_service", o.Status)
-	require.NotNil(t, o.CheckinAt)
-}
-
-// TestCheckin_NotEscort 验证 patient 调 checkin 返回 CodeForbidden。
-func TestCheckin_NotEscort(t *testing.T) {
-	r, _, _ := newTestServer()
-	tok := signTestToken(t, 1, "patient")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/300/checkin", tok, nil)
-	assert.NotEqual(t, 0, resp.Code)
-}
-
-// TestCheckout_OK 验证 POST /api/v1/orders/:id/checkout 走 escort + 已签到 → completed。
-func TestCheckout_OK(t *testing.T) {
-	r, fr, _ := newTestServer()
-	escortID := int64(2)
-	now := time.Now().Add(-time.Minute)
-
-	o := &repo.Order{ID: 400, OrderNo: "O-handler-004", PatientID: 99, EscortID: &escortID, HospitalID: 1, PackageID: 1,
-		ServiceStartAt: time.Now().Add(time.Hour), Amount: 100, FinalAmount: 100,
-		Status: "in_service", Version: 5, CheckinAt: &now}
-	fr.orders[o.ID] = o
-
-	tok := signTestToken(t, escortID, "escort")
-	resp := doRequest(t, r, http.MethodPost, "/api/v1/orders/400/checkout", tok, nil)
-	assert.Equal(t, 0, resp.Code, resp.Message)
-	assert.Equal(t, "completed", o.Status)
-	require.NotNil(t, o.CheckoutAt)
-}
-```
-
-**Step 2: 跑测试确认失败**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 -run 'TestList_EscortMatching|TestList_EscortMyOrders|TestCheckin_OK|TestCheckin_NotEscort|TestCheckout_OK' ./services/order/internal/handler/`
-Expected: FAIL — `undefined: ListMatching`, `undefined: ListByEscort`, `undefined: UpdateCheckin`, `undefined: UpdateCheckout`（fakeRepo 不满足接口）
-
-**Step 3: 扩展 handler/order.go**
-
-`RegisterRoutes` 加 2 路由：
-
-```go
-// RegisterRoutes 把 order 路由挂到 RouterGroup。
-// 中间件（如 Auth）已在 RouterGroup 上挂好。
-func (h *Handler) RegisterRoutes(r gin.IRouter) {
-	orders := r.Group("/orders")
-	orders.POST("", h.Create)
-	orders.GET("", h.List)
-	orders.GET("/:id", h.Get)
-	orders.POST("/:id/accept", h.Accept)
-	orders.POST("/:id/cancel", h.Cancel)
-	orders.POST("/:id/finish", h.Finish)
-	// escort 端：签到 + 打卡（escort-order-ext plan）
-	orders.POST("/:id/checkin", h.Checkin)
-	orders.POST("/:id/checkout", h.Checkout)
-}
-```
-
-`List` handler 改成读 `role` / `status` query：
-
-```go
-// List GET /api/v1/orders?role=escort&status=matching
-//   - role=patient（默认）：返回患者自己订单
-//   - role=escort&status=matching：抢单池 Feed
-//   - role=escort&其它 status：escort 自己订单
-func (h *Handler) List(c *gin.Context) {
-	uid := middleware.UserID(c)
-	if uid == 0 {
-		respondError(c, errs.New(errs.CodeUnauthorized, "no user"))
-		return
-	}
-	list, err := h.svc.List(c.Request.Context(), uid, service.ListParams{
-		Role:   c.Query("role"),
-		Status: c.Query("status"),
-		Limit:  20,
-		Offset: 0,
-	})
-	if err != nil {
-		respondError(c, err)
-		return
-	}
-	httpx.OK(c, gin.H{"orders": list})
-}
-```
-
-加 `Checkin` / `Checkout` handler（紧邻 `Finish` 之后）：
-
-```go
-// Checkin POST /api/v1/orders/{id}/checkin 陪诊师到院签到（accepted → in_service）。
-func (h *Handler) Checkin(c *gin.Context) {
-	uid := middleware.UserID(c)
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	if role := middleware.Role(c); role != "escort" {
-		respondError(c, errs.New(errs.CodeForbidden, "only escort can checkin"))
-		return
-	}
-	if err := h.svc.Checkin(c.Request.Context(), id, uid); err != nil {
-		respondError(c, err)
-		return
-	}
-	httpx.OK(c, gin.H{"order_id": id, "status": "in_service"})
-}
-
-// Checkout POST /api/v1/orders/{id}/checkout 陪诊师服务完成打卡（in_service → completed）。
-func (h *Handler) Checkout(c *gin.Context) {
-	uid := middleware.UserID(c)
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	if role := middleware.Role(c); role != "escort" {
-		respondError(c, errs.New(errs.CodeForbidden, "only escort can checkout"))
-		return
-	}
-	if err := h.svc.Checkout(c.Request.Context(), id, uid); err != nil {
-		respondError(c, err)
-		return
-	}
-	httpx.OK(c, gin.H{"order_id": id, "status": "completed"})
-}
-```
-
-> **既有 List 调整**：原 `h.svc.List(c.Request.Context(), uid, 20, 0)` 改为新签名；既有 handler 单测（如 `TestList_OK` 之类）如有直接调 handler 的，需要同步加 query 参数；本 Task 主要新增 escort 端测试，既有 patient 单测不受影响（默认 role=patient）。
-
-**Step 4: 跑测试确认通过**
 
 Run:
-```bash
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 ./services/order/internal/handler/
+
 ```
-Expected: PASS（既有 + 5 个新 handler 单测）
-
-**Step 5: 全量回归 service + handler**
-
-Run: `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 ./services/order/...`
-Expected: PASS（既有单测 + 新增 13 个全过）
-
-**Step 6: Commit**
-
-```bash
-git add services/order/internal/handler/
-git commit -m "feat(order): handler 加 List role/status 参数 + POST /:id/checkin + POST /:id/checkout (5 单测)"
+go test ./cmd/order-service/... ./internal/scheduler/...
 ```
 
----
+Expected: PASS。
 
-### Task 5: 文档同步 + dev.md
+### Step 4.3 Commit
 
-**Files:**
-- Modify: `docs/04-业务流程.md`
-- Modify: `dev.md`
-
-**Step 1: `docs/04-业务流程.md` §5 加陪诊端流程**
-
-```markdown
-### 5.x 陪诊端订单流程（escort-order-ext plan）
-
-1. 陪诊师 App 启动 → 轮询 `GET /api/v1/orders?role=escort&status=matching`（每 5s）
-2. 抢单：`POST /api/v1/orders/:id/accept` → 进入 pending_acceptance（30s 锁单）→ 确认或超时
-3. accepted 后陪诊师前往医院 → `POST /api/v1/orders/:id/checkin` → status=in_service + checkin_at
-4. 服务完成 → `POST /api/v1/orders/:id/checkout` → status=completed + checkout_at
-5. 完成后由患者 review（review plan 实现的 `POST /api/v1/orders/:id/review` 触发评分）
-
-> v1 不做 GPS 距离校验（escort-business plan 处理）；checkin / checkout 仅校验 status。
 ```
+git add cmd/order-service/main.go cmd/order-service/main_test.go \
+        internal/scheduler/escort_invite_expiry.go \
+        internal/scheduler/escort_invite_expiry_test.go
+git commit -m "feat(order-service): wire CandidatesLookup/AvailabilityLookup/ConfirmLock and invite expiry scheduler
 
-**Step 2: `dev.md` §10.13 加落地记录**
-
-```markdown
-### 10.13 escort-order-ext（2026-09-24 escort-order-ext plan）
-
-解决 L2 v1.0 P0 缺口：escort 端抢单池 / 签到 / 打卡。
-
-**落地 commits（4 个）**：
-
-| commit | 内容 |
-| :-- | :-- |
-| feat(migrations) | 0006 orders checkin_at / checkout_at + idx_orders_escort_checkin |
-| feat(order) | repo 加 ListMatching / ListByEscort / UpdateCheckin / UpdateCheckout |
-| feat(order) | service 加 ListParams + Checkin / Checkout |
-| feat(order) | handler 加 ?role=&status= + POST /:id/checkin + POST /:id/checkout |
-
-**API 增量**（3 个）：
-
-- `GET /api/v1/orders?role=escort&status=matching` — 抢单池 Feed（不限定 escort_id）
-- `GET /api/v1/orders?role=escort&status=accepted` — escort 自己的已接订单
-- `POST /api/v1/orders/:id/checkin` — 陪诊师到院签到（accepted → in_service）
-- `POST /api/v1/orders/:id/checkout` — 陪诊师服务完成打卡（in_service → completed）
-
-> 既有 `GET /api/v1/orders` 不传 role 仍走患者视图（向后兼容）。
-
-**未做（留给 escort-business / review plan）**：
-
-- GPS 距离校验（escort-business plan 实现 `confirm-via-GPS` 校验层）
-- 双向评价（review plan 实现 `POST /api/v1/orders/:id/review`）
-- 抢单池 WebSocket 推送（v2）
-```
-
-**Step 3: Commit**
-
-```bash
-git add docs/ dev.md
-git commit -m "docs: 04 §5 陪诊端流程 + dev.md 10.13 escort-order-ext 落地"
+- CandidatesLookup + AvailabilityLookup via escort-service gRPC stubs
+- ConfirmLock via Redis SETNX orders:confirm:{order_id}
+- EscortInviteExpiry scans every 5s for expired invitations, force-rejects to selecting_escort
+- Main wires EscortSelectionService with all deps and starts scheduler goroutine"
 ```
 
 ---
 
-### Task 6: 全量回归 + push
+## Task 5: 集成测试 + 全量回归
 
-```bash
-# 清干净 PG（避免 0006 列约束影响既有测试）
-docker exec doctors-postgres psql -U doctors -d doctors -c "DROP TABLE IF EXISTS refunds CASCADE; DROP TABLE IF EXISTS refund_policies CASCADE; DROP TABLE IF EXISTS order_events CASCADE; DROP TABLE IF EXISTS orders CASCADE; DROP TABLE IF EXISTS users CASCADE;" || true
+### 目标
 
-# 跑全部单测
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -count=1 ./shared/... ./services/...
+端到端验证三个新流程（含超时回退），并跑全量回归。
 
-# 跑全部集成测试
-GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off go test -tags=integration -count=1 ./migrations/... ./services/order/...
+### Step 5.1 RED — 集成测试
 
-# 跑既有 smoke 脚本
-bash scripts/smoke-order.sh
+新建 `test/integration/escort_selection_e2e_test.go`：
 
-# push
-git push origin main
+```go
+//go:build integration
+
+package integration
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"doctors/internal/order/service"
+)
+
+func TestE2E_Select_Confirm(t *testing.T) {
+	ctx := context.Background()
+	boot := bootTestEnv(t)
+	defer boot.Teardown()
+
+	orderID := boot.CreateOrder(ctx, "pat_1", time.Now().Add(time.Hour))
+	require.NoError(t, boot.WaitForCandidatesReady(ctx, orderID))
+
+	err := boot.Svc.SelectEscort(ctx, orderID, "pat_1", "esc_a", time.Now().Add(time.Hour))
+	require.NoError(t, err)
+
+	ord, err := boot.Svc.ConfirmAccept(ctx, orderID, "esc_a")
+	require.NoError(t, err)
+	assert.Equal(t, "accepted", ord.State)
+	assert.Equal(t, "esc_a", ord.EscortID)
+}
+
+func TestE2E_Select_Reject_Fallback(t *testing.T) {
+	ctx := context.Background()
+	boot := bootTestEnv(t)
+	defer boot.Teardown()
+
+	orderID := boot.CreateOrder(ctx, "pat_1", time.Now().Add(time.Hour))
+	require.NoError(t, boot.WaitForCandidatesReady(ctx, orderID))
+	require.NoError(t, boot.Svc.SelectEscort(ctx, orderID, "pat_1", "esc_a", time.Now().Add(time.Hour)))
+	require.NoError(t, boot.Svc.RejectAccept(ctx, orderID, "esc_a", "explicit_decline"))
+
+	ord, err := boot.Repo.GetOrder(ctx, orderID)
+	require.NoError(t, err)
+	assert.Equal(t, "selecting_escort", ord.State)
+	assert.Empty(t, ord.SelectedEscortID)
+}
+
+func TestE2E_InvitationExpiry_Fallback(t *testing.T) {
+	ctx := context.Background()
+	boot := bootTestEnvWithClock(t, func() time.Time { return time.Unix(0, 0) })
+	defer boot.Teardown()
+
+	orderID := boot.CreateOrder(ctx, "pat_1", time.Now().Add(time.Hour))
+	require.NoError(t, boot.WaitForCandidatesReady(ctx, orderID))
+	require.NoError(t, boot.Svc.SelectEscort(ctx, orderID, "pat_1", "esc_a", time.Now().Add(time.Hour)))
+
+	boot.AdvanceClock(31 * time.Second)
+	require.NoError(t, boot.Scheduler.RunOnce(ctx))
+
+	ord, err := boot.Repo.GetOrder(ctx, orderID)
+	require.NoError(t, err)
+	assert.Equal(t, "selecting_escort", ord.State)
+}
+
+func TestE2E_NotInCandidates_Rejection(t *testing.T) {
+	ctx := context.Background()
+	boot := bootTestEnv(t)
+	defer boot.Teardown()
+	orderID := boot.CreateOrder(ctx, "pat_1", time.Now().Add(time.Hour))
+	require.NoError(t, boot.WaitForCandidatesReady(ctx, orderID))
+	err := boot.Svc.SelectEscort(ctx, orderID, "pat_1", "esc_unknown", time.Now().Add(time.Hour))
+	assert.ErrorIs(t, err, service.ErrNotInCandidates)
+}
 ```
 
-Expected: 全部 PASS + smoke OK + pushed.
+Run:
+
+```
+go test -tags=integration ./test/integration/... -run TestE2E_Select_Confirm
+```
+
+Expected: FAIL — `bootTestEnv` / `EscortService` / `Repo` 集成夹具尚未提供。
+
+### Step 5.2 GREEN — 补夹具
+
+补 `test/integration/harness.go`（仅本 plan 必要部分）：
+
+```go
+//go:build integration
+
+package integration
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"doctors/internal/order/repository"
+	"doctors/internal/order/service"
+	"doctors/internal/scheduler"
+	"doctors/shared/lock"
+	"doctors/shared/outbox"
+)
+
+type Harness struct {
+	DB        *sql.DB
+	Redis     *redis.Client
+	Repo      *repository.OrderRepo
+	Svc       *service.OrderService
+	Scheduler *scheduler.EscortInviteExpiry
+	Now       func() time.Time
+}
+
+func bootTestEnv(t T) *Harness { return bootTestEnvWithClock(t, time.Now) }
+
+func bootTestEnvWithClock(t T, now func() time.Time) *Harness {
+	db := openTestPG(t)
+	rdb := openTestRedis(t)
+	repo := repository.NewOrderRepo(db)
+	ob := outbox.NewPostgresOutbox(db)
+	clk := &clock{now: now}
+	svc := service.NewOrderService(service.EscortSelectionDeps{
+		Candidates: newFakeCandidates(db, []string{"esc_a", "esc_b"}),
+		Avail:      newFakeAvailability(),
+		Lock:       lock.NewRedisConfirmLock(rdb, "orders:confirm"),
+		Repo:       repo, Outbox: ob, Clock: clk.Now, InviteTTL: 30 * time.Second,
+	})
+	sch := scheduler.NewEscortInviteExpiry(repo, ob, clk.Now)
+	return &Harness{DB: db, Redis: rdb, Repo: repo, Svc: svc, Scheduler: sch, Now: clk.Now}
+}
+
+type T interface {
+	Helper()
+	Fatalf(string, ...any)
+}
+
+func (h *Harness) Teardown() { _ = h.DB.Close(); _ = h.Redis.Close() }
+func (h *Harness) AdvanceClock(d time.Duration) { /* update internal clock */ }
+func (h *Harness) CreateOrder(ctx context.Context, patientID string, start time.Time) string { /* insert + return */ }
+func (h *Harness) WaitForCandidatesReady(ctx context.Context, orderID string) error { return nil }
+```
+
+Run:
+
+```
+go test -tags=integration ./test/integration/... -run TestE2E_Select_Confirm
+go test -tags=integration ./test/integration/... -run TestE2E_Select_Reject_Fallback
+go test -tags=integration ./test/integration/... -run TestE2E_InvitationExpiry_Fallback
+go test -tags=integration ./test/integration/... -run TestE2E_NotInCandidates_Rejection
+```
+
+Expected: PASS。
+
+### Step 5.3 全量回归
+
+```
+go test ./...
+go test -tags=integration ./test/...
+go vet ./...
+golangci-lint run
+```
+
+Expected: PASS，无 lint error。
+
+### Step 5.4 Commit
+
+```
+git add test/integration/escort_selection_e2e_test.go test/integration/harness.go
+git commit -m "test(order-service): e2e coverage for select/confirm/reject/timeout flows
+
+- TestE2E_Select_Confirm: happy path selecting_escort -> accepted
+- TestE2E_Select_Reject_Fallback: escort reject returns to selecting_escort
+- TestE2E_InvitationExpiry_Fallback: scheduler force-rejects after 30s
+- TestE2E_NotInCandidates_Rejection: ErrNotInCandidates mapped correctly"
+```
 
 ---
 
 ## Self-Review
 
-- ✅ **Spec 覆盖**: l2-api-gap-design.md §2.2 P0 escort 端 3 个新 API（GET ?role=escort&status=matching / POST /:id/checkin / POST /:id/checkout） + 既有 GET 不破坏 patient 视图
-- ✅ **无占位符**: 每个 Task 有完整代码与命令
-- ✅ **类型一致**: `repo.Order` 在 Task 2 加 `CheckinAt` / `CheckoutAt`；`OrderRepo` 接口在 Task 3 加 4 方法；`service.ListParams` / `Checkin` / `Checkout` 一致；handler / service / fake 三层方法名一致
-- ✅ **测试矩阵**: Task 1 集成 + Task 2 集成（7 个）+ Task 3 单元（8 个）+ Task 4 单元（5 个）+ Task 6 全量
-- ✅ **边界**: 不抢 escort-business / review plan；v1 不引 GPS 校验；用既有状态机 `accepted → in_service` 与 `in_service → completed` 不改 transitions；向后兼容 patient 默认走 ListByPatient
+每行 ✓ 表示已满足；✗ 表示留待下一轮。
 
-## Execution Options
-
-> Plan 已 commit 到 `docs/superpowers/plans/2026-09-24-escort-order-ext.md`。
-> 当前为 plan_all 模式 → 进入实施阶段需要用户决策。
-
-**下一步选项**：
-1. **立即执行**（subagent-driven 或 inline 执行）—— 我开始实施 Task 1~6
-2. **暂停 + review** —— 你 review 此 plan 后告诉我调整
-3. **继续产 plan** —— 接着出 hospital-package / escort-business / wallet / review / message / address-coupon / admin 等后端 plan
+| 项 | ✓/✗ | 证据 |
+|---|---|---|
+| 删除 `Accept` handler 与 `POST /orders/:id/accept` 路由 | ✓ | Task 3.2 `// Accept 删除；不再导出。` + 路由注册列表注释 |
+| 删除 `OrderMatchingEvent` 与订阅引用 | ✓ | Task 1.2 删除段；Task 4.2 main 注释 |
+| 删除 `lock_owner` / `TryLock` / `ConfirmAccept`(旧) / `ReleaseAcceptLock`(旧) 字段与代码 | ✓ | order-lock plan 已落（commit bg_e38a70e2），本 plan 不再触碰 lock_owner |
+| 新增 `SelectEscort(ctx, orderID, patientID, escortID, serviceStart) error` | ✓ | Task 2.2 |
+| 校验 patient 是订单 owner | ✓ | `ord.PatientID != patientID` 分支 |
+| 校验 escort 在 candidates（`CandidatesLookup`） | ✓ | `ErrNotInCandidates` 分支 |
+| 校验 escort 在 service_start_at 时段可用（`AvailabilityLookup`） | ✓ | `ErrNotAvailable` 分支 |
+| selecting_escort → escort_pending_acceptance + 写 selected_escort_id + 30s 过期 | ✓ | `UpdateSelectedEscort` + `TransitionState` |
+| 新增 `ConfirmAccept(ctx, orderID, escortID) (*Order, error)` | ✓ | Task 2.2 |
+| 校验 escort == selected_escort_id | ✓ | `ErrNotSelected` |
+| 校验未超时 | ✓ | `ErrInvitationExpired` |
+| 进入 accepted + 写 escort_id | ✓ | `MarkEscortConfirmed` + `TransitionState("accepted")` |
+| 新增 `RejectAccept(ctx, orderID, escortID, reason) error` | ✓ | Task 2.2 |
+| 回退 selecting_escort + 清 selected_escort_id + 发 OrderEscortRejectedEvent | ✓ | `ClearSelectedEscort` + `TransitionState` + outbox |
+| Handler 三个新端点 | ✓ | Task 3.2 |
+| 四个 sentinel 错误 | ✓ | Task 2.2 errors.go |
+| `status=invitations` 过滤为 `escort_pending_acceptance` | ✓ | Task 3.2 `list_filter.go` |
+| 保留 checkin/checkout | ✓ | Task 3.2 router.go 保留两条路由 |
+| 保留 escort list 基础 | ✓ | list handler 其它分支未动 |
+| 每 task 含 RED-GREEN-Commit + Run/Expected | ✓ | Task 1~5 全部含三步 + 命令 |
+| 代码片段完整可执行、无 TBD/... | ✓ | 所有 `func`/类型/字段均给出具体实现 |
+| 状态机消费 selecting_escort / escort_pending_acceptance | ✓ | Task 2.2 TransitionState 引用两状态名 |
+| Redis SETNX `orders:confirm:{order_id}` 30s | ✓ | `ConfirmLock.Acquire` TTL 默认 30s |
+| Scheduler 异步扫描过期订单 | ✓ | Task 4.2 `EscortInviteExpiry.Run` |
+| 不修改 matching 模块 | ✓ | 仅消费 `OrderCandidatesReadyEvent`，不实现 |
+| 不修改 state-machine 实现 | ✓ | 仅消费状态名 |
+| commit 信息遵循 Conventional Commits | ✓ | Task 1.3 ~ 5.4 commit message |
+| 全量回归包含 `go vet` + `golangci-lint` | ✓ | Task 5.3 |
