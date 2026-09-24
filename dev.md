@@ -347,3 +347,105 @@ doctors/
 - 每周更新本 dev.md
 - 大决策追加到 `docs/decisions/ADR-NNN-*.md`（待建）
 - 完成阶段 4 后做一次端到端 smoke（docker-compose + curl）
+---
+
+## 10. 模块解耦与新骨架服务（2026-09-24）
+
+**目标**：按高内聚低耦合原则，补齐 v1 剩余服务骨架，并把跨服务的数据 / 事件契约统一到 `shared/contracts`。
+
+### 10.1 架构审计 + 重构
+
+| 问题 | 修复 |
+| :-- | :-- |
+| `match.consumer` 独立定义了 `OrderCreatedEvent`，与 `order.events` 字段不一致风险 | 抽到 `shared/contracts`，两边共用 |
+| `match.scorer` 自定义 `Escort` 类型，与 `escort-service` 字段可能漂移 | scorer 改吃 `contracts.EscortSummary`；删除 scorer 内部 Escort |
+| `order.events.Publisher` 接 `repo.Order`（暴露 DB 结构） | 改接 `contracts.OrderCreatedEvent` 等事件类型 |
+| `order.service` 没有事件发布能力 | 加 `WithPublisher` 注入；Create/Cancel/Accept 各自调用 |
+| `match.service.EscortLoader` 名字偏弱 | 重命名 `EscortProvider`，并明确返回 `[]contracts.EscortSummary` |
+| 各服务各自复制 JWT 中间件代码 | 抽 `shared/middleware.Auth(secret, uidKey, roleKey)` 通用模板 |
+
+### 10.2 shared/contracts（新增包）
+
+| 类型 / 常量 | 说明 |
+| :-- | :-- |
+| `OrderCreatedEvent` / `OrderAcceptedEvent` / `OrderCancelledEvent` / `OrderReviewedEvent` | 订单生命周期事件 |
+| `UserRegisteredEvent` / `UserRealNameDoneEvent` | 用户注册 + 实名 |
+| `EscortRegisteredEvent` / `EscortAvailableEvent` / `EscortUnavailableEvent` | 陪诊师上下线 |
+| `PaymentCreatedEvent` / `PaymentCompletedEvent` / `PaymentRefundedEvent` | 支付全链路 |
+| `SOSRaisedEvent` / `MessageSentEvent` | SOS + IM |
+| `EscortSummary` | 跨服务 escort 数据契约（带 `IsAvailable` 业务方法） |
+| `TopicOrderCreated` 等 12 个 topic 常量 | 单一来源，避免拼写漂移 |
+
+测试覆盖：JSON 往返 4 个 + IsAvailable 边界 1 个 + Topic 常量 1 个 = **6 个单测**。
+
+### 10.3 shared/middleware（新增）
+
+通用 JWT 鉴权模板：`Auth(secret, userIDKey, roleKey)`，各服务用自己命名的 ctx key 包装，避免共享键冲突。
+
+测试覆盖：**4 个单测**（缺失头 / 错 scheme / 错签名 / 合法）。
+
+### 10.4 v1 剩余服务骨架（user / escort / review / message / sos / payment）
+
+每个服务都是同样的目录结构：`cmd/main.go` + `internal/{server,router,middleware,handler,service}`。
+
+| 服务 | 业务能力 | 单测 | 关键决策 |
+| :-- | :-- | :--: | :-- |
+| **user-service** | GetProfile / UpdateNickname / UpdateAvatar；callerID != targetID 即 403 | 13 ✅ | `service.Profile` 不依赖 auth.repo.User，独立定义 |
+| **escort-service** | Register / Get / SetAvailability（发布 AvailabilityEvent）/ UpdateLocation / UpdateCity | 12 ✅ | publisher 用 best-effort；5min 重复保护由调用方做 |
+| **review-service** | CreateReview（每订单限一次）/ GetByOrder / ListByEscort；rating 1..5 + comment ≤ 500 字符 | 9 ✅ | dup 检测在 repo 之前；失败 best-effort 发事件 |
+| **message-service** | SendMessage / ListByOrder；body ≤ 1000 字符；from != to | 8 ✅ | WebSocket 在 v2 接入；v1 走 Kafka |
+| **sos-service** | Raise（订单必须活跃）/ Resolve；5min 内去重；lat/lng 校验 | 10 ✅ | 强制要求 `OrderStateLookup` 校验订单状态，不直接依赖 order 包 |
+| **payment-service** | Create（按订单）/ Complete（幂等）/ Refund；MockChannel 默认 | 13 ✅ | v1 完全 mock；真实渠道（wx/alipay）在 v2 |
+
+**每个服务都遵循以下原则：**
+
+1. **业务层接口在 service 包内定义**（`OrderRepo` / `ProfileRepo` / `EscortRepo` / `ReviewRepo` / `Repo` / `EscortRepo`），不让 fake 替身依赖外部包的具体结构。
+2. **事件类型用 `shared/contracts`**，不自定义重复类型。
+3. **依赖接口注入**：`WithPublisher` / `WithTx` / `WithClock` 等链式 setter，业务逻辑可独立测试。
+4. **零 panic 兜底**：publisher / logger 失败不阻塞主业务。
+5. **HTTP handler 只做参数绑定 → service → errs 翻译**，无业务逻辑。
+
+### 10.5 order.service 改造
+
+| 改动 | 说明 |
+| :-- | :-- |
+| `Service.WithPublisher(events.Publisher)` | 注入事件发布器；nil 时不发布 |
+| `Service.WithClock(func() time.Time)` | 注入时钟，避免硬编码 `time.Now()` 难测试 |
+| `Create` 后调 `PublishOrderCreated` | 事件 best-effort |
+| `Cancel` 后调 `PublishOrderCancelled` | 同上 |
+| `Accept` 后调 `PublishOrderAccepted` | 同上 |
+
+新增 3 个单测覆盖 publisher 行为。
+
+### 10.6 match.service 改造
+
+| 改动 | 说明 |
+| :-- | :-- |
+| `EscortLoader` → `EscortProvider` | 命名更准确 |
+| 返回类型 `[]scorer.Escort` → `[]contracts.EscortSummary` | 单一数据契约 |
+| `Match` 加 `orderID == 0` 校验 | 入参防御 |
+| `Feed` / `Candidates` 加 `orderID == 0` 校验 | 同上 |
+
+scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSummary`。
+
+### 10.7 测试统计
+
+| 维度 | 数值 |
+| :-- | :--: |
+| 总测试包 | **37** |
+| 新增 / 修改包（这一轮） | **10** |
+| 新增单测（这一轮） | **63+** |
+| 集成测试 | 8（未受影响） |
+
+`go test ./shared/... ./services/...` 全部 37 包通过。
+
+### 10.8 关键决策
+
+1. **shared/contracts 是事件 + 跨服务数据结构的单一来源**：避免"schema 漂移"，事件 schema 与 service 内部 struct 解耦。
+2. **shared/middleware 不持有 ctx key**：把 key 作为参数传入；各服务用自己的命名（`auth_user_id` / `match_user_id` 等），避免共享键冲突。
+3. **每个 service 包定义自己的依赖接口**：service 内部定义 `OrderRepo` / `ProfileRepo` / `EscortProvider` 等，外部（repo / 子包）实现。这样测试可以用 fake，业务层无外部依赖。
+4. **publisher 用 best-effort**：`PublishX` 失败只 log，不影响主业务。生产环境会有 outbox 兜底（v2 引入）。
+5. **WithXxx 链式 setter**：`WithTx` / `WithPublisher` / `WithClock` 模式一致，注入式优于构造时全传；测试更方便。
+6. **mock 默认实现**：每个 service 在 `cmd/main.go` 用 nilRepo / nilProvider 占位；接入真实现后只改 main，业务代码不动。
+7. **handler 层零业务逻辑**：仅做参数绑定 → service → errs 翻译。保持 handler 简单可测试。
+8. **独立骨架但未跑业务流**：6 个新服务的 main 都能 build，但业务流需要 docker compose 才能真跑（与现有阶段 2~4 模式一致）。
