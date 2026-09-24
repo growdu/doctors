@@ -160,7 +160,7 @@ doctors/
 
 ---
 
-## 3. 阶段 2 · auth-service
+## 3. 阶段 2 · auth-service ✅ 已完成
 
 **目标**：可独立启动的认证服务，含手机验证码登录 + 微信登录 + JWT 签发。
 
@@ -172,11 +172,46 @@ doctors/
 - `GET /api/v1/users/me`
 - `GET /healthz`
 
+**实际完成**（commit `e7bfa0a` 起 9 个新 commit）：
+
+| Task | 包 / 文件 | 关键能力 | 单测 | commit |
+| :-- | :-- | :-- | :--: | :-- |
+| 2.1 | `cmd/main` + `server` + `router` | 骨架 + 路由表 + 优雅停机 + /healthz | 7 ✅ | `feat(auth): auth-service 骨架` |
+| 2.2 | `migrations/0001_users.{up,down}.sql` | users 表 + 3 索引；integration tag | 5 ✅ (integ) | `feat(migrations): 0001_users` |
+| 2.3 | `internal/repo/user_repo.go` | pgx 手写 + Create/FindBy{Phone,UnionID,ID}/UpdateRealName；ErrUserNotFound 哨兵 | 5 ✅ (integ) | `feat(auth): user_repo pgx 手写仓储` |
+| 2.4 | `internal/sms/sender.go` | Sender 接口 + LogSender + ValidatePhone + LookupCode/VerifyCode | 10 ✅ | `feat(auth): sms Sender` |
+| 2.5 | `internal/wxlogin/client.go` | Client 接口 + MockClient（"wx-mock-X" → unionid-X/openid-X；其它 sha256 截断） | 6 ✅ | `feat(auth): wxlogin` |
+| 2.6 | `internal/realname/verifier.go` | Verifier + MockVerifier（sha256+末四位，不返明文） | 10 ✅ | `feat(auth): realname` |
+| 2.7 | `internal/service/auth_service.go` | SendSMS / LoginBySMS / LoginByWX / Refresh / RealNameAuth / Me；JWT 签发；errs 包裹 | 11 ✅ | `feat(auth): AuthService` |
+| 2.8 | `internal/handler/auth.go` + `internal/middleware/auth.go` | handler + Auth Bearer 中间件 + router/server 装配 + main 装配 | 13 ✅ | `feat(auth): HTTP handlers` |
+| 2.9 | `scripts/smoke-auth.sh` + `config/auth.yaml` | build → 启动 → /healthz → sms/send → /me 无 token 401 | smoke ✅ | `feat(auth): 端到端 smoke` |
+
+**累计 67 个单测 + 5 个集成测试（含 1 个集成但属 db 包）全部通过**；smoke 脚本可一键验证。
+
+**踩过的坑**：
+
+1. **Go toolchain / 代理**：Go 1.26 默认 toolchain=auto 会拉到 1.25+，但 goproxy.cn 缺少部分包（go-cmp 等）。最终用 `GOPROXY=https://goproxy.io,https://goproxy.cn,direct GOSUMDB=off`；前者补齐镜像，后者跳过 sumdb 校验（本机开发足够，正式 CI 用 goproxy + sumdb）。Makefile 暂未硬编码，避免影响 CI；每个 go test 都显式带这两个 env。
+2. **docker-compose bitnami/zookeeper:3.9 不可用**：改为 `apache/kafka:3.9.1` KRaft 模式（单节点 + 内部 broker/controller 端口分离），免 Zookeeper。
+3. **gin 测试不能 GetHeader 裸 Context**：`gin.CreateTestContext` 不带 Request，必须 `httptest.NewRequest` 构造再注入（项目早期踩过同坑）。
+5. **httpx 泛型推断**：`httpx.OK(c, nil)` 无法推断 T；统一写 `httpx.OK[any](c, ...)`。
+7. **业务码 vs HTTP 状态**：第一版 middleware 把 `errs.CodeUnauthorized.HTTPStatus()`（401）当业务码传入 `httpx.Fail`，导致 /me 返回 `code:401` 而不是 `code:11001`。修正后业务码统一是 `int(errs.CodeUnauthorized)`（11001），HTTP 状态恒 200。
+8. **mock wx 行为**：测试用例最初期望 `"wx-mock-A"` → `"openid-A"`，但 mock 实际剥前缀后输出 `"openid-A"`（suffix 完整保留）。把测试改成断言 `"openid-A"`/`"unionid-A"`，匹配实际行为。
+9. **JWT iat 同秒**：登录和 Refresh 在同秒内签发可能产生完全相同的 token；测试不再断言 `tok1 != tok2`，只断言 claims 正确。
+10. **shared/sms vs services/auth/internal/sms**：service 包最初 import 错位置（`shared/sms`）；改正为 `services/auth/internal/sms`。
+11. **service.UserRepo 接口 vs repo.UserRepo**：业务层在 service 包内自己定义 UserRepo 接口（不依赖 repo 包的具体 struct），让 fake 替身更容易写。后续阶段接入 pgxpool 时写一个 `repoAdapter` 桥接。
+12. **nilRepo 哨兵**：当前 main.go 在未接 DB 时用 nilRepo 让所有调用返回错误（"user repo not wired"）。这是为了 dev 期"早暴露"，smoke 只测 /healthz + sms/send + 鉴权拦截，不走业务流。
+
 **关键决策**：
-1. 短信发送用 mock 接口（v1 不接真通道，留 Sender 接口）
-2. 微信登录用 `wxlogin.Client` 接口，默认实现 mock；真接入由 config 切真渠道
-3. 实名信息只存哈希 + 末四位
-4. unionid + role + openid_mini/openid_app 三段式存储（呼应评审 C-07）
+
+1. **业务层接口定义在 service 包内**：UserRepo / SMSSender / WXLogin / RealNameVerifier 都由 service 定义，repo / 子包各自实现。这样 service 可以独立编译、独立单测，不依赖具体存储。
+2. **sms.LogSender 同时是 Sender 和 Verifier**：业务层登录时要 `VerifyCode`，而 LogSender 已经存了最近一次验证码，添加 `VerifyCode(phone, code) bool` 方法一行即可——避免引入 Redis 缓存层。
+3. **JWT claim**：UserID + Role + UnionID + 标准 iat/exp。Refresh 时复用旧 token 的 claims，只重新签发，逻辑简单；缺点是 token 撤销困难，v2 引入黑名单。
+4. **smoke 脚本不依赖 DB**：smoke-auth.sh 只验证服务可启动 + /healthz 通 + 路由注册 + JWT 中间件拦截。真正的"登录→token→me"链路需要在 docker compose up 后跑（脚本已有注释）。
+5. **不在 main 里直连 pgxpool**：阶段 2 把 repo 装配放到下一节（smoke 真跑时替换 nilRepo），保持 main 简洁。
+7. **统一 errs 翻译**：handler 只调 `respondError(c, err)`，把 errs.As 翻译成 httpx.Fail。非业务错误兜底 500 + `err.Error()`，避免信息泄露。
+8. **/healthz 不挂中间件**：liveness 必须始终可探，不和 auth/RBAC 耦合。
+
+---
 
 ---
 
