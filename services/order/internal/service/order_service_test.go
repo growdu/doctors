@@ -1,0 +1,189 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/growdu/doctors/services/order/internal/repo"
+)
+
+// ---------- fake ----------
+
+type fakeOrderRepo struct {
+	orders []*repo.Order
+	events []*repo.OrderEvent
+	nextID int64
+}
+
+func newFakeOrderRepo() *fakeOrderRepo { return &fakeOrderRepo{} }
+
+func (r *fakeOrderRepo) Create(ctx context.Context, o *repo.Order) error {
+	r.nextID++
+	o.ID = r.nextID
+	r.orders = append(r.orders, o)
+	return nil
+}
+func (r *fakeOrderRepo) FindByID(ctx context.Context, id int64) (*repo.Order, error) {
+	for _, o := range r.orders {
+		if o.ID == id {
+			return o, nil
+		}
+	}
+	return nil, repo.ErrOrderNotFound
+}
+func (r *fakeOrderRepo) ListByPatient(ctx context.Context, patientID int64, limit, offset int) ([]*repo.Order, error) {
+	out := make([]*repo.Order, 0)
+	for _, o := range r.orders {
+		if o.PatientID == patientID {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+func (r *fakeOrderRepo) UpdateStatus(ctx context.Context, id int64, to string, ver int, escortID *int64) error {
+	return errors.New("not implemented in fake")
+}
+func (r *fakeOrderRepo) InsertEvent(ctx context.Context, orderID int64, from *string, to string, actorID *int64, payload []byte) error {
+	r.events = append(r.events, &repo.OrderEvent{
+		OrderID: orderID, FromStatus: from, ToStatus: to, ActorID: actorID, Payload: payload,
+	})
+	return nil
+}
+func (r *fakeOrderRepo) ListEvents(ctx context.Context, orderID int64) ([]*repo.OrderEvent, error) {
+	return r.events, nil
+}
+
+type fakeUserRepo struct {
+	users map[int64]*UserSnapshot
+}
+
+func (r *fakeUserRepo) FindByID(ctx context.Context, id int64) (*UserSnapshot, error) {
+	u, ok := r.users[id]
+	if !ok {
+		return nil, errors.New("fake: user not found")
+	}
+	return u, nil
+}
+
+func newFakeUserRepo() *fakeUserRepo {
+	return &fakeUserRepo{users: map[int64]*UserSnapshot{}}
+}
+
+// ---------- 用 service 包内的接口 ----------
+
+func newService(t *testing.T, oRepo OrderRepo, uRepo UserLookup) *Service {
+	return &Service{
+		orders: oRepo,
+		users:  uRepo,
+	}
+}
+
+func validCreateReq() CreateReq {
+	return CreateReq{
+		PatientID:      10,
+		HospitalID:     100,
+		PackageID:      1,
+		ServiceStartAt: time.Now().Add(24 * time.Hour),
+		Amount:         200.00,
+	}
+}
+
+// ---------- 测试 ----------
+
+func TestCreate_Success(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	uRepo.users[10] = &UserSnapshot{ID: 10, Role: "patient", RealNameVerified: true}
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+	assert.NotZero(t, o.ID)
+	assert.Equal(t, "created", o.Status)
+	assert.NotEmpty(t, o.OrderNo)
+	assert.Len(t, oRepo.events, 1, "必须写一条 order_event")
+}
+
+func TestCreate_UserNotFound(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+
+	_, err := svc.Create(context.Background(), validCreateReq())
+	assert.Error(t, err)
+}
+
+func TestCreate_NotRealNameVerified(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	uRepo.users[10] = &UserSnapshot{ID: 10, Role: "patient", RealNameVerified: false}
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+
+	_, err := svc.Create(context.Background(), validCreateReq())
+	assert.Error(t, err)
+}
+
+func TestCreate_NegativeAmount(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	uRepo.users[10] = &UserSnapshot{ID: 10, RealNameVerified: true}
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+
+	req := validCreateReq()
+	req.Amount = -1
+	_, err := svc.Create(context.Background(), req)
+	assert.Error(t, err)
+}
+
+func TestCreate_PastStartTime(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	uRepo.users[10] = &UserSnapshot{ID: 10, RealNameVerified: true}
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+
+	req := validCreateReq()
+	req.ServiceStartAt = time.Now().Add(-1 * time.Hour)
+	_, err := svc.Create(context.Background(), req)
+	assert.Error(t, err)
+}
+
+func TestList_MyOrders(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	uRepo.users[10] = &UserSnapshot{ID: 10, RealNameVerified: true}
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+
+	for i := 0; i < 3; i++ {
+		req := validCreateReq()
+		req.HospitalID = int64(100 + i)
+		_, err := svc.Create(context.Background(), req)
+		require.NoError(t, err)
+	}
+	list, err := svc.List(context.Background(), 10, 10, 0)
+	require.NoError(t, err)
+	assert.Len(t, list, 3)
+}
+
+func TestGet_OK(t *testing.T) {
+	uRepo := newFakeUserRepo()
+	uRepo.users[10] = &UserSnapshot{ID: 10, RealNameVerified: true}
+	oRepo := newFakeOrderRepo()
+	svc := newService(t, oRepo, uRepo)
+	o, err := svc.Create(context.Background(), validCreateReq())
+	require.NoError(t, err)
+
+	got, err := svc.Get(context.Background(), o.ID)
+	require.NoError(t, err)
+	assert.Equal(t, o.ID, got.ID)
+}
+
+func TestGet_NotFound(t *testing.T) {
+	svc := newService(t, newFakeOrderRepo(), newFakeUserRepo())
+	_, err := svc.Get(context.Background(), 999)
+	assert.Error(t, err)
+}
