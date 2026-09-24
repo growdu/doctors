@@ -790,3 +790,51 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 
 - patient-miniapp 用户登录 → 下单 → match-service 抢单池 → escort-app 陪诊师接单 → order-service 状态机流转 → admin-web 监控
 - 三端共享 `X-Trace-Id` + 后端 `logger.FromContext` 链路追踪
+
+---
+
+## 12. admin-web v2 增量 6 task（2026-09-24 order-matching-redesign plan）
+
+**目标**：在 admin-web 骨架（§11 commit `925cc9d`）基础上，**增量**适配订单匹配模式从「抢单」改为「选人」：OrderListPage 加 2 状态筛选 + 2 列；OrderDetailPage 加状态机进度条 2 状态分支 + 30s 倒计时 + 拒接回退卡；DashboardPage 加 2 个 Statistic；StatusBadge 加 2 状态色；MSW 加 fixture；OpenAPI 加 3 字段。
+
+**6 个 commit（按底座→组件→mock→page 顺序）**：
+
+| commit | 内容 | 文件 |
+| :-- | :-- | :-- |
+| `4caefbb` | `chore(admin-web)` contracts.yaml + types/generated.ts stub | openapi/contracts.yaml + src/types/generated.ts |
+| `a8c2313` | `feat(admin-web)` StatusBadge 2 状态色 | components/StatusBadge/{StatusBadge.tsx, StatusBadge.test.tsx, index.ts} |
+| `0be92c7` | `feat(admin-web)` MSW handlers + seed v2 fixture | mocks/{data/seed.ts, handlers/{admin/orders.ts, admin/reports.ts, index.ts}, browser.ts} + orders.test.ts |
+| `37ebb97` | `feat(admin-web)` OrderListPage 2 状态筛选 + 2 列 + 详情链接 | pages/orders/{OrderListPage.tsx, OrderListPage.test.tsx} + api/admin/orders.ts |
+| `efeab33` | `feat(admin-web)` OrderDetailPage 进度分支 + 倒计时 + 拒接卡 | pages/orders/{OrderDetailPage.tsx, EscortPendingCountdown.tsx, OrderDetailPage.test.tsx} |
+| `a2fda5b` | `feat(admin-web)` DashboardPage 2 卡片 + router /orders/:id | pages/dashboard/{DashboardPage.tsx, DashboardPage.test.tsx} + api/admin/reports.ts + router/index.tsx |
+
+**关键设计**：
+
+1. **状态机 UI 对齐后端 v1.1**：6 节点进度条 `paid → selecting_escort → escort_pending_acceptance → accepted → in_service → completed`，与 §10.9.1 后端状态机一致。
+2. **30s 倒计时**：`useEffect + setInterval(1000)` 1s tick；卸载 clearInterval 防内存泄漏；剩余 < 60s 红色 `#ff4d4f`；≥ 60s 蓝色 `#1677ff`；减到 0 时定格 "0s"。
+3. **拒接回退文案映射**：`escort_declined → 陪诊师主动拒接` / `lock_expired → 陪诊师超时未确认`；Alert 顶部展示 + "重新选择其他陪诊师"链接。
+4. **URL 双向绑定**：OrderListPage 用 `useSearchParams` 读 `?status=` 实现 DashboardPage 点击卡片跳转自动过滤。
+5. **配色一致**：StatusBadge + DashboardPage 卡片 + EscortPendingCountdown 三处用同色 `colorWarning(橙) / colorProcessing(蓝)`，避免色板漂移。
+
+**Plan 偏差（重要）**：
+
+1. **工程根路径 `web/admin-web/` → `frontend/admin-web/`**：plan 全程写 `web/`，与 escort-app / patient-miniapp 不一致；本 v2 已纠正。
+2. **ProTable → antd Table**：`@ant-design/pro-components` 不在 package.json；改用 antd 5 原生 Table + Select + Card，保留 5s polling + 状态过滤 + 详情链接语义。
+3. **`OrderListPage.tsx` / `OrderDetailPage.tsx` 不存在**：骨架只有 `OrdersPage.tsx` 占位；本 v2 顺手补建（OrderListPage 替换 /orders 路由挂载；OrderDetailPage 新建；EscortPendingCountdown 新建；OrdersPage 保留但不再路由挂载）。
+4. **types/generated.ts 改手写 stub**：openapi-typescript 7.x 工具链未跑（任务契约禁 npm install），手写 81 行覆盖 OrderStatus enum + OrderDetail 3 新字段 + OverviewReport 2 指标；注释标明待 `pnpm run generate:client` 自动覆盖。
+5. **`public/mockServiceWorker.js` 跳过**：需 `npx msw init public/` 生成二进制；待用户本地补跑。
+6. **测试用 `vi.mock` 替代部分 msw/node**：避免依赖未建好的 handler 在 jsdom 环境的兼容性；MSW handler test 仍用 msw/node 真实拦截（orders.test.ts）。
+
+**未做（留给后续）**：
+
+1. **跑 vitest 验证**：本机未装工具链；10 个 it 待用户 `pnpm install` 后 `pnpm exec vitest run` 跑通。
+2. **`pnpm run generate:client` 重生成 types**：openapi-typescript 工具链补齐后覆盖手写 stub。
+3. **`npx msw init public/` 生成 mockServiceWorker.js 二进制**。
+4. **`src/main.tsx` 装配 MSW worker.start()**：dev 启动时启用 mock（补一行 `if (import.meta.env.DEV) startMockServiceWorker()`）。
+5. **补 v1 缺失的 admin-web 骨架**：authStore + AuthGuard + ProTable 封装 + 全量 handlers（escorts/refunds/wallets 等）+ 18 P0 页面骨架。
+6. **跨工程一致性校验**：patient-miniapp / escort-app 端 `frontend/{patient-miniapp,escort-app}/openapi/contracts.yaml` 也应加对应字段（selected_escort_id / escort_pending_expire_at / escort_reject_reason）。
+
+**端到端联通（v1.1 目标）**：
+
+- patient-miniapp 用户登录 → 下单 → match-service 抢单池 → escort-app 陪诊师接单 → order-service 状态机流转 → admin-web 监控
+- 三端共享 `X-Trace-Id` + 后端 `logger.FromContext` 链路追踪
