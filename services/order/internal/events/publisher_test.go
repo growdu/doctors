@@ -36,6 +36,14 @@ func TestNopPublisher_CountsCancelled(t *testing.T) {
 	assert.Equal(t, 1, p.CancelledCount)
 }
 
+// TestNopPublisher_CountsMatching 验证 PublishOrderMatching 计数。
+func TestNopPublisher_CountsMatching(t *testing.T) {
+	p := &NopPublisher{}
+	ev := contracts.OrderMatchingEvent{OrderID: 1, EscortID: 7, Reason: "lock_expired", RetriedAt: time.Now()}
+	require.NoError(t, p.PublishOrderMatching(context.Background(), ev))
+	assert.Equal(t, 1, p.MatchingCount)
+}
+
 // TestNopPublisher_Close 不报错。
 func TestNopPublisher_Close(t *testing.T) {
 	p := &NopPublisher{}

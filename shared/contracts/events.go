@@ -18,6 +18,7 @@ const (
 	TopicOrderAccepted  = "order.accepted"
 	TopicOrderCancelled = "order.cancelled"
 	TopicOrderReviewed  = "order.reviewed"
+	TopicOrderMatching  = "order.matching" // 锁单超时 / 拒接 → 回退 matching，重新进入匹配池
 
 	TopicUserRegistered   = "user.registered"
 	TopicUserRealNameDone = "user.real_name.done"
@@ -71,6 +72,15 @@ type OrderReviewedEvent struct {
 	Rating    int       `json:"rating"`
 	Comment   string    `json:"comment,omitempty"`
 	ReviewedAt time.Time `json:"reviewed_at"`
+}
+
+// OrderMatchingEvent 订单重新进入匹配池（锁单超时回退 或 陪诊师拒接）。
+// order-service → match-service：重新推送候选陪诊师。
+type OrderMatchingEvent struct {
+	OrderID   int64     `json:"order_id"`
+	EscortID  int64     `json:"escort_id"`           // 拒接的 escort（超时则为 0）
+	Reason    string    `json:"reason"`              // "lock_expired" | "escort_declined"
+	RetriedAt time.Time `json:"retried_at"`
 }
 
 // ---------- User 事件 ----------

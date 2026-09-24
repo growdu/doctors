@@ -26,6 +26,7 @@ type Publisher interface {
 	PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error
 	PublishOrderAccepted(ctx context.Context, ev contracts.OrderAcceptedEvent) error
 	PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error
+	PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error
 	Close() error
 }
 
@@ -82,11 +83,17 @@ func (p *KafkaPublisher) PublishOrderCancelled(ctx context.Context, ev contracts
 	return p.publish(ctx, contracts.TopicOrderCancelled, strconv.FormatInt(ev.OrderID, 10), ev)
 }
 
+// PublishOrderMatching 发布 order.matching 事件（锁单超时 / 拒接 → 回退 matching）。
+func (p *KafkaPublisher) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
+	return p.publish(ctx, contracts.TopicOrderMatching, strconv.FormatInt(ev.OrderID, 10), ev)
+}
+
 // NopPublisher 是测试或 dev 占位实现。
 type NopPublisher struct {
 	CreatedCount   int
 	AcceptedCount  int
 	CancelledCount int
+	MatchingCount  int
 }
 
 // PublishOrderCreated 计数 + 返回。
@@ -104,6 +111,12 @@ func (p *NopPublisher) PublishOrderAccepted(ctx context.Context, ev contracts.Or
 // PublishOrderCancelled 计数 + 返回。
 func (p *NopPublisher) PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error {
 	p.CancelledCount++
+	return nil
+}
+
+// PublishOrderMatching 计数 + 返回。
+func (p *NopPublisher) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
+	p.MatchingCount++
 	return nil
 }
 

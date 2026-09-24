@@ -73,9 +73,26 @@ func TestTopicConstants(t *testing.T) {
 	assert.Equal(t, "order.created", TopicOrderCreated)
 	assert.Equal(t, "order.accepted", TopicOrderAccepted)
 	assert.Equal(t, "order.cancelled", TopicOrderCancelled)
+	assert.Equal(t, "order.matching", TopicOrderMatching)
 	assert.Equal(t, "user.registered", TopicUserRegistered)
 	assert.Equal(t, "escort.available", TopicEscortAvailable)
 	assert.Equal(t, "payment.completed", TopicPaymentCompleted)
+}
+
+// TestOrderMatchingEvent_RoundTrip 验证 OrderMatchingEvent 序列化可逆。
+func TestOrderMatchingEvent_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ev := OrderMatchingEvent{
+		OrderID:   100,
+		EscortID:  7,
+		Reason:    "lock_expired",
+		RetriedAt: now,
+	}
+	data, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got OrderMatchingEvent
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, ev, got)
 }
 // TestEscortSummary_IsAvailable 验证 IsAvailable 边界。
 func TestEscortSummary_IsAvailable(t *testing.T) {
