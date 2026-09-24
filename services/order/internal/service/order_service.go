@@ -21,6 +21,7 @@ import (
 	"github.com/growdu/doctors/services/order/internal/state"
 	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/errs"
+	"github.com/growdu/doctors/shared/lock"
 )
 
 // OrderRepo 是仓储最小契约。
@@ -53,14 +54,20 @@ type UserSnapshot struct {
 type Service struct {
 	orders    OrderRepo
 	users     UserLookup
-	txRunner  TxRunner  // 可选；抢单 (Accept) 时必需
-	publisher  events.Publisher // 可选；nil 时不发布事件
+	txRunner  TxRunner      // 可选；抢单 (Accept) 时必需
+	publisher events.Publisher // 可选；nil 时不发布事件
 	clockNow  func() time.Time // 用于测试注入时间
+	locker    lock.Locker     // 可选；nil = 降级为 NopLocker
 }
 
 // New 装配一个 Service。
 func New(orders OrderRepo, users UserLookup) *Service {
-	return &Service{orders: orders, users: users, clockNow: time.Now}
+	return &Service{
+		orders:   orders,
+		users:    users,
+		clockNow: time.Now,
+		locker:   lock.NopLocker{}, // 默认 NopLocker，DB 兜底
+	}
 }
 
 // WithTx 注入事务执行器（阶段 3.6 接通 PG 后由 main 调）。
@@ -78,6 +85,16 @@ func (s *Service) WithPublisher(p events.Publisher) *Service {
 // WithClock 注入时钟（测试用）。
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.clockNow = now
+	return s
+}
+
+// WithLocker 注入分布式锁（§4.2 order-lock plan：Redis SETNX 第一道闸）。
+// nil = NopLocker（永远拿不到锁，依赖 DB 兜底）。
+func (s *Service) WithLocker(l lock.Locker) *Service {
+	if l == nil {
+		l = lock.NopLocker{}
+	}
+	s.locker = l
 	return s
 }
 

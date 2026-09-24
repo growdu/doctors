@@ -247,6 +247,7 @@ type fakePub struct {
 	created   int
 	accepted  int
 	cancelled int
+	matching  int
 }
 
 func (p *fakePub) PublishOrderCreated(ctx context.Context, ev contracts.OrderCreatedEvent) error {
@@ -259,6 +260,10 @@ func (p *fakePub) PublishOrderAccepted(ctx context.Context, ev contracts.OrderAc
 }
 func (p *fakePub) PublishOrderCancelled(ctx context.Context, ev contracts.OrderCancelledEvent) error {
 	p.cancelled++
+	return nil
+}
+func (p *fakePub) PublishOrderMatching(ctx context.Context, ev contracts.OrderMatchingEvent) error {
+	p.matching++
 	return nil
 }
 func (p *fakePub) Close() error { return nil }

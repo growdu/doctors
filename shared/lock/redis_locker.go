@@ -53,10 +53,13 @@ func (l *RedisLocker) Release(ctx context.Context, key, token string) error {
 	return redis.NewScript(releaseScript).Run(ctx, l.rdb, []string{key}, token).Err()
 }
 
-// NopLocker 是 dev / unit test 的占位实现：永远拿不到锁（模拟 Redis 不可用）。
+// NopLocker 是 dev / unit test 的占位实现：永远返回 ok=true（passthrough）。
+//
+// 设计意图：模拟"没有 Redis"——上层 Service.TryLock 应当跳过 SETNX 检查，
+// 直接走 DB 唯一约束兜底，而不是把"没拿 SETNX"误判为 ErrLockTaken。
 type NopLocker struct{}
 
 func (NopLocker) TryLock(ctx context.Context, key, token string, ttl time.Duration) (bool, error) {
-	return false, nil
+	return true, nil
 }
 func (NopLocker) Release(ctx context.Context, key, token string) error { return nil }

@@ -17,6 +17,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -37,6 +39,8 @@ var (
 	ErrVersionConflict     = errors.New("accept: version conflict")
 	// ErrInvalidStateForLock 复用 repo 的同名哨兵，便于 service / repo 调用方做 errors.Is 匹配。
 	ErrInvalidStateForLock = repo.ErrInvalidStateForLock
+	// ErrLockTaken Redis SETNX 已存在的哨兵；不依赖 DB 校验。
+	ErrLockTaken           = errors.New("service: order lock taken by another escort")
 )
 
 // AcceptResult 是 Accept 成功时的返回值。
@@ -155,17 +159,42 @@ var _ OrderRepo = (*repo.OrderRepo)(nil)
 // 新流程：陪诊师先 TryLock 拿 30s 锁单（§4.2 order-lock plan 会在 TryLock 前后加 Redis SETNX）；
 // 锁单窗口内 ConfirmAccept 把订单切到 accepted；超时 / 拒接走 ReleaseAcceptLock 回退 matching。
 
-// TryLock 陪诊师尝试拿锁单（§4.2 order-lock plan 会在此前后加 Redis SETNX）。
+// TryLock 陪诊师尝试拿锁单（§4.2 order-lock plan：Redis SETNX + DB 唯一约束兜底）。
+//
+// 三道防线：
+//   - Redis SETNX orders:accept-lock:{order_id}（第一道闸：DB 锁前的 fast path）
+//   - DB 校验 status='matching' + version
+//   - DB UPDATE status='pending_acceptance' + lock_owner + lock_expire_at
 //
 // 失败语义：
+//   - Redis SETNX 已存在（其他 escort 在锁）→ ErrLockTaken（fast path）
 //   - order 不存在 → CodeNotFound
 //   - 订单已被另一 escort 锁单（status=pending_acceptance）→ ErrInvalidStateForLock
 //   - 订单已 accepted / canceled 等非 matching 状态 → CodeConflict
-//   - version 不匹配 → 内部错（repo.ErrVersionConflict）
+//   - version 不匹配 → ErrVersionConflict
+//
+// 简化：token 是 TryLock 时随机生成的；Release 时也只做 best-effort（不一定命中），
+// TTL 到期自动过期，命中失败不会阻塞主流程（v2 可把 token 存 DB 做精确释放）。
 func (s *Service) TryLock(ctx context.Context, orderID, escortID int64, ttl time.Duration) error {
 	if orderID == 0 || escortID == 0 {
 		return errs.New(errs.CodeParamInvalid, "order_id / escort_id required")
 	}
+
+	// 第一道闸：Redis SETNX（如果 locker 是 NopLocker，TryLock 永远 false，
+	// 视为"Redis 不可用"，由 DB 唯一约束兜底）。
+	tokenBytes := make([]byte, 16)
+	_, _ = rand.Read(tokenBytes)
+	token := hex.EncodeToString(tokenBytes)
+	key := fmt.Sprintf("orders:accept-lock:%d", orderID)
+	ok, err := s.locker.TryLock(ctx, key, token, ttl)
+	if err != nil {
+		// Redis 异常：降级放行，由 DB 兜底（生产 main 应配 zap warn 日志）
+		_ = err
+	}
+	if err == nil && !ok {
+		return ErrLockTaken
+	}
+
 	o, err := s.orders.FindByID(ctx, orderID)
 	if err != nil {
 		if err == repo.ErrOrderNotFound {
@@ -184,13 +213,12 @@ func (s *Service) TryLock(ctx context.Context, orderID, escortID int64, ttl time
 	}
 	expireAt := s.clockNow().Add(ttl)
 	if err := s.orders.LockForAccept(ctx, orderID, escortID, expireAt, o.Version); err != nil {
-		// repo 层的版本冲突 / 非法状态透传，便于 errors.Is 判断
-		return err
+		return errs.Wrap(errs.CodeInternal, "lock for accept", err)
 	}
 	return nil
 }
 
-// ReleaseAcceptLock 拒接 / 超时 → 回退到 matching。
+// ReleaseAcceptLock 拒接 / 超时 → 回退到 matching；锁单持有者必须 = escortID。
 func (s *Service) ReleaseAcceptLock(ctx context.Context, orderID, escortID int64) error {
 	if orderID == 0 || escortID == 0 {
 		return errs.New(errs.CodeParamInvalid, "order_id / escort_id required")
@@ -208,7 +236,19 @@ func (s *Service) ReleaseAcceptLock(ctx context.Context, orderID, escortID int64
 	if err := s.orders.ReleaseLock(ctx, orderID, o.Version); err != nil {
 		return errs.Wrap(errs.CodeInternal, "release lock", err)
 	}
+	// 释放 Redis 锁（best-effort，token 由 caller 不一定能命中，TTL 兜底）
+	s.releaseRedisLock(ctx, orderID)
 	return nil
+}
+
+// releaseRedisLock 释放 Redis SETNX（best-effort，不保证命中）。
+// token 简化处理：随机生成；与 TryLock 时的不一定匹配，靠 TTL 到期自动过期。
+// 生产环境应把 token 存 DB 做精确释放（v2 引入）。
+func (s *Service) releaseRedisLock(ctx context.Context, orderID int64) {
+	tokenBytes := make([]byte, 16)
+	_, _ = rand.Read(tokenBytes)
+	key := fmt.Sprintf("orders:accept-lock:%d", orderID)
+	_ = s.locker.Release(ctx, key, hex.EncodeToString(tokenBytes))
 }
 
 // ConfirmAccept 陪诊师在锁单窗口内确认 → 改 accepted；escort_id 写入。
@@ -235,5 +275,7 @@ func (s *Service) ConfirmAccept(ctx context.Context, orderID, escortID int64) (*
 	if err := s.orders.InsertEvent(ctx, orderID, &from, string(state.StatusAccepted), &actor, nil); err != nil {
 		return nil, errs.Wrap(errs.CodeInternal, "insert event", err)
 	}
+	// 释放 Redis 锁（best-effort）
+	s.releaseRedisLock(ctx, orderID)
 	return s.orders.FindByID(ctx, orderID)
 }

@@ -8,12 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNopLocker_ReturnsFalse 验证 NopLocker 永远拿不到锁（模拟 Redis 不可用）。
-func TestNopLocker_ReturnsFalse(t *testing.T) {
+// TestNopLocker_PassesThrough 验证 NopLocker.TryLock 永远 ok=true（passthrough）。
+// 设计意图：让上层 Service.TryLock 跳过 SETNX 检查，走 DB 唯一约束兜底。
+func TestNopLocker_PassesThrough(t *testing.T) {
 	l := NopLocker{}
 	ok, err := l.TryLock(context.Background(), "key", "token", time.Second)
 	assert.NoError(t, err)
-	assert.False(t, ok)
+	assert.True(t, ok, "NopLocker.TryLock 应返回 true 让上层继续")
 }
 
 // TestNopLocker_ReleaseNoError 验证 NopLocker.Release 不报错。

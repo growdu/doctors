@@ -19,11 +19,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/services/order/internal/repo"
+	"github.com/growdu/doctors/shared/lock"
 )
 
 func testDSN() string {
@@ -261,4 +264,77 @@ func TestAccept_ReleaseLock(t *testing.T) {
 	got, _ := r.FindByID(context.Background(), orderID)
 	assert.Equal(t, "matching", got.Status)
 	assert.Nil(t, got.LockOwner)
+}
+// ===== §4.2 order-lock plan: TryLock 接 Redis SETNX =====
+
+// TestTryLock_NopLockerAllowsTry 验证 Redis 不可用时（NopLocker）仍可走 DB 锁。
+func TestTryLock_NopLockerAllowsTry(t *testing.T) {
+	pool, patient, escort := setupAcceptPool(t)
+	orderID := seedOrder(t, pool, patient, "matching")
+	r := repo.NewOrderRepo(pool)
+	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool}).WithLocker(lock.NopLocker{})
+
+	require.NoError(t, svc.TryLock(context.Background(), orderID, escort, 30*time.Second))
+}
+
+// TestTryLock_RedisSetNX_BlocksSecondEscort 验证 Redis SETNX 阻止并发。
+func TestTryLock_RedisSetNX_BlocksSecondEscort(t *testing.T) {
+	pool, patient, escort1 := setupAcceptPool(t)
+	escort2 := pickBulkEscort(t, pool, patient) // 用预建 bulk 用户；FK 不会触发
+	orderID := seedOrder(t, pool, patient, "matching")
+	r := repo.NewOrderRepo(pool)
+
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	locker := lock.NewRedisLocker(rdb)
+
+	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool}).WithLocker(locker)
+
+	require.NoError(t, svc.TryLock(context.Background(), orderID, escort1, 30*time.Second))
+	err = svc.TryLock(context.Background(), orderID, escort2, 30*time.Second)
+	assert.ErrorIs(t, err, ErrLockTaken, "已被 SETNX 锁的订单不能被另一 escort 再锁")
+}
+
+// TestTryLock_RedisExpires_AllowsSecond 验证 Redis TTL 到期后另一 escort 能过 SETNX 关。
+//
+// 注：DB 层 escort1 已经把 status 切到 pending_acceptance，escort2 仍会被 DB
+// 状态校验拒（ErrInvalidStateForLock）；这正是 plan 设计的"DB 兜底"——
+// scheduler 必须先 ReleaseAcceptLock 释放 escort1 的 DB 锁单，escort2 才能再锁。
+// 本测试只断言 SETNX 第一道闸已被 TTL 释放（用 assert.True 探针）。
+func TestTryLock_RedisExpires_AllowsSecond(t *testing.T) {
+	pool, patient, escort1 := setupAcceptPool(t)
+	escort2 := pickBulkEscort(t, pool, patient)
+	orderID := seedOrder(t, pool, patient, "matching")
+	r := repo.NewOrderRepo(pool)
+
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	locker := lock.NewRedisLocker(rdb)
+
+	svc := New(r, fakeUserLookup{}).WithTx(&PGPoolTxRunner{Pool: pool}).WithLocker(locker)
+
+	require.NoError(t, svc.TryLock(context.Background(), orderID, escort1, 100*time.Millisecond))
+	// 加速 miniredis 时间（FastForward 让 TTL 立即到期）
+	mr.FastForward(150 * time.Millisecond)
+	err = svc.TryLock(context.Background(), orderID, escort2, 30*time.Second)
+	// TTL 到期 → SETNX 通过 → 但 DB 还锁着 → ErrInvalidStateForLock（DB 兜底）
+	assert.ErrorIs(t, err, ErrInvalidStateForLock,
+		"TTL 到期后 SETNX 通过；DB 仍处于 pending_acceptance，被 DB 兜底拒")
+}
+
+// pickBulkEscort 从 setupAcceptPool 预建的 bulk 用户里取一个 escort id（满足 lock_owner FK）。
+func pickBulkEscort(t *testing.T, pool *pgxpool.Pool, patient int64) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(context.Background(),
+		`SELECT id FROM users WHERE phone LIKE 'e-bulk-%' AND id <> $1 ORDER BY id LIMIT 1`, patient).
+		Scan(&id)
+	require.NoError(t, err)
+	return id
 }
