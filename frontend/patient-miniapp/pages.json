@@ -25,6 +25,15 @@
       }
     },
     {
+      "path": "pages/order/create",
+      "style": {
+        "navigationBarTitleText": "创建订单",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
       "path": "pages/order/candidates/index",
       "style": {
         "navigationBarTitleText": "选择陪诊师",
@@ -37,6 +46,60 @@
       "path": "pages/order/detail/index",
       "style": {
         "navigationBarTitleText": "订单详情",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
+      "path": "pages/hospitals/list",
+      "style": {
+        "navigationBarTitleText": "选择医院",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
+      "path": "pages/hospitals/detail",
+      "style": {
+        "navigationBarTitleText": "医院详情",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
+      "path": "pages/profile/index",
+      "style": {
+        "navigationBarTitleText": "我的",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
+      "path": "pages/coupons/index",
+      "style": {
+        "navigationBarTitleText": "优惠券",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
+      "path": "pages/address/list",
+      "style": {
+        "navigationBarTitleText": "地址管理",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
+      "path": "pages/reviews/create",
+      "style": {
+        "navigationBarTitleText": "评价",
         "navigationBarTextStyle": "black",
         "navigationBarBackgroundColor": "#FFFFFF",
         "backgroundColor": "#F5F5F5"
