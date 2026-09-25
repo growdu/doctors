@@ -19,14 +19,14 @@ import (
 
 // SOS 是紧急信号实体。
 type SOS struct {
-	ID        int64
-	OrderID   int64
-	UserID    int64
-	Lat       float64
-	Lng       float64
-	Note      string
-	Status    string // "raised" | "handling" | "resolved"
-	RaisedAt  time.Time
+	ID         int64
+	OrderID    int64
+	UserID     int64
+	Lat        float64
+	Lng        float64
+	Note       string
+	Status     string // "raised" | "handling" | "resolved"
+	RaisedAt   time.Time
 	ResolvedAt *time.Time
 }
 
@@ -41,6 +41,15 @@ type Repo interface {
 	GetByID(ctx context.Context, id int64) (*SOS, error)
 	UpdateStatus(ctx context.Context, id int64, status string) error
 	IsRecentDuplicate(ctx context.Context, orderID int64, since time.Time) (bool, error)
+	List(ctx context.Context, f ListFilter) ([]*SOS, error)
+}
+
+// ListFilter 是 List 的过滤参数。
+type ListFilter struct {
+	OrderID  int64
+	Status   string
+	Page     int
+	PageSize int
 }
 
 // Publisher 是事件发布抽象。
@@ -111,6 +120,32 @@ func (s *Service) Raise(ctx context.Context, orderID, userID int64, lat, lng flo
 		})
 	}
 	return sos, nil
+}
+
+// GetByID 取 SOS 详情。
+func (s *Service) GetByID(ctx context.Context, id int64) (*SOS, error) {
+	if id == 0 {
+		return nil, errs.New(errs.CodeParamInvalid, "id required")
+	}
+	sos, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrSOSNotFound) {
+			return nil, errs.New(errs.CodeNotFound, "sos not found")
+		}
+		return nil, errs.Wrap(errs.CodeInternal, "find sos", err)
+	}
+	return sos, nil
+}
+
+// List 拉 SOS 列表（按 order / status / page 过滤）。
+func (s *Service) List(ctx context.Context, f ListFilter) ([]*SOS, error) {
+	if f.Page <= 0 {
+		f.Page = 1
+	}
+	if f.PageSize <= 0 || f.PageSize > 100 {
+		f.PageSize = 20
+	}
+	return s.repo.List(ctx, f)
 }
 
 // Resolve 标记 SOS 已处理。

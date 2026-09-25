@@ -44,6 +44,20 @@ func (r *fakeRepo) IsRecentDuplicate(ctx context.Context, orderID int64, since t
 	return r.dup, nil
 }
 
+func (r *fakeRepo) List(ctx context.Context, f ListFilter) ([]*SOS, error) {
+	out := make([]*SOS, 0)
+	for _, s := range r.sos {
+		if f.OrderID != 0 && s.OrderID != f.OrderID {
+			continue
+		}
+		if f.Status != "" && s.Status != f.Status {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 type fakeLookup struct{ active bool }
 
 func (f *fakeLookup) IsOrderActive(ctx context.Context, orderID int64) (bool, error) {
@@ -118,6 +132,41 @@ func TestRaise_DuplicateWithin5Min(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetByID_OK(t *testing.T) {
+	pub := &fakePub{}
+	s := newService(nil, true, pub)
+	sos, err := s.Raise(context.Background(), 100, 1, 39.9, 116.4, "x")
+	require.NoError(t, err)
+	got, err := s.GetByID(context.Background(), sos.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sos.ID, got.ID)
+}
+
+func TestGetByID_NotFound(t *testing.T) {
+	pub := &fakePub{}
+	s := newService(nil, true, pub)
+	_, err := s.GetByID(context.Background(), 999)
+	assert.Error(t, err)
+}
+
+func TestGetByID_MissingID(t *testing.T) {
+	pub := &fakePub{}
+	s := newService(nil, true, pub)
+	_, err := s.GetByID(context.Background(), 0)
+	assert.Error(t, err)
+}
+
+func TestList_Filter(t *testing.T) {
+	pub := &fakePub{}
+	s := newService(nil, true, pub)
+	_, _ = s.Raise(context.Background(), 100, 1, 39.9, 116.4, "")
+	_, _ = s.Raise(context.Background(), 100, 2, 39.9, 116.4, "")
+	_, _ = s.Raise(context.Background(), 200, 3, 39.9, 116.4, "")
+	list, err := s.List(context.Background(), ListFilter{OrderID: 100})
+	require.NoError(t, err)
+	assert.Len(t, list, 2)
+}
+
 func TestResolve_OK(t *testing.T) {
 	pub := &fakePub{}
 	s := newService(nil, true, pub)
@@ -139,6 +188,12 @@ func TestResolve_NotFound(t *testing.T) {
 	pub := &fakePub{}
 	s := newService(nil, true, pub)
 	assert.Error(t, s.Resolve(context.Background(), 999))
+}
+
+func TestResolve_MissingID(t *testing.T) {
+	pub := &fakePub{}
+	s := newService(nil, true, pub)
+	assert.Error(t, s.Resolve(context.Background(), 0))
 }
 
 func TestRaise_NilPublisher(t *testing.T) {
