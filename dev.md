@@ -1319,3 +1319,63 @@ pm install && npx vitest run 验证
 - 5 个真实页 + AdminLayout 12 项菜单 + RBAC 过滤 + 8 模块 mock handler → admin 后台审核流程完整可用
 - 全量回归 44 个测试包 0 FAIL（admin-web 增量未影响后端）
 
+
+---
+## 17.9 admin-web 14 个剩余 P0 页面接 API（commit  4840d9）
+
+**目标**：把上一批 5 个核心页之外的占位页（work-orders / messages / sos / wallets / refunds / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail + 2 个详情页）升级为接 MSW handler + ProTable + 业务交互的真实页。
+
+**1 个 commit（45 文件，+8028/-215）**： 4840d9 包含 14 个新页 + 2 个详情页 + 12 个 API client + 16 个 test。
+
+**16 个真实业务页**：
+
+| 页 | 路径 | 行 |
+| :-- | :-- | :--: |
+| WorkOrdersPage | /work-orders | 500 + test 226 |
+| MessagesPage | /messages | 350 + test 165 |
+| SosPage | /sos | 353 + test 181 |
+| WalletsPage | /wallets | 184 + test 135 |
+| WalletDetailPage | /wallets/:id | 212 + test 114 |
+| RefundsPage | /refunds | 342 + test 204 |
+| RefundDetailPage | /refunds/:id | 299 + test 170 |
+| HospitalsPage | /hospitals | 362 + test 165 |
+| PackagesPage | /packages | 368 + test 184 |
+| CouponsPage | /coupons | 332 + test 173 |
+| FinancePage | /finance | 185 + test 93 |
+| ReportsPage | /reports | 224 + test 107 |
+| SettingsPage | /settings | 307 + test 135 |
+| ProfilePage | /profile | 202 + test 128 |
+| LoginPage | /login | 74 + test 107 |
+| DashboardDetailPage | /dashboard-detail/:id | 172 + test 71 |
+
+**12 个 API 客户端**（work_orders / messages / sos / wallets / refunds / hospitals / packages / coupons / auth / finance / settings / dashboard_detail）+ reports.ts 扩展业务报表。
+
+**关键设计**：
+
+1. **统一模式**：PageHeader + ProTable + TanStack Query + invalidateQueries 刷新
+2. **RBAC UI 层**：viewer 角色 → 全部操作按钮不渲染；具体角色矩阵（work-orders: super/order/refund/cs；messages: super/cs；sos: super/cs；refunds: super/refund_admin；hospitals: super；packages: super/order_admin；coupons: super/order_admin）
+3. **MSW mock 数据集成**：work-orders / messages / sos / refunds / hospitals / packages / coupons 走 MSW 真 handler；wallets / refunds 详情走 MSW 真 handler；finance / reports / dashboard_detail / settings 前端 mock 组装（避免新增 MSW handler）
+4. **特殊页面**：
+   - login：6 个 demo 账号一键填入（super / order / refund / audit / cs / viewer）+ mock login 跳 from 或 /dashboard
+   - profile：左 Avatar + 角色，右基本信息 + 修改密码（两次输入校验 + 6 字符最小）+ 退出登录
+   - settings：4 类 Tabs（基础/支付/短信/推送），每类 2-3 字段 Form + localStorage 持久化
+   - finance / reports：4-6 个 antd Statistic 卡片 + 时间/范围筛选 + 简单表格
+   - dashboard-detail：路由参数 :id（orders_pending / refunds_pending / escorts_pending / sos_open），前端 mock 从 seed.ts 拼装下钻明细
+5. **静态 import { message }**：避免 jsdom 下 App.useApp() 副作用，与 5 个核心页保持一致
+
+**累计测试用例**：16 个 test 文件，**76 个 it() 块**（按 task 约束未跑 vitest，仅静态校验）。
+
+**未做（留给后续）**：
+
+- 跑 
+pm install && npx vitest run 实际验证
+- finance / reports / dashboard_detail / settings 真后端接口接入
+- login 用真 /api/v1/admin/login 替换 mock
+- 启动 
+pm run dev 端到端走查 22 路由
+
+**端到端联通（v1.2 目标）**：
+
+- 全部 22 路由（dashboard / orders / escorts / escorts-audit / escorts/:id / refunds / refunds/:id / wallets / wallets/:id / work-orders / reviews / messages / sos / patients / patients/:id / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail/:id）全部可点击进入 + ProTable 渲染 + 业务交互
+- 后端 44 个测试包 0 FAIL（增量未影响）
+
