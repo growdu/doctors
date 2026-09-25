@@ -11,6 +11,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/address"
 	"github.com/growdu/doctors/services/user/internal/coupon"
 	"github.com/growdu/doctors/services/user/internal/handler"
+	"github.com/growdu/doctors/services/user/internal/hospital"
 	"github.com/growdu/doctors/services/user/internal/router"
 )
 
@@ -18,8 +19,8 @@ type Server struct {
 	httpSrv *http.Server
 }
 
-func New(addr string, h *handler.Handler, jwtSecret string, addressSvc *address.Service, couponSvc *coupon.Service) *Server {
-	engine := router.New(router.Deps{AddressSvc: addressSvc, CouponSvc: couponSvc}, h, jwtSecret)
+func New(addr string, h *handler.Handler, jwtSecret string, addressSvc *address.Service, couponSvc *coupon.Service, hospitalSvc *hospital.Service) *Server {
+	engine := router.New(router.Deps{AddressSvc: addressSvc, CouponSvc: couponSvc, HospitalSvc: hospitalSvc}, h, jwtSecret)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,

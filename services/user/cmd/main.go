@@ -17,6 +17,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/address"
 	"github.com/growdu/doctors/services/user/internal/coupon"
 	"github.com/growdu/doctors/services/user/internal/handler"
+	"github.com/growdu/doctors/services/user/internal/hospital"
 	"github.com/growdu/doctors/services/user/internal/server"
 	"github.com/growdu/doctors/services/user/internal/service"
 	"github.com/growdu/doctors/shared/config"
@@ -34,8 +35,9 @@ func main() {
 	profileSvc := service.New(nilProfileRepo{})
 	addrSvc := address.NewService(nilAddrRepo{})
 	couponSvc := coupon.NewService(nilCouponRepo{})
+	hospitalSvc := hospital.NewService(nilHospitalRepo{})
 	h := handler.New(profileSvc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc)
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -99,5 +101,13 @@ func (nilCouponRepo) ListByUser(ctx context.Context, userID int64) ([]*coupon.Us
 	return nil, errNil
 }
 func (nilCouponRepo) MarkUsed(ctx context.Context, id, userID int64) error { return errNil }
+
+// nilHospitalRepo 占位实现：hospital 模块的假 repo。
+type nilHospitalRepo struct{}
+
+func (nilHospitalRepo) List(ctx context.Context, f hospital.ListFilter) ([]*hospital.Record, int, error) {
+	return nil, 0, errNil
+}
+func (nilHospitalRepo) GetByID(ctx context.Context, id int64) (*hospital.Record, error) { return nil, errNil }
 
 var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")
