@@ -165,5 +165,19 @@ func (s *Service) GetByOrder(ctx context.Context, orderID int64) (*Payment, erro
 	return p, nil
 }
 
+// Get 按支付单 ID 取详情（用于 GET /api/v1/payments/:id）。
+//
+// 2026-09-24 补全 HTTP 层时新增；调用 repo.GetByID 走主键索引。
+func (s *Service) Get(ctx context.Context, paymentID int64) (*Payment, error) {
+	p, err := s.repo.GetByID(ctx, paymentID)
+	if err != nil {
+		if errors.Is(err, ErrPaymentNotFound) {
+			return nil, errs.New(errs.CodeNotFound, "payment not found")
+		}
+		return nil, errs.Wrap(errs.CodeInternal, "find payment", err)
+	}
+	return p, nil
+}
+
 // ErrPaymentNotFound 查无结果。
 var ErrPaymentNotFound = errors.New("payment service: not found")

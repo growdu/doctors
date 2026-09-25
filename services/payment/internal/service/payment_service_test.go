@@ -181,6 +181,23 @@ func TestGetByOrder_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestGet_OK 验证 Get 按 payment_id 取详情（HTTP 层 2026-09-24 补全）。
+func TestGet_OK(t *testing.T) {
+	s, _, _ := newService()
+	p, _ := s.Create(context.Background(), 100, 200)
+	got, err := s.Get(context.Background(), p.ID)
+	require.NoError(t, err)
+	assert.Equal(t, p.ID, got.ID)
+	assert.Equal(t, int64(100), got.OrderID)
+}
+
+// TestGet_NotFound 验证 Get 查无 → 错误。
+func TestGet_NotFound(t *testing.T) {
+	s, _, _ := newService()
+	_, err := s.Get(context.Background(), 999)
+	assert.Error(t, err)
+}
+
 func TestNilPublishers(t *testing.T) {
 	s := New(newFakeRepo(), nil, fakeChannel{})
 	p, err := s.Create(context.Background(), 100, 200)
