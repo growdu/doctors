@@ -24,6 +24,9 @@ const (
 	CodeUnauthorized Code = 11001
 	// CodeForbidden 已登录但权限不足。
 	CodeForbidden Code = 11002
+	// CodeAdminForbidden 角色不在 admin API 白名单（如 viewer 调 force-cancel）。
+	// admin plan 新增（2026-09-24）。
+	CodeAdminForbidden Code = 11003
 	// CodeNotFound 资源不存在。
 	CodeNotFound Code = 12001
 	// CodeConflict 资源冲突（如重复创建）。
@@ -34,6 +37,9 @@ const (
 	CodeUnprocessable Code = 14001
 	// CodeGone 资源已过期（如 escort_pending_expire_at 已过）。
 	CodeGone Code = 14002
+	// CodeUpstreamUnavailable 上游服务不可用（admin 调 order / refund / escort 失败）。
+	// admin plan 新增（2026-09-24）。
+	CodeUpstreamUnavailable Code = 15003
 
 	// CodeInternal 服务器内部错误。
 	CodeInternal Code = 500000
@@ -52,6 +58,8 @@ func (c Code) HTTPStatus() int {
 		return http.StatusUnauthorized
 	case CodeForbidden:
 		return http.StatusForbidden
+	case CodeAdminForbidden:
+		return http.StatusForbidden
 	case CodeNotFound:
 		return http.StatusNotFound
 	case CodeConflict:
@@ -62,6 +70,8 @@ func (c Code) HTTPStatus() int {
 		return http.StatusUnprocessableEntity
 	case CodeGone:
 		return http.StatusGone
+	case CodeUpstreamUnavailable:
+		return http.StatusBadGateway
 	default:
 		return http.StatusInternalServerError
 	}

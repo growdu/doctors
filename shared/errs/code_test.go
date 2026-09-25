@@ -20,9 +20,11 @@ func TestCode_HTTPStatus(t *testing.T) {
 		{"param_invalid", errs.CodeParamInvalid, http.StatusBadRequest},
 		{"unauthorized", errs.CodeUnauthorized, http.StatusUnauthorized},
 		{"forbidden", errs.CodeForbidden, http.StatusForbidden},
+		{"admin_forbidden", errs.CodeAdminForbidden, http.StatusForbidden},
 		{"not_found", errs.CodeNotFound, http.StatusNotFound},
 		{"conflict", errs.CodeConflict, http.StatusConflict},
 		{"rate_limit", errs.CodeRateLimit, http.StatusTooManyRequests},
+		{"upstream_unavailable", errs.CodeUpstreamUnavailable, http.StatusBadGateway},
 		{"internal", errs.CodeInternal, http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
@@ -56,4 +58,16 @@ func TestAs(t *testing.T) {
 	var got *errs.Error
 	assert.True(t, errors.As(e, &got))
 	assert.Equal(t, errs.CodeNotFound, got.Code)
+}
+
+// TestCodeAdminForbidden 验证 admin 角色被拒业务码值。
+func TestCodeAdminForbidden(t *testing.T) {
+	assert.Equal(t, errs.Code(11003), errs.CodeAdminForbidden)
+	assert.Equal(t, http.StatusForbidden, errs.CodeAdminForbidden.HTTPStatus())
+}
+
+// TestCodeUpstreamUnavailable 验证上游服务不可用业务码值。
+func TestCodeUpstreamUnavailable(t *testing.T) {
+	assert.Equal(t, errs.Code(15003), errs.CodeUpstreamUnavailable)
+	assert.Equal(t, http.StatusBadGateway, errs.CodeUpstreamUnavailable.HTTPStatus())
 }

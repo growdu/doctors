@@ -83,6 +83,13 @@ func TestTopicConstants(t *testing.T) {
 	assert.Equal(t, "payment.completed", TopicPaymentCompleted)
 	assert.Equal(t, "refund.completed", TopicRefundCompleted)
 	assert.Equal(t, "order.completed", TopicOrderCompleted)
+	// v1 admin（2026-09-24）
+	assert.Equal(t, "admin.order.force_cancelled", TopicAdminOrderForceCancelled)
+	assert.Equal(t, "admin.escort.approved", TopicAdminEscortApproved)
+	assert.Equal(t, "admin.escort.rejected", TopicAdminEscortRejected)
+	assert.Equal(t, "admin.refund.approved", TopicAdminRefundApproved)
+	assert.Equal(t, "admin.refund.rejected", TopicAdminRefundRejected)
+	assert.Equal(t, "admin.work_order.created", TopicAdminWorkOrderCreated)
 }
 
 // TestOrderCompletedEvent_RoundTrip 验证 OrderCompletedEvent 序列化可逆。
@@ -237,4 +244,92 @@ func TestEscortSummary_IsAvailable(t *testing.T) {
 		AvailableUntil: now.Add(time.Hour),
 	}
 	assert.False(t, e4.IsAvailable(now))
+}
+
+// TestAdminEvents_RoundTrip 验证 6 个 admin 事件序列化可逆（v1 admin plan 2026-09-24）。
+func TestAdminEvents_RoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	t.Run("OrderForceCancelled", func(t *testing.T) {
+		ev := AdminOrderForceCancelledEvent{
+			OrderID:     100,
+			AdminID:     1,
+			Reason:      "service failed",
+			CancelledAt: now,
+		}
+		data, err := json.Marshal(ev)
+		require.NoError(t, err)
+		var got AdminOrderForceCancelledEvent
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, ev, got)
+	})
+
+	t.Run("EscortApproved", func(t *testing.T) {
+		ev := AdminEscortApprovedEvent{
+			EscortID:   7,
+			AdminID:    1,
+			Note:       "ok",
+			ApprovedAt: now,
+		}
+		data, _ := json.Marshal(ev)
+		var got AdminEscortApprovedEvent
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, ev, got)
+	})
+
+	t.Run("EscortRejected", func(t *testing.T) {
+		ev := AdminEscortRejectedEvent{
+			EscortID:   7,
+			AdminID:    1,
+			Note:       "no",
+			RejectedAt: now,
+		}
+		data, _ := json.Marshal(ev)
+		var got AdminEscortRejectedEvent
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, ev, got)
+	})
+
+	t.Run("RefundApproved", func(t *testing.T) {
+		ev := AdminRefundApprovedEvent{
+			RefundID:   50,
+			OrderID:    100,
+			AdminID:    1,
+			Note:       "approved",
+			ApprovedAt: now,
+		}
+		data, _ := json.Marshal(ev)
+		var got AdminRefundApprovedEvent
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, ev, got)
+	})
+
+	t.Run("RefundRejected", func(t *testing.T) {
+		ev := AdminRefundRejectedEvent{
+			RefundID:   50,
+			OrderID:    100,
+			AdminID:    1,
+			Note:       "rejected",
+			RejectedAt: now,
+		}
+		data, _ := json.Marshal(ev)
+		var got AdminRefundRejectedEvent
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, ev, got)
+	})
+
+	t.Run("WorkOrderCreated", func(t *testing.T) {
+		ev := AdminWorkOrderCreatedEvent{
+			WorkOrderID: 7,
+			UserID:      1,
+			Category:    "complaint",
+			Priority:    "P1",
+			Title:       "投诉陪诊师迟到",
+			CreatedAt:   now,
+		}
+		data, _ := json.Marshal(ev)
+		var got AdminWorkOrderCreatedEvent
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, ev, got)
+	})
 }

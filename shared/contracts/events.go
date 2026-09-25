@@ -38,6 +38,14 @@ const (
 
 	TopicSOSRaised = "sos.raised"
 	TopicMessageSent = "message.sent"
+
+	// ---------- Admin topics（admin-service 2026-09-24） ----------
+	TopicAdminOrderForceCancelled = "admin.order.force_cancelled" // admin → refund / notification
+	TopicAdminEscortApproved      = "admin.escort.approved"        // admin → escort / notification
+	TopicAdminEscortRejected      = "admin.escort.rejected"        // admin → escort / notification
+	TopicAdminRefundApproved      = "admin.refund.approved"        // admin → refund / notification
+	TopicAdminRefundRejected      = "admin.refund.rejected"        // admin → refund / notification
+	TopicAdminWorkOrderCreated    = "admin.work_order.created"     // admin → notification
 )
 
 // ---------- Order 事件 ----------
@@ -243,4 +251,59 @@ type MessageSentEvent struct {
 	ToID      int64     `json:"to_id"`
 	Body      string    `json:"body"`
 	SentAt    time.Time `json:"sent_at"`
+}
+
+// ---------- Admin 事件（admin-service 2026-09-24） ----------
+
+// AdminOrderForceCancelledEvent 管理员强制取消订单（admin-service → refund / notification）。
+// 触发 refund-service 自动发起退款（reason='admin_cancel'）。
+type AdminOrderForceCancelledEvent struct {
+	OrderID     int64     `json:"order_id"`
+	AdminID     int64     `json:"admin_id"`
+	Reason      string    `json:"reason,omitempty"`
+	CancelledAt time.Time `json:"cancelled_at"`
+}
+
+// AdminEscortApprovedEvent 陪诊师审核通过（admin-service → escort-service 解锁上线 / notification）。
+type AdminEscortApprovedEvent struct {
+	EscortID   int64     `json:"escort_id"`
+	AdminID    int64     `json:"admin_id"`
+	Note       string    `json:"note,omitempty"`
+	ApprovedAt time.Time `json:"approved_at"`
+}
+
+// AdminEscortRejectedEvent 陪诊师审核拒绝（admin-service → escort-service / audit / notification）。
+type AdminEscortRejectedEvent struct {
+	EscortID   int64     `json:"escort_id"`
+	AdminID    int64     `json:"admin_id"`
+	Note       string    `json:"note,omitempty"`
+	RejectedAt time.Time `json:"rejected_at"`
+}
+
+// AdminRefundApprovedEvent 退款审核通过（admin-service → refund-service 推进 + notification）。
+type AdminRefundApprovedEvent struct {
+	RefundID   int64     `json:"refund_id"`
+	OrderID    int64     `json:"order_id"`
+	AdminID    int64     `json:"admin_id"`
+	Note       string    `json:"note,omitempty"`
+	ApprovedAt time.Time `json:"approved_at"`
+}
+
+// AdminRefundRejectedEvent 退款审核拒绝（admin-service → refund-service 标记 rejected + notification）。
+type AdminRefundRejectedEvent struct {
+	RefundID   int64     `json:"refund_id"`
+	OrderID    int64     `json:"order_id"`
+	AdminID    int64     `json:"admin_id"`
+	Note       string    `json:"note,omitempty"`
+	RejectedAt time.Time `json:"rejected_at"`
+}
+
+// AdminWorkOrderCreatedEvent 工单创建（admin-service → notification；通知相关客服 / 投诉人）。
+type AdminWorkOrderCreatedEvent struct {
+	WorkOrderID int64     `json:"work_order_id"`
+	UserID      int64     `json:"user_id"`
+	Category    string    `json:"category"`
+	Priority    string    `json:"priority"`
+	Title       string    `json:"title"`
+	CreatedAt   time.Time `json:"created_at"`
 }
