@@ -1379,3 +1379,34 @@ pm run dev �˵����߲� 22 ·��
 - ȫ�� 22 ·�ɣ�dashboard / orders / escorts / escorts-audit / escorts/:id / refunds / refunds/:id / wallets / wallets/:id / work-orders / reviews / messages / sos / patients / patients/:id / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail/:id��ȫ���ɵ������ + ProTable ��Ⱦ + ҵ�񽻻�
 - ��� 44 �����԰� 0 FAIL������δӰ�죩
 
+---
+## 19. user-service 5 模块落地�?026-09-24 address-coupon + hospital-package + virtual-number plan�?
+**目标**：按 3 �?plan 落地 user-service 5 个新模块——address（地址簿）、coupon（优惠券双表）、hospital（医院库）、package（服务包，按医院挂载）、virtual-number（虚拟号），覆盖 patient 端核�?CRUD�?
+**5 �?commit**�?
+| commit | 模块 | 关键能力 | endpoint |
+| :-- | :-- | :-- | :-- |
+| `ec50e6a` | `feat(address)` migration 0010 + 5 API | 5 地址/默认地址/partial unique | GET/POST/PUT/DELETE `/api/v1/addresses` + `PUT /:id/default` |
+| `baeef7d` | `feat(coupon)` migration 0011 + 5 API | 平台发券 + 用户领取/核销双表 | GET/claim/use `/api/v1/coupons` + `/me/coupons` |
+| `56a54fb` | `feat(hospital)` migration 0012 + 2 API | 城市/级别/状态过�?| GET `/api/v1/hospitals` + `/:id` |
+| `0694a01` | `feat(package)` migration 0013 + 2 API | FK �?hospitals + 3 type | GET `/api/v1/hospitals/:id/packages` + `/api/v1/packages/:id` |
+| `ccd33ad` | `feat(virtual-number)` migration 0014 + 2 events v1.3 | partial unique �?order_id 单活 + 17+9 位号�?mock | POST `/allocate` + GET `/:id` |
+
+**关键设计**�?
+1. **5 模块同放 user-service**（与 plan �?`services/catalog/` 不同）：共享 auth/JWT/配置；按 task brief 简化架�?2. **coupon 双表设计**（platform 模板 + user 实例）：`coupons` + `user_coupons` 通过外键关联；`partial unique (user_id, coupon_id)` 防一人多次领同券
+3. **work_orders polymorphic 已存�?*（admin-service�? **virtual-number partial unique**：同 order_id 只能�?1 �?active 虚拟号（防号段泄漏）
+4. **价格格式�?*：handler �?`price` �?string �?JS 浮点漂移（与 wallet 一致）
+5. **虚拟�?mock 生成**：v1 �?17+9 位号段占位（避免与真实运营商冲突�?6. **Kafka 广播**：contracts �?`VirtualNumberAllocatedEvent/ReleasedEvent` + topic；service �?v1 未发布（v2 �?notification 时补�?
+**累计测试用例**�?9 �?user-service 单测 + 22 个集成测试（`//go:build integration` 隔离�?= **121 测试**（含 8 router + 9 service 既有）�?
+**全量回归**：`go test ./...` **48 �?0 FAIL**（含 user 5 个新包）�?
+**Plan 偏差**�?
+1. **地址字段简�?*：plan �?`province/city/district/detail`，按 task brief �?`detail + lat/lng`（避免行政区划白名单争议�?2. **coupon 双表**：plan 1 张表，按 task brief �?`coupons` + `user_coupons`（平台模�?+ 用户实例�?3. **hospital.service 同进�?*：plan 单独 `services/catalog/`，按 task brief �?user-service
+4. **package 字段**：plan �?`duration_hours/amount`，按 task brief �?`duration_min/price`（细粒度更友好）
+5. **virtual-number 号段**：plan 未指定，v1 �?17+9 位号�?mock
+6. **migrations_test 0010~0014 集成测试未追�?*：聚�?module 单测；现�?framework 可直接加
+
+**未做（留给后续）**�?
+- �?pgxpool：main.go 仍用 nilRepo 占位（按 task 约束"不要 docker up"�?- migrations_test.go �?Test0010~Test0014（参�?Test0008 风格�?- virtual-number service 层发�?Kafka 事件（contracts 已加 type�?- address/coupon admin �?CRUD（admin-service 接管�?- �?`migrations/0010~0014` 真实 PG 跑集成测�?
+**端到端联通（v1.3 目标�?*�?
+- patient-miniapp 选陪诊师 �?order-service �?后续 patient 选地址/优惠�?�?admin-web 监控（address/coupon/escorts/orders 全链�?mock 数据已就绪）
+- 后端 11 �?Go 服务 48 �?0 FAIL + user-service 121 测试覆盖
+- contracts v1.3 �?2 个虚拟号事件
