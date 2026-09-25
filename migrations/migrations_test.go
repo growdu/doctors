@@ -476,6 +476,90 @@ func Test0007WalletsUpDown(t *testing.T) {
 	assert.True(t, completedGone, "orders.completed_at should be gone after down")
 }
 
+// Test0008AdminWorkOrdersUpDown 验证 work_orders 表 + 列 + CHECK + 索引 + down 可逆。
+// 依赖 0001_users；测试结束回滚所有变更。
+func Test0008AdminWorkOrdersUpDown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn())
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	// 先建 users（work_orders.user_id / assignee_id 引用 users.id）
+	usersSQL, err := os.ReadFile("0001_users.up.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, string(usersSQL))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanCancel()
+		cleanConn, err := pgx.Connect(cleanCtx, dsn())
+		if err != nil {
+			return
+		}
+		defer cleanConn.Close(cleanCtx)
+		down, _ := os.ReadFile("0001_users.down.sql")
+		_, _ = cleanConn.Exec(cleanCtx, string(down))
+	})
+
+	applyUp(t, "0008_admin_work_orders.up.sql", []string{"work_orders"})
+
+	// 列检查（含 subject_id / subject_type / content / closed_at 等 admin-web 设计的字段）
+	for _, col := range []string{
+		"id", "user_id", "category", "priority", "status",
+		"subject_id", "subject_type", "assignee_id", "title", "content",
+		"resolution", "created_at", "updated_at", "closed_at", "sla_due_at",
+	} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+			               WHERE table_name='work_orders' AND column_name=$1)`, col).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "work_orders.%s should exist", col)
+	}
+
+	// 索引检查
+	for _, idx := range []string{
+		"idx_work_orders_status_priority",
+		"idx_work_orders_assignee",
+		"idx_work_orders_subject",
+	} {
+		var found bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname=$1)`, idx).
+			Scan(&found)
+		require.NoError(t, err)
+		assert.True(t, found, "index %s should exist", idx)
+	}
+
+	// CHECK 约束（status / category / priority / subject_type）
+	for _, con := range []string{"work_orders_status_check", "work_orders_category_check"} {
+		var has bool
+		err := conn.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM information_schema.check_constraints
+			               WHERE constraint_name=$1)`, con).
+			Scan(&has)
+		require.NoError(t, err)
+		assert.True(t, has, "check constraint %s should exist", con)
+	}
+
+	// down 校验
+	downCtx, downCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer downCancel()
+	downSQL, err := os.ReadFile("0008_admin_work_orders.down.sql")
+	require.NoError(t, err)
+	_, err = conn.Exec(downCtx, string(downSQL))
+	require.NoError(t, err, "apply 0008_admin_work_orders.down.sql")
+
+	var gone bool
+	err = conn.QueryRow(downCtx,
+		`SELECT NOT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='work_orders')`).
+		Scan(&gone)
+	require.NoError(t, err)
+	assert.True(t, gone, "work_orders should be gone after down")
+}
+
 // TestAllUpMigrationsApplyCleanly 串行应用所有 up 文件，确保幂等 + 无脏表。
 func TestAllUpMigrationsApplyCleanly(t *testing.T) {
 	files, err := filepath.Glob("./*.up.sql")
