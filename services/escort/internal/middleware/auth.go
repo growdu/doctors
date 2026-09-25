@@ -1,4 +1,4 @@
-// Package middleware - JWT Auth。
+// Package middleware - JWT Auth + role helpers。
 package middleware
 
 import (
@@ -11,12 +11,15 @@ import (
 	"github.com/growdu/doctors/shared/httpx"
 )
 
-const (
-	UserIDKey = "escort_user_id"
-	RoleKey   = "escort_role"
-)
+// UserIDKey 是 gin.Context 中 user id 的 key。
+const UserIDKey = "escort_user_id"
 
-func Auth(secret string) gin.HandlerFunc {
+// RoleKey 是 gin.Context 中 role 的 key。
+const RoleKey = "escort_role"
+
+// Auth 校验 Bearer JWT；userIDKey / roleKey 是 ctx key。
+// 失败统一返回 401 + 业务码 11001。
+func Auth(secret, userIDKey, roleKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.GetHeader("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
@@ -30,19 +33,20 @@ func Auth(secret string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.Set(UserIDKey, claims.UserID)
-		c.Set(RoleKey, claims.Role)
+		c.Set(userIDKey, claims.UserID)
+		c.Set(roleKey, claims.Role)
 		c.Next()
 	}
 }
 
+// UserID 便捷取 ctx 中的 user id。
 func UserID(c *gin.Context) int64 {
 	v, _ := c.Get(UserIDKey)
 	id, _ := v.(int64)
 	return id
 }
 
-// Role 返回 ctx 中的 role。
+// Role 便捷取 ctx 中的 role。
 func Role(c *gin.Context) string {
 	v, _ := c.Get(RoleKey)
 	s, _ := v.(string)

@@ -1,4 +1,4 @@
-// Package server 负责 escort-service 启停。
+// Package server 启动 escort-service HTTP server。
 package server
 
 import (
@@ -8,21 +8,25 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/growdu/doctors/services/escort/internal/handler"
-	"github.com/growdu/doctors/services/escort/internal/router"
+	"go.uber.org/zap"
+
+	"github.com/growdu/doctors/shared/logger"
 )
 
+// Server 是 HTTP server 包装。
 type Server struct {
-	httpSrv *http.Server
+	addr string
+	srv  *http.Server
 }
 
-func New(addr string, h *handler.Handler, jwtSecret string) *Server {
-	engine := router.New(h, jwtSecret)
+// New 构造。
+func New(addr string, h http.Handler) *Server {
 	return &Server{
-		httpSrv: &http.Server{
+		addr: addr,
+		srv: &http.Server{
 			Addr:              addr,
-			Handler:           engine,
-			ReadHeaderTimeout: 10 * time.Second,
+			Handler:           h,
+			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       120 * time.Second,
@@ -30,24 +34,25 @@ func New(addr string, h *handler.Handler, jwtSecret string) *Server {
 	}
 }
 
-func (s *Server) Engine() http.Handler { return s.httpSrv.Handler }
-
+// Run 启动 + 优雅停机。
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
-		if err := s.httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := s.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
 		}
 		errCh <- nil
 	}()
+	logger.L().Info("escort-service starting", zap.String("addr", s.addr))
+
 	select {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {
+		if err := s.srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("escort: shutdown: %w", err)
 		}
 		return nil

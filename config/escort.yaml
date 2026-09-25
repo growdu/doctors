@@ -1,0 +1,28 @@
+# escort-service 本地配置示例（2026-09-24 escort-business plan + extensions）
+service: escort
+
+http:
+  addr: ":8083"
+  read_timeout_sec: 30
+  write_timeout_sec: 30
+
+db:
+  dsn: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+  max_conns: 10
+  min_conns: 2
+
+redis:
+  addr: 127.0.0.1:6379
+  db: 0
+
+kafka:
+  brokers:
+    - 127.0.0.1:9092
+  group_id: escort-service
+
+auth:
+  jwt_secret: dev-secret-change-me
+  jwt_ttl: 3600000000000  # 1h
+
+logging:
+  level: info

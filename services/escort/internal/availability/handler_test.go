@@ -45,7 +45,7 @@ func newTestServer(t *testing.T) (*gin.Engine, *Service) {
 	h := NewHandler(svc)
 	r := gin.New()
 	api := r.Group("/api/v1")
-	authed := api.Group("/", mw.Auth(testSecret))
+	authed := api.Group("/", mw.Auth(testSecret, mw.UserIDKey, mw.RoleKey))
 	h.RegisterRoutes(authed)
 	h.RegisterPublicRoutes(api) // 公开路由（无需 token）
 	return r, svc
