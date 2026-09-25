@@ -1,0 +1,38 @@
+# CODEOWNERS
+# 默认 owner 自动 review；规则从上到下匹配，后匹配覆盖前匹配。
+# 路径使用仓库根相对路径；用 * 通配；行首 * 表示匹配所有路径。
+#
+# 注意：替换占位 team（@backend-team / @frontend-team / @docs-team）为真实 GitHub team 后再启用强制 review。
+
+# ---------- 默认 owner ----------
+*                               @docs-team
+
+# ---------- 后端 Go 服务 ----------
+/services/auth/                 @backend-team
+/services/order/                @backend-team
+/services/match/                @backend-team
+/services/message/              @backend-team
+/services/payment/              @backend-team
+/services/review/               @backend-team
+/services/sos/                  @backend-team
+/services/user/                 @backend-team
+/services/escort/               @backend-team
+/services/wallet/               @backend-team
+/services/admin/                @backend-team
+
+# ---------- 前端 3 端 ----------
+/frontend/admin-web/            @frontend-team
+/frontend/patient-miniapp/      @frontend-team
+/frontend/escort-app/           @frontend-team
+
+# ---------- 文档 / 设计稿 ----------
+/docs/                          @docs-team
+
+# ---------- Markdown（覆盖默认 @docs-team）----------
+*.md                            @docs-team
+
+# ---------- 根目录配置 / 部署 ----------
+/docker-compose.yml             @backend-team
+/docker-compose.deploy.yml      @backend-team
+/Makefile                       @backend-team
+/.golangci.yml                  @backend-team

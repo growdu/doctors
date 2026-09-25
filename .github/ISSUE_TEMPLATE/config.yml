@@ -1,0 +1,16 @@
+# Issue Template 配置
+# 启用 bug_report + feature_request 两个模板；
+# 关闭空白 issue 入口（不允许直接提交空 issue，避免无信息流）。
+blank_issues_enabled: false
+
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/growdu/doctors/discussions
+    about: 提问、想法、Show & tell 等更适合在 Discussions 发起的对话。
+  - name: 🔒 Security issues
+    url: https://github.com/growdu/doctors/security/advisories/new
+    about: 私下披露安全漏洞，请勿公开 issue。
+
+# 可选模板清单（顺序即为用户看到的顺序）
+# 移除此处行可隐藏某个模板。
+# （GitHub 通过文件系统自动发现 ISSUE_TEMPLATE/*.md，此处仅作注释占位）
