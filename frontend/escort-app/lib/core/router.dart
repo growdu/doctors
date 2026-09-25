@@ -17,6 +17,7 @@
 import 'package:escort_app/pages/availability/availability_page.dart';
 import 'package:escort_app/pages/invitations/invitations_page.dart';
 import 'package:escort_app/pages/login/login_page.dart';
+import 'package:escort_app/pages/order_detail/order_detail_page.dart';
 import 'package:escort_app/pages/orders/orders_page.dart';
 import 'package:escort_app/pages/profile/profile_page.dart';
 import 'package:escort_app/pages/training/training_page.dart';
@@ -52,6 +53,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home/orders',
         builder: (context, state) => const OrdersPage(),
+      ),
+      // 订单详情（E8）— :id 参数
+      GoRoute(
+        path: '/home/orders/:id',
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return OrderDetailPage(orderId: id);
+        },
       ),
       // 个人中心（E4）
       GoRoute(
