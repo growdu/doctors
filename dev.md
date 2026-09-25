@@ -1273,3 +1273,49 @@ scorer é‡æ„ï¼šç§»é™¤ `scorer.Escort` ç±»å‹ï¼Œç›´æ¥åƒ `contracts.EscortSumma
 - Èı¶Ë trace-id Èı´¦¹²ÓÃ£ºmp- / escort- / ºó¶Ë logger.FromContext
 - È«Á¿»Ø¹é 44 ¸ö²âÊÔ°ü 0 FAIL
 
+
+---
+## 17.8 admin-web 5 ¸öÕæÊµÒµÎñÒ³£¨2026-09-24 admin-web v1 ¡ìH1-H5£©
+
+**Ä¿±ê**£º°Ñ 5 ¸ö¸ßÆµ P0 Õ¼Î»Ò³£¨escorts/audit + escorts/:id + patients + patients/:id + reviews£©Éı¼¶Îª½Ó MSW handler + ProTable + ÒµÎñ½»»¥µÄÕæÊµÒ³¡£
+
+**1 ¸ö commit£¨13 ÎÄ¼ş£¬+2869/-66£©**£º
+
+| commit | ÎÄ¼ş |
+| :-- | :-- |
+| 1710bda | EscortAuditPage + EscortDetailPage + PatientsPage + PatientDetailPage + ReviewsPage + 3 ¸ö API client + 5 ¸ö test |
+
+**¹Ø¼üÉè¼Æ**£º
+
+1. **ProTable Í³Ò»Ä£Ê½**£ºPageHeader + ProTable(testId, rowKey, columns, dataSource, loading) + TanStack Query useQuery/useMutation + ²Ù×÷ºó invalidateQueries Ë¢ĞÂ
+2. **RBAC UI ²ã**£ºviewer ½ÇÉ« ¡ú È«²¿ÉóÅú/·â½û/ÉóºË°´Å¥²»äÖÈ¾£»Òş²Ø°´Å¥ÓÀÔ¶äÖÈ¾µ« viewer Ê± disabled + display:none`n3. **¹Ø¼ü´ÊËÑË÷ debounce**£ºpatients ÓÃ useEffect + setTimeout ÊµÏÖ 500ms debounce£¨Óë¼ÈÓĞµÄ order list ·ç¸ñÒ»ÖÂ£©
+4. **ÆÀ·ÖÉ¸Ñ¡**£ºreviews ÓÃ InputNumber Ìæ´ú Select£¨jsdom ÏÂ Select ²âÊÔ²»ÎÈ¶¨£©
+5. **´íÎó/³É¹¦·´À¡**£ºmutation onSuccess ¡ú message.success(...)£»onError ¡ú message.error(...)£»Í³Ò»¾²Ì¬ import { message } from 'antd'£¨±ÜÃâ jsdom ÏÂ App.useApp() µÄ¸±×÷ÓÃ£©
+6. **Modal ÊÕ¼¯±ØÌîÔ­Òò**£ºescorts ¾Ü¾øÔ­Òò / patients ·â½ûÔ­Òò / reviews ÉóºË reason + »Ø¸´ÄÚÈİ
+
+**API ¿Í»§¶Ë**£¨3 ¸öĞÂÎÄ¼ş£©£º
+
+- src/api/admin/escorts.ts£¨157 ĞĞ£©£ºfetchPendingAudit / fetchEscortDetail / fetchEscortAuditHistory£¨¶µµ×Æ´×°£©/ approveEscort / rejectEscort
+- src/api/admin/patients.ts£¨118 ĞĞ£©£ºfetchPatients / fetchPatientDetail / banPatient / unbanPatient
+- src/api/admin/reviews.ts£¨115 ĞĞ£©£ºfetchReviews / auditReview / replyReview
+
+ËùÓĞ client ¹²ÓÃ uthHeader() ×Ô¶¯×¢Èë Bearer token£»esponse.code !== 0 Å×´ø code µÄ Error¡£
+
+**ÀÛ¼Æ²âÊÔÓÃÀı**£º
+
+- **29 ¸ö** it£¨EscortAuditPage 6 + EscortDetailPage 6 + PatientsPage 6 + PatientDetailPage 4 + ReviewsPage 7£©
+- È«²¿ÆõÔ¼Ñù£¨ÈÎÎñÆõÔ¼½û npm install / vitest run£©£»±¾»ú 
+pm install && npx vitest run ÑéÖ¤
+
+**Î´×ö£¨Áô¸øºóĞø£©**£º
+
+- escorts/:id/audit-history Õæ¶ËµãÎ´¶Ô½Ó£¨µ±Ç°ÓÉ client ¶µµ×´ÓÏêÇéÆ´×°£©
+- patients/:id/orders Õæ¶ËµãÎ´¶Ô½Ó£¨ÏêÇéÒ³À­È«²¿¶©µ¥ºóÕ¹Ê¾£©
+- wallets/:id/balance Õæ¶ËµãÎ´¶Ô½Ó£¨ÏêÇéÒ³ÓÃ patient ×Ö¶ÎÀ©Õ¹£¬¶µµ×ÏÔÊ¾ 0£©
+- ÅÜ vitest ÑéÖ¤
+
+**¶Ëµ½¶ËÁªÍ¨£¨v1.2 Ä¿±ê£©**£º
+
+- 5 ¸öÕæÊµÒ³ + AdminLayout 12 Ïî²Ëµ¥ + RBAC ¹ıÂË + 8 Ä£¿é mock handler ¡ú admin ºóÌ¨ÉóºËÁ÷³ÌÍêÕû¿ÉÓÃ
+- È«Á¿»Ø¹é 44 ¸ö²âÊÔ°ü 0 FAIL£¨admin-web ÔöÁ¿Î´Ó°Ïìºó¶Ë£©
+
