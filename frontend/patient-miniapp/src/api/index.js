@@ -1,16 +1,17 @@
 // src/api/index.js
 //
 // 统一 API 模块入口 —— re-export 全部 api 子模块 + 命名空间聚合。
-// （plan Task P3 / 后续 Task 13 候选陪诊师页面 import 用）
+// （plan Task M1）
 //
 // 用法：
 //   // 1) named 导入（按业务域精确取）
-//   import { getCandidates, getOrder, selectEscort } from '@/api';
+//   import { getOrder, getHospitals, getMyCoupons } from '@/api';
 //
 //   // 2) namespace 导入（一次拿全）
 //   import api from '@/api';
-//   api.candidates.getCandidates(7);
-//   api.order.selectEscort(7, 11);
+//   api.hospital.getHospitals({ city_id: 1 });
+//   api.coupon.getMyCoupons();
+//   api.review.submitReview({ order_id: 7, escort_id: 11, rating: 5 });
 //
 // 约定：
 //   - 每个 api 子模块各自可独立 import（store / 页面 / 组件按需）
@@ -19,10 +20,20 @@
 
 import * as candidates from './candidates.js';
 import * as order from './order.js';
+import * as hospital from './hospital.js';
+import * as address from './address.js';
+import * as coupon from './coupon.js';
+import * as review from './review.js';
+import * as virtualnumber from './virtualnumber.js';
 
-// named re-export：让 `import { getCandidates } from '@/api'` 也能工作
+// named re-export：让 `import { xxx } from '@/api'` 也能工作
 export * from './candidates.js';
 export * from './order.js';
+export * from './hospital.js';
+export * from './address.js';
+export * from './coupon.js';
+export * from './review.js';
+export * from './virtualnumber.js';
 
 /**
  * 命名空间聚合（默认导出）。
@@ -30,6 +41,11 @@ export * from './order.js';
 const api = {
   candidates,
   order,
+  hospital,
+  address,
+  coupon,
+  review,
+  virtualnumber,
 };
 
 export default api;
