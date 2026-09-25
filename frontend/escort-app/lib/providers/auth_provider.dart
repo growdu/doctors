@@ -136,14 +136,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// 登录（短信码登录）—— 调 /auth/login，写 token，更新状态。
+  /// 短信码登录 —— 调 `POST /auth/login/sms`，写 token，更新状态。
   Future<void> loginByPhone({
     required String phone,
     required String code,
   }) async {
     final dio = ref.read(dioProvider);
     final resp = await dio.post<Map<String, dynamic>>(
-      '/auth/login',
+      '/auth/login/sms',
       data: {'phone': phone, 'code': code},
     );
     final data = resp.data?['data'] as Map<String, dynamic>?;
@@ -156,6 +156,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = AuthAuthenticated(
       userId: user['id'] as int,
       phone: user['phone'] as String,
+      role: user['role'] as String,
+      realNameVerified: (user['real_name_verified'] as bool?) ?? false,
+      approved: (user['approved'] as bool?) ?? false,
+    );
+  }
+
+  /// 微信登录 —— 调 `POST /auth/login/wx`（body: {code: wxCode}）。
+  ///
+  /// 后端用 wx.code 换 openid → upsert user → 返回 JWT。
+  /// v1.2 简化：直接传 wxCode 字符串。
+  Future<void> loginByWx({required String wxCode}) async {
+    final dio = ref.read(dioProvider);
+    final resp = await dio.post<Map<String, dynamic>>(
+      '/auth/login/wx',
+      data: {'code': wxCode},
+    );
+    final data = resp.data?['data'] as Map<String, dynamic>?;
+    if (data == null) {
+      throw StateError('loginByWx: empty response');
+    }
+    final token = data['access_token'] as String;
+    await ref.read(tokenStorageProvider).write(token);
+    final user = data['user'] as Map<String, dynamic>;
+    state = AuthAuthenticated(
+      userId: user['id'] as int,
+      phone: (user['phone'] as String?) ?? '',
       role: user['role'] as String,
       realNameVerified: (user['real_name_verified'] as bool?) ?? false,
       approved: (user['approved'] as bool?) ?? false,

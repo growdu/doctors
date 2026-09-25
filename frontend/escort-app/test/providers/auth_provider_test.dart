@@ -158,6 +158,77 @@ void main() {
     });
   });
 
+  group('AuthNotifier.loginByPhone', () {
+    test('POST /auth/login/sms + 写入 token + 转 Authenticated', () async {
+      final storage = TokenStorage.forTest();
+      final c = _container(
+        storage: storage,
+        dio: _StubDio((opts) {
+          if (opts.path == '/auth/login/sms') {
+            return {
+              'code': 0,
+              'data': {
+                'access_token': 'tk-new',
+                'user': {
+                  'id': 7,
+                  'phone': '13900139000',
+                  'role': 'escort',
+                  'real_name_verified': false,
+                  'approved': false,
+                },
+              },
+            };
+          }
+          return {'code': 0, 'data': {}};
+        }),
+      );
+      addTearDown(c.dispose);
+      await c.read(authProvider.notifier).loginByPhone(
+            phone: '13900139000',
+            code: '123456',
+          );
+      final s = c.read(authProvider);
+      expect(s, isA<AuthAuthenticated>());
+      final a = s as AuthAuthenticated;
+      expect(a.userId, 7);
+      expect(a.phone, '13900139000');
+      expect(await storage.read(), 'tk-new');
+    });
+  });
+
+  group('AuthNotifier.loginByWx', () {
+    test('POST /auth/login/wx + 写入 token + 转 Authenticated', () async {
+      final storage = TokenStorage.forTest();
+      final c = _container(
+        storage: storage,
+        dio: _StubDio((opts) {
+          if (opts.path == '/auth/login/wx') {
+            return {
+              'code': 0,
+              'data': {
+                'access_token': 'tk-wx',
+                'user': {
+                  'id': 9,
+                  'phone': '',
+                  'role': 'escort',
+                  'real_name_verified': false,
+                  'approved': false,
+                },
+              },
+            };
+          }
+          return {'code': 0, 'data': {}};
+        }),
+      );
+      addTearDown(c.dispose);
+      await c.read(authProvider.notifier).loginByWx(wxCode: 'wx-code-123');
+      expect(await storage.read(), 'tk-wx');
+      final s = c.read(authProvider);
+      expect(s, isA<AuthAuthenticated>());
+      expect((s as AuthAuthenticated).userId, 9);
+    });
+  });
+
   group('AuthNotifier.logout', () {
     test('authenticated → unauthenticated + 清 token', () async {
       final storage = TokenStorage.forTest();
