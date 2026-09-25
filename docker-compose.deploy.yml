@@ -122,6 +122,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -153,6 +159,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,6 +196,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -215,6 +233,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -246,6 +270,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -277,6 +307,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -308,6 +344,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -339,6 +381,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -370,6 +418,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -401,6 +455,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -438,6 +498,12 @@ services:
     networks:
       - doctors-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy

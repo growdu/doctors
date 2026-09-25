@@ -12,9 +12,8 @@
 # 通过 --build-arg SVC=<name> 选择要编译的 cmd 路径。
 #
 # 注：distroless 镜像无 curl / wget / shell，无法在容器内对 /healthz 做 HTTP 探针。
-#     healthcheck 实际由 docker-compose.deploy.yml 编排；服务进程依赖 :8080 端口
-#     就绪 + 进程存活来判定。当后续为各服务添加 `-healthz` flag 后，可改为：
-#         HEALTHCHECK CMD ["/app/server", "-healthz"]
+#     改用 `-healthz` flag：服务进程以独立模式启动 :9090 HTTP server（持续 200 OK），
+#     Docker HEALTHCHECK 用 `["/app/server", "-healthz"]` 即可触发。
 
 ARG SVC=wallet
 
@@ -47,8 +46,8 @@ EXPOSE 8080
 # distroless:nonroot 已内置 nonroot 用户（UID 65532）
 USER nonroot:nonroot
 
-# distroless 无 shell / 无 curl / 无 wget；容器内 HTTP 探针需服务二进制支持 -healthz
-# 这里显式置为 NONE，由 docker-compose.deploy.yml 编排健康检查策略
-HEALTHCHECK NONE
+# distroless 无 shell / 无 curl / 无 wget；容器内 HEALTHCHECK 由服务二进制 -healthz 模式承担
+# （:9090 独立 HTTP server 持续 200 OK）；fail=3 / start-period=10s 容忍冷启动
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD ["/app/server", "-healthz"]
 
 ENTRYPOINT ["/app/server"]

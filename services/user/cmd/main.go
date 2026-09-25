@@ -6,7 +6,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,6 +29,14 @@ import (
 )
 
 func main() {
+	// distroless HEALTHCHECK 旁路：在 :9090 起独立 http server，仅暴露 /healthz。
+	healthzOnly := flag.Bool("healthz", false, "run healthz-only HTTP server on :9090 and exit")
+	flag.Parse()
+	if *healthzOnly {
+		runHealthzServer()
+		return
+	}
+
 	cfg, err := config.Load("user")
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -134,3 +144,15 @@ func (nilVNRepo) Release(ctx context.Context, id int64, reason string) (*virtual
 }
 
 var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")
+
+// runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。
+// 用于 distroless 镜像的 Docker HEALTHCHECK：进程存活 → 200 OK。
+func runHealthzServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	log.Printf("user-service healthz server listening on :9090")
+	log.Fatal(http.ListenAndServe(":9090", mux))
+}
