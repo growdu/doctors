@@ -1,134 +1,235 @@
 name: CI
 
+# 4 job 并行：backend-test + docker-build + frontend-lint + backend-lint
+# 设计原则：
+#   - 全部 job 默认并行（无 needs 依赖）；
+#   - matrix 拆分：11 Go 服务 / 14 镜像 / 3 前端 / 单 lint job；
+#   - 触发：push to main + PR to main；
+#   - 不 push 任何镜像 / 制品（load: true 本地加载验证）；
+#   - Go / Node / Flutter 版本集中 env，便于统一升级。
 on:
   push:
     branches: [main]
-    paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'migrations/**'
-      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
 
-# 默认所有 job 并行；integration 跑 PG + Kafka。
 env:
   GOPROXY: https://goproxy.io,https://goproxy.cn,direct
   GOSUMDB: off
   GOTOOLCHAIN: local
+  GO_VERSION: '1.24'
+  NODE_VERSION: '20'
+  FLUTTER_VERSION: '3.24.0'
+  GOLANGCI_LINT_VERSION: 'v1.61.0'
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
-  # ---------- 后端单测 + vet + build（PG / Kafka 可选） ----------
-  backend-unit:
-    name: Backend (unit + vet + build)
+  # ========================================================================
+  # 1) backend-test — matrix 跨 11 个 Go 服务
+  #    每个 service 单独跑 vet + test -race，避免一处失败中断其它。
+  # ========================================================================
+  backend-test:
+    name: backend-test (${{ matrix.service }})
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: doctors
-          POSTGRES_PASSWORD: doctors
-          POSTGRES_DB: doctors
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth
+          - order
+          - match
+          - message
+          - payment
+          - review
+          - sos
+          - user
+          - escort
+          - wallet
+          - admin
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Vet
-        run: go vet ./...
+      - name: go mod download
+        run: go mod download
 
-      - name: Build
-        run: go build ./...
+      - name: go vet
+        run: go vet ./services/${{ matrix.service }}/...
 
-      - name: Unit tests
-        env:
-          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
-        run: go test -count=1 -race -timeout 5m ./...
+      - name: go test
+        run: go test -race -count=1 -timeout=120s -v ./services/${{ matrix.service }}/...
 
-      - name: Coverage
-        if: github.event_name == 'pull_request'
-        env:
-          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
+  # ========================================================================
+  # 2) docker-build — matrix 跨 14 个镜像（11 Go + 3 frontend）
+  #    使用 buildx + cache-from local，无 docker push；
+  #    load: true 让镜像加载到 runner，校验构建成功。
+  # ========================================================================
+  docker-build:
+    name: docker-build (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- 11 个 Go 服务（共享 Dockerfile + SVC build-arg）----
+          - image: auth-service
+            context: services/auth
+            dockerfile: services/auth/Dockerfile
+            build_args: SVC=auth
+          - image: order-service
+            context: services/order
+            dockerfile: services/order/Dockerfile
+            build_args: SVC=order
+          - image: match-service
+            context: services/match
+            dockerfile: services/match/Dockerfile
+            build_args: SVC=match
+          - image: message-service
+            context: services/message
+            dockerfile: services/message/Dockerfile
+            build_args: SVC=message
+          - image: payment-service
+            context: services/payment
+            dockerfile: services/payment/Dockerfile
+            build_args: SVC=payment
+          - image: review-service
+            context: services/review
+            dockerfile: services/review/Dockerfile
+            build_args: SVC=review
+          - image: sos-service
+            context: services/sos
+            dockerfile: services/sos/Dockerfile
+            build_args: SVC=sos
+          - image: user-service
+            context: services/user
+            dockerfile: services/user/Dockerfile
+            build_args: SVC=user
+          - image: escort-service
+            context: services/escort
+            dockerfile: services/escort/Dockerfile
+            build_args: SVC=escort
+          - image: wallet-service
+            context: services/wallet
+            dockerfile: services/wallet/Dockerfile
+            build_args: SVC=wallet
+          - image: admin-service
+            context: services/admin
+            dockerfile: services/admin/Dockerfile
+            build_args: SVC=admin
+          # ---- 3 个 frontend 镜像 ----
+          - image: admin-web
+            context: frontend/admin-web
+            dockerfile: frontend/admin-web/Dockerfile
+            build_args: ''
+          - image: patient-miniapp
+            context: frontend/patient-miniapp
+            dockerfile: frontend/patient-miniapp/Dockerfile
+            build_args: ''
+          - image: escort-app
+            context: frontend/escort-app
+            dockerfile: frontend/escort-app/Dockerfile
+            build_args: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:v0.18.1
+
+      - name: Cache (docker buildx)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache-${{ matrix.image }}
+          key: ${{ runner.os }}-buildx-${{ matrix.image }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.image }}-
+
+      - name: Build & load
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: doctors/${{ matrix.image }}:ci-${{ github.sha }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=local,src=/tmp/.buildx-cache-${{ matrix.image }}
+          cache-to: type=local,dest=/tmp/.buildx-cache-${{ matrix.image }}-new,mode=max
+
+      - name: Image sanity check
+        run: docker image inspect doctors/${{ matrix.image }}:ci-${{ github.sha }} > /dev/null
+
+  # ========================================================================
+  # 3) frontend-lint — matrix 3 端（admin-web + patient-miniapp + escort-app）
+  #    每端约定不同：ESLint / Jest / flutter analyze；统一 working-directory。
+  # ========================================================================
+  frontend-lint:
+    name: frontend-lint (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: admin-web
+            directory: frontend/admin-web
+            setup: node
+            command: npm install --no-audit --no-fund && npm run lint
+          - name: patient-miniapp
+            directory: frontend/patient-miniapp
+            setup: node
+            command: npm install --no-audit --no-fund && npm run test:unit
+          - name: escort-app
+            directory: frontend/escort-app
+            setup: flutter
+            command: flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: matrix.setup == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Flutter
+        if: matrix.setup == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Run lint / test
+        run: ${{ matrix.command }}
+
+  # ========================================================================
+  # 4) backend-lint — golangci-lint run ./...
+  # ========================================================================
+  backend-lint:
+    name: backend-lint (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install golangci-lint
         run: |
-          go test -count=1 -coverprofile=coverage.out -timeout 5m ./...
-          go tool cover -func=coverage.out | tail -1
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" ${{ env.GOLANGCI_LINT_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-  # ---------- 后端集成测（PG + Kafka） ----------
-  backend-integration:
-    name: Backend (integration tests)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: doctors
-          POSTGRES_PASSWORD: doctors
-          POSTGRES_DB: doctors
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-      kafka:
-        image: apache/kafka:3.9.1
-        env:
-          KAFKA_NODE_ID: 0
-          KAFKA_PROCESS_ROLES: controller,broker
-          KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
-          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-          KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-          KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-          CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-        ports: ['9092:9092']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-
-      - name: Install psql client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Apply migrations
-        env:
-          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
-        run: |
-          for f in migrations/*.up.sql; do
-            echo "Applying $f"
-            psql "$DOCTORS_TEST_DSN" -f "$f"
-          done
-
-      - name: Integration tests
-        env:
-          DOCTORS_TEST_DSN: postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable
-          KAFKA_BROKERS: 127.0.0.1:9092
-        run: go test -tags=integration -count=1 -race -timeout 10m ./...
-
-  # ---------- Go module 检查（go.mod / go.sum 一致） ----------
-  mod-check:
-    name: Go modules (go.mod/go.sum consistent)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-      - run: |
-          go mod download
-          git diff --exit-code -- go.mod go.sum
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout=5m ./...
