@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/growdu/doctors/services/user/internal/address"
 	"github.com/growdu/doctors/services/user/internal/handler"
 	"github.com/growdu/doctors/services/user/internal/router"
 )
@@ -16,8 +17,8 @@ type Server struct {
 	httpSrv *http.Server
 }
 
-func New(addr string, h *handler.Handler, jwtSecret string) *Server {
-	engine := router.New(h, jwtSecret)
+func New(addr string, h *handler.Handler, jwtSecret string, addressSvc *address.Service) *Server {
+	engine := router.New(router.Deps{AddressSvc: addressSvc}, h, jwtSecret)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,

@@ -1,6 +1,6 @@
 // user-service 入口。
 //
-// 阶段：仅装配 server + 假 repo；接 DB 后替换 nilRepo。
+// 阶段：装配 server + 假 repo；接 DB 后替换 nilRepo。
 package main
 
 import (
@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/growdu/doctors/services/user/internal/address"
 	"github.com/growdu/doctors/services/user/internal/handler"
 	"github.com/growdu/doctors/services/user/internal/server"
 	"github.com/growdu/doctors/services/user/internal/service"
@@ -29,9 +30,10 @@ func main() {
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
-	svc := service.New(nilRepo{})
-	h := handler.New(svc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret)
+	profileSvc := service.New(nilProfileRepo{})
+	addrSvc := address.NewService(nilAddrRepo{})
+	h := handler.New(profileSvc)
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -56,13 +58,27 @@ func parseLevel(s string) zapcore.Level {
 	}
 }
 
-// nilRepo 占位实现：任何调用都返回错误，便于 dev 期间发现。
-type nilRepo struct{}
+// nilProfileRepo 占位实现：任何调用都返回错误，便于 dev 期间发现。
+type nilProfileRepo struct{}
 
-func (nilRepo) GetByID(ctx context.Context, id int64) (*service.Profile, error) {
+func (nilProfileRepo) GetByID(ctx context.Context, id int64) (*service.Profile, error) {
 	return nil, errNil
 }
-func (nilRepo) UpdateNickname(ctx context.Context, id int64, n string) error { return errNil }
-func (nilRepo) UpdateAvatar(ctx context.Context, id int64, u string) error  { return errNil }
+func (nilProfileRepo) UpdateNickname(ctx context.Context, id int64, n string) error { return errNil }
+func (nilProfileRepo) UpdateAvatar(ctx context.Context, id int64, u string) error  { return errNil }
+
+// nilAddrRepo 占位实现：address 模块的假 repo。
+type nilAddrRepo struct{}
+
+func (nilAddrRepo) Create(ctx context.Context, a *address.Record) error             { return errNil }
+func (nilAddrRepo) CreateDefault(ctx context.Context, a *address.Record) error       { return errNil }
+func (nilAddrRepo) ListByUser(ctx context.Context, userID int64) ([]*address.Record, error) { return nil, errNil }
+func (nilAddrRepo) CountByUser(ctx context.Context, userID int64) (int, error)      { return 0, errNil }
+func (nilAddrRepo) GetByID(ctx context.Context, id, userID int64) (*address.Record, error) {
+	return nil, errNil
+}
+func (nilAddrRepo) Update(ctx context.Context, a *address.Record) error             { return errNil }
+func (nilAddrRepo) SetDefault(ctx context.Context, id, userID int64) error          { return errNil }
+func (nilAddrRepo) Delete(ctx context.Context, id, userID int64) error              { return errNil }
 
 var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")
