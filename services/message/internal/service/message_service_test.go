@@ -23,6 +23,12 @@ func (r *fakeRepo) CreateMessage(ctx context.Context, m *Message) error {
 	r.msgs[m.ID] = m
 	return nil
 }
+func (r *fakeRepo) GetMessageByID(ctx context.Context, id int64) (*Message, error) {
+	if m, ok := r.msgs[id]; ok {
+		return m, nil
+	}
+	return nil, ErrMessageNotFound
+}
 func (r *fakeRepo) ListMessagesByOrder(ctx context.Context, orderID int64, limit, offset int) ([]*Message, error) {
 	out := make([]*Message, 0)
 	for _, m := range r.msgs {
@@ -90,6 +96,27 @@ func TestSendMessage_MissingIDs(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetByID_OK(t *testing.T) {
+	s, _, _ := newService()
+	m, err := s.SendMessage(context.Background(), 100, 1, 2, "你好")
+	require.NoError(t, err)
+	got, err := s.GetByID(context.Background(), m.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "你好", got.Body)
+}
+
+func TestGetByID_NotFound(t *testing.T) {
+	s, _, _ := newService()
+	_, err := s.GetByID(context.Background(), 999)
+	assert.Error(t, err)
+}
+
+func TestGetByID_MissingID(t *testing.T) {
+	s, _, _ := newService()
+	_, err := s.GetByID(context.Background(), 0)
+	assert.Error(t, err)
+}
+
 func TestListByOrder(t *testing.T) {
 	s, _, _ := newService()
 	for i := 0; i < 3; i++ {
@@ -107,8 +134,50 @@ func TestListByOrder_MissingID(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestBroadcast_OK(t *testing.T) {
+	s, _, _ := newService()
+	n, err := s.Broadcast(context.Background(), 1, []int64{2, 3, 4}, "系统通知")
+	require.NoError(t, err)
+	assert.Equal(t, 3, n)
+}
+
+func TestBroadcast_EmptyTo(t *testing.T) {
+	s, _, _ := newService()
+	_, err := s.Broadcast(context.Background(), 1, []int64{}, "系统通知")
+	assert.Error(t, err)
+}
+
+func TestBroadcast_BodyTooLong(t *testing.T) {
+	s, _, _ := newService()
+	long := make([]byte, 1001)
+	for i := range long {
+		long[i] = 'a'
+	}
+	_, err := s.Broadcast(context.Background(), 1, []int64{2}, string(long))
+	assert.Error(t, err)
+}
+
+func TestBroadcast_EmptyBody(t *testing.T) {
+	s, _, _ := newService()
+	_, err := s.Broadcast(context.Background(), 1, []int64{2}, "  ")
+	assert.Error(t, err)
+}
+
+func TestBroadcast_MissingFrom(t *testing.T) {
+	s, _, _ := newService()
+	_, err := s.Broadcast(context.Background(), 0, []int64{2}, "x")
+	assert.Error(t, err)
+}
+
 func TestSendMessage_NilPublisher(t *testing.T) {
 	s := New(&fakeRepo{msgs: map[int64]*Message{}}, nil)
 	_, err := s.SendMessage(context.Background(), 100, 1, 2, "x")
 	assert.NoError(t, err)
+}
+
+func TestBroadcast_NilPublisher(t *testing.T) {
+	s := New(&fakeRepo{msgs: map[int64]*Message{}}, nil)
+	n, err := s.Broadcast(context.Background(), 1, []int64{2, 3}, "x")
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
 }

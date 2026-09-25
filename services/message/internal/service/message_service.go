@@ -3,6 +3,7 @@
 // 设计要点：
 //   - 简化版：仅提供会话 + 消息两个核心模型。
 //   - SendMessage 触发 contracts.MessageSentEvent；订阅方推送通知。
+//   - Broadcast 给一组 user_ids 发系统广播（admin），触发同一事件便于通知链路复用。
 //   - 真实 WebSocket 推送在 v2 接入；v1 走 Kafka。
 package service
 
@@ -38,6 +39,7 @@ type Message struct {
 type Repo interface {
 	CreateConversation(ctx context.Context, c *Conversation) error
 	CreateMessage(ctx context.Context, m *Message) error
+	GetMessageByID(ctx context.Context, id int64) (*Message, error)
 	ListMessagesByOrder(ctx context.Context, orderID int64, limit, offset int) ([]*Message, error)
 }
 
@@ -86,6 +88,21 @@ func (s *Service) SendMessage(ctx context.Context, orderID, fromID, toID int64, 
 	return m, nil
 }
 
+// GetByID 取一条消息详情。
+func (s *Service) GetByID(ctx context.Context, id int64) (*Message, error) {
+	if id == 0 {
+		return nil, errs.New(errs.CodeParamInvalid, "id required")
+	}
+	m, err := s.repo.GetMessageByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrMessageNotFound) {
+			return nil, errs.New(errs.CodeNotFound, "message not found")
+		}
+		return nil, errs.Wrap(errs.CodeInternal, "find message", err)
+	}
+	return m, nil
+}
+
 // ListByOrder 拉某订单的消息列表（按时间正序）。
 func (s *Service) ListByOrder(ctx context.Context, orderID int64, limit, offset int) ([]*Message, error) {
 	if orderID == 0 {
@@ -96,6 +113,44 @@ func (s *Service) ListByOrder(ctx context.Context, orderID int64, limit, offset 
 	}
 	return s.repo.ListMessagesByOrder(ctx, orderID, limit, offset)
 }
+
+// Broadcast 系统广播（admin）。
+//   - fromID 写入 sender；每个 toID 写一条消息；触发 MessageSentEvent。
+//   - toIDs 长度 1..500。
+func (s *Service) Broadcast(ctx context.Context, fromID int64, toIDs []int64, body string) (int, error) {
+	body = strings.TrimSpace(body)
+	l := utf8.RuneCountInString(body)
+	if l == 0 || l > 1000 {
+		return 0, errs.New(errs.CodeParamInvalid, "body length must be 1..1000")
+	}
+	if fromID == 0 {
+		return 0, errs.New(errs.CodeParamInvalid, "from_id required")
+	}
+	if len(toIDs) == 0 || len(toIDs) > 500 {
+		return 0, errs.New(errs.CodeParamInvalid, "to_ids must be 1..500")
+	}
+	count := 0
+	for _, to := range toIDs {
+		if to == 0 || to == fromID {
+			continue
+		}
+		m := &Message{OrderID: 0, FromUserID: fromID, ToUserID: to, Body: body}
+		if err := s.repo.CreateMessage(ctx, m); err != nil {
+			return count, errs.Wrap(errs.CodeInternal, "create broadcast message", err)
+		}
+		if s.publisher != nil {
+			_ = s.publisher.PublishMessageSent(ctx, contracts.MessageSentEvent{
+				MessageID: m.ID, OrderID: 0, FromID: fromID, ToID: to,
+				Body: body, SentAt: m.CreatedAt,
+			})
+		}
+		count++
+	}
+	return count, nil
+}
+
+// ErrMessageNotFound 是查无结果。
+var ErrMessageNotFound = errors.New("message service: not found")
 
 // 确保 errors import 用上
 var _ = errors.New
