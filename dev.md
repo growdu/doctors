@@ -1440,3 +1440,35 @@ pm run dev �˵����߲� 22 ·��
 **端到端联通（v1.3 目标�?*�?
 - patient-miniapp 选陪诊师 �?order-service �?user-service（address/coupon/hospital/package/virtual-number）→ message / sos / review / escort 服务 �?admin-web 22 路由 + admin-service 12 API 监控全流�?- 后端 11 �?Go 服务 59 �?0 FAIL + 200 个新单测
 - 三端 trace-id 共用：mp-/escort-/后端 logger.FromContext
+---
+## 21. patient-miniapp 8 核心业务页接 API（patient-miniapp v1 plan §M1-M8�?
+**目标**：按 patient-miniapp v1 plan 落地 5 个新 API 模块 + 5 个新 Pinia store + 8 个真实业务页（首�?/ 医院列表 / 医院详情 / 个人中心 / 优惠券中�?/ 地址管理 / 评价创建 / 订单创建）�?
+**8 �?commit**�?
+| commit | 内容 | 新增测试 |
+| :-- | :-- | :--: |
+| `43fcd61` | `feat(patient-miniapp)` API client 5 个新模块 + index 聚合 | 38 |
+| `5223b0d` | `feat(patient-miniapp)` Pinia 5 个新 store + loading/error | 41 |
+| `6e022a0` | 首页（hospital 推荐 + 4 快捷入口 + 公告）| 9 |
+| `b20b327` | 医院列表 + 医院详情（含服务包占位）| 15 |
+| `4fd9581` | 个人中心（hero + 4 订单状�?tile + 设置 menu + 退出登录）| 10 |
+| `c99dd20` | 优惠券中心（领券 + 我的�?tab + status �?tab）| 7 |
+| `8f880d8` | 地址管理 CRUD + 默认地址 + 评价创建�? 星）| 15 |
+| `decf2d5` | 订单创建页（医院/服务�?时间/联系�?地址/优惠�?+ 折扣计算�? pages.json | 9 |
+
+**关键设计**�?
+1. **API 模式**：`utils/request.js` �?`request({ url, method, data, query })` + 缺参兜底 + 后端字段�?snake_case 最小透传
+2. **store 模式**：`useXxxStore()` + `loading / error / data` + 动�?`import('@/api/xxx.js')`（与 v1.1 `stores/order.js` 一致）
+3. **页面模式**：uView Plus `u-card` + `u-skeleton` + `u-empty` + `u-button` + `u-search` + `u-tabs` + `u-rate`（已通过 easycom 自动注册�?4. **测试模式**：jest.doMock 注入 fake store + uView Plus �?stub
+
+**累计测试用例**�?8 个测试文�?/ **144 �?it() �?*（API 38 + store 41 + page 65）�?
+**Plan 偏差**�?
+1. **服务�?`packages` 字段**：v1 后端 hospital 模块未返；`detail.vue` �?`order/create.vue` �?`packages=[]` 兜底渲染，v2 �?services/user/internal/pkg 后扩�?2. **`getMyProfile`**：用户信息走现有 `useAuthStore().fetchMe()` 通道（依�?`@/api/auth.js`，v1.1 占位�?3. **订单创建�?`onSubmit`**：v1 仅做 toast + redirectTo（无后端 `POST /orders` 提交；order-service 已有 handler，后�?plan 接入即可�?4. **pages.json 路径约定**：原 v1.1 �?`src/pages/order/index.vue` 注册�?`pages/order/index`；新页沿用相同约定（uni-app �?`src/pages/` 前缀解析）。未实际�?uni-app build 验证
+5. **vue-jest 未装**：测试是契约样，与项目既有约定一�?
+**未做（留给后续）**�?
+- 接入 `POST /orders` 真实创建订单（order-service 已有 handler，frontend `order/create.vue` onSubmit 改为真实提交�?- 接入 `services/user/internal/pkg` 的服务包 API
+- �?`src/api/auth.js`（`loginByPhone` + `fetchMe`）让 auth store �?fetchMe 真实可达
+- �?uni-app build 验证 pages.json 路径解析
+- 引入 vue-jest �?.vue 单测转为可执�?
+**端到端联通（v1.3 目标�?*�?
+- patient-miniapp 8 核心页：首页（医院推�?+ 4 快捷入口）→ 医院列表 �?医院详情 �?订单创建（医�?服务�?时间/地址/优惠券）�?选陪诊师（v1.1）→ 订单详情（v1.1）→ 服务执行 �?评价（新增）�?个人中心 / 优惠�?/ 地址管理
+- 共享 X-Trace-Id：`mp-{ms}-{rand6}`（与 escort-app `escort-`、admin-web 不同�?- 后端 11 �?Go 服务 59 �?0 FAIL + patient-miniapp 144 测试
