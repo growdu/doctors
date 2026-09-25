@@ -21,6 +21,7 @@ import (
 	pkgpkg "github.com/growdu/doctors/services/user/internal/pkg"
 	"github.com/growdu/doctors/services/user/internal/server"
 	"github.com/growdu/doctors/services/user/internal/service"
+	"github.com/growdu/doctors/services/user/internal/virtualnumber"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/logger"
 )
@@ -38,8 +39,9 @@ func main() {
 	couponSvc := coupon.NewService(nilCouponRepo{})
 	hospitalSvc := hospital.NewService(nilHospitalRepo{})
 	pkgSvc := pkgpkg.NewService(nilPackageRepo{})
+	vnSvc := virtualnumber.NewService(nilVNRepo{})
 	h := handler.New(profileSvc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc, pkgSvc)
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc, pkgSvc, vnSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -119,5 +121,16 @@ func (nilPackageRepo) ListByHospital(ctx context.Context, hospitalID int64) ([]*
 	return nil, errNil
 }
 func (nilPackageRepo) GetByID(ctx context.Context, id int64) (*pkgpkg.Record, error) { return nil, errNil }
+
+// nilVNRepo 占位实现：virtualnumber 模块的假 repo。
+type nilVNRepo struct{}
+
+func (nilVNRepo) Allocate(ctx context.Context, in virtualnumber.AllocateInput) (*virtualnumber.Record, error) {
+	return nil, errNil
+}
+func (nilVNRepo) GetByID(ctx context.Context, id int64) (*virtualnumber.Record, error) { return nil, errNil }
+func (nilVNRepo) Release(ctx context.Context, id int64, reason string) (*virtualnumber.Record, error) {
+	return nil, errNil
+}
 
 var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")

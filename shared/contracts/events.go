@@ -39,6 +39,11 @@ const (
 	TopicSOSRaised = "sos.raised"
 	TopicMessageSent = "message.sent"
 
+	// ---------- User topics（user-service v1.3：address/coupon/hospital/package/virtual-number） ----------
+	// 注：v1 不广播地址 / 优惠券 / 医院 / 服务包变更（CRUD 直接同步），仅虚拟号分配广播给 message/notification 用于路由。
+	TopicVirtualNumberAllocated = "virtual_number.allocated"
+	TopicVirtualNumberReleased  = "virtual_number.released"
+
 	// ---------- Admin topics（admin-service 2026-09-24） ----------
 	TopicAdminOrderForceCancelled = "admin.order.force_cancelled" // admin → refund / notification
 	TopicAdminEscortApproved      = "admin.escort.approved"        // admin → escort / notification
@@ -251,6 +256,31 @@ type MessageSentEvent struct {
 	ToID      int64     `json:"to_id"`
 	Body      string    `json:"body"`
 	SentAt    time.Time `json:"sent_at"`
+}
+
+// ---------- Virtual Number 事件（user-service v1.3） ----------
+
+// VirtualNumberAllocatedEvent 虚拟号分配成功（user-service → message/notification）。
+// 触发时机：order 进入 accepted/in_service 阶段，user-service 分配虚拟号后广播。
+// 消费者：message-service（按 virtual_number.phone 路由消息）；notification-service（推送虚拟号给 patient + escort）。
+type VirtualNumberAllocatedEvent struct {
+	VirtualNumberID int64     `json:"virtual_number_id"`
+	OrderID         int64     `json:"order_id"`
+	PatientID       int64     `json:"patient_id"`
+	EscortID        int64     `json:"escort_id"`
+	Phone           string    `json:"phone"`
+	ExpireAt        time.Time `json:"expire_at"`
+	AllocatedAt     time.Time `json:"allocated_at"`
+}
+
+// VirtualNumberReleasedEvent 虚拟号释放（user-service → message/notification 清理路由）。
+// 触发时机：订单 completed/cancelled 或 expire_at 到期。
+// 消费者：message-service（停止路由）；notification-service（清除缓存）。
+type VirtualNumberReleasedEvent struct {
+	VirtualNumberID int64     `json:"virtual_number_id"`
+	OrderID         int64     `json:"order_id"`
+	Reason          string    `json:"reason,omitempty"` // "expired" | "order_completed" | "order_cancelled"
+	ReleasedAt      time.Time `json:"released_at"`
 }
 
 // ---------- Admin 事件（admin-service 2026-09-24） ----------
