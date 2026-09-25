@@ -25,6 +25,7 @@ type Config struct {
 	Kafka   Kafka     `mapstructure:"kafka"`
 	Auth    Auth      `mapstructure:"auth"`
 	Logging Logging   `mapstructure:"logging"`
+	Admin   Admin     `mapstructure:"admin"`
 }
 
 // HTTP 是 HTTP 服务配置。
@@ -63,6 +64,16 @@ type Auth struct {
 // Logging 是日志配置。
 type Logging struct {
 	Level string `mapstructure:"level"` // debug | info | warn | error
+}
+
+// Admin 是 admin-service 专用配置：内部服务 baseURL。
+//
+// v1 admin plan (2026-09-24)：admin 通过这些 URL 调 order/refund/escort/user。
+type Admin struct {
+	OrderBaseURL  string `mapstructure:"order_base_url"`
+	RefundBaseURL string `mapstructure:"refund_base_url"`
+	EscortBaseURL string `mapstructure:"escort_base_url"`
+	UserBaseURL   string `mapstructure:"user_base_url"`
 }
 
 // Load 读取 config/<service>.yaml + 环境变量，解析为 *Config。
