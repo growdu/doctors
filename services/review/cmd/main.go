@@ -1,4 +1,9 @@
 // review-service 入口。
+//
+// 设计要点：
+//   - pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
+//   - Kafka 配置缺失 → NopPublisher（dev / 单测友好）。
+//   - service.New 装配；handler.RegisterRoutes 挂载；server.Run 启动。
 package main
 
 import (
@@ -8,11 +13,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/review/internal/handler"
+	"github.com/growdu/doctors/services/review/internal/router"
 	"github.com/growdu/doctors/services/review/internal/server"
 	"github.com/growdu/doctors/services/review/internal/service"
 	"github.com/growdu/doctors/shared/config"
@@ -22,31 +29,69 @@ import (
 
 func main() {
 	cfg, err := config.Load("review")
-	if err != nil { log.Fatalf("load config: %v", err) }
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
+	// pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
 	svc := service.New(nilRepo{}, nilPublisher{})
 	h := handler.New(svc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret)
+	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
 	logger.L().Info("review-service starting", zap.String("addr", cfg.HTTP.Addr))
-	if err := srv.Run(ctx); err != nil { logger.L().Error("review-service exited", zap.Error(err)); os.Exit(1) }
+	if err := srv.Run(ctx); err != nil {
+		logger.L().Error("review-service exited", zap.Error(err))
+		os.Exit(1)
+	}
 	logger.L().Info("review-service stopped")
 }
 
 func parseLevel(s string) zapcore.Level {
-	switch s { case "debug": return zapcore.DebugLevel; case "warn": return zapcore.WarnLevel; case "error": return zapcore.ErrorLevel; default: return zapcore.InfoLevel }
+	switch s {
+	case "debug":
+		return zapcore.DebugLevel
+	case "warn":
+		return zapcore.WarnLevel
+	case "error":
+		return zapcore.ErrorLevel
+	default:
+		return zapcore.InfoLevel
+	}
 }
 
+// ---------- nilRepo / nilPublisher（main 装配占位；真实 pgx 接入留 v2） ----------
+
 type nilRepo struct{}
+
 func (nilRepo) Create(ctx context.Context, r *service.Review) error { return errNil }
-func (nilRepo) GetByOrderID(ctx context.Context, oid int64) (*service.Review, error) { return nil, errNil }
-func (nilRepo) ListByEscort(ctx context.Context, eid int64, l, o int) ([]*service.Review, error) { return nil, errNil }
+func (nilRepo) GetByID(ctx context.Context, id int64) (*service.Review, error) {
+	return nil, errNil
+}
+func (nilRepo) GetByOrderID(ctx context.Context, oid int64) (*service.Review, error) {
+	return nil, errNil
+}
+func (nilRepo) ListByEscort(ctx context.Context, eid int64, l, o int) ([]*service.Review, error) {
+	return nil, errNil
+}
+func (nilRepo) List(ctx context.Context, f service.ListFilter) ([]*service.Review, error) {
+	return nil, errNil
+}
+func (nilRepo) UpdateReply(ctx context.Context, id int64, reply string, adminID int64) error {
+	return errNil
+}
 
 type nilPublisher struct{}
-func (nilPublisher) PublishOrderReviewed(ctx context.Context, ev contracts.OrderReviewedEvent) error { return errNil }
+
+func (nilPublisher) PublishOrderReviewed(ctx context.Context, ev contracts.OrderReviewedEvent) error {
+	return errNil
+}
+
+// _ = time 防止未使用告警（main 暂时不直接用 time）
+var _ = time.Second
 
 var errNil = errors.New("review: repo/publisher not wired")

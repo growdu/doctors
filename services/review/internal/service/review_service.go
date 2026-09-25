@@ -4,6 +4,7 @@
 //   - 一笔订单只能评一次（unique on order_id）。
 //   - 评分 1-5；comment 长度限制。
 //   - CreateReview 触发 contracts.OrderReviewedEvent → order-service 关闭订单。
+//   - Reply 由 admin 写入回复内容；不影响评分。
 package service
 
 import (
@@ -25,14 +26,29 @@ type Review struct {
 	EscortID   int64
 	Rating     int
 	Comment    string
+	Reply      string
+	RepliedBy  int64
+	RepliedAt  *time.Time
 	CreatedAt  time.Time
 }
 
 // ReviewRepo 是仓储契约。
 type ReviewRepo interface {
 	Create(ctx context.Context, r *Review) error
+	GetByID(ctx context.Context, id int64) (*Review, error)
 	GetByOrderID(ctx context.Context, orderID int64) (*Review, error)
 	ListByEscort(ctx context.Context, escortID int64, limit, offset int) ([]*Review, error)
+	List(ctx context.Context, f ListFilter) ([]*Review, error)
+	UpdateReply(ctx context.Context, id int64, reply string, adminID int64) error
+}
+
+// ListFilter 是 List 的过滤参数。
+type ListFilter struct {
+	EscortID  int64
+	OrderID   int64
+	MinRating int
+	Page      int
+	PageSize  int
 }
 
 // Publisher 是事件发布抽象。
@@ -92,6 +108,21 @@ func (s *Service) CreateReview(ctx context.Context, reviewerID, orderID, escortI
 	return r, nil
 }
 
+// GetByID 取评价详情。
+func (s *Service) GetByID(ctx context.Context, id int64) (*Review, error) {
+	if id == 0 {
+		return nil, errs.New(errs.CodeParamInvalid, "id required")
+	}
+	r, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrReviewNotFound) {
+			return nil, errs.New(errs.CodeNotFound, "review not found")
+		}
+		return nil, errs.Wrap(errs.CodeInternal, "find review", err)
+	}
+	return r, nil
+}
+
 // GetByOrder 取订单的评价。
 func (s *Service) GetByOrder(ctx context.Context, orderID int64) (*Review, error) {
 	r, err := s.repo.GetByOrderID(ctx, orderID)
@@ -110,4 +141,48 @@ func (s *Service) ListByEscort(ctx context.Context, escortID int64, limit, offse
 		limit = 20
 	}
 	return s.repo.ListByEscort(ctx, escortID, limit, offset)
+}
+
+// List 综合过滤查询。
+func (s *Service) List(ctx context.Context, f ListFilter) ([]*Review, error) {
+	if f.Page <= 0 {
+		f.Page = 1
+	}
+	if f.PageSize <= 0 || f.PageSize > 100 {
+		f.PageSize = 20
+	}
+	if f.MinRating < 0 {
+		f.MinRating = 0
+	}
+	if f.MinRating > 5 {
+		f.MinRating = 5
+	}
+	return s.repo.List(ctx, f)
+}
+
+// Reply 由 admin 写入回复。
+func (s *Service) Reply(ctx context.Context, id, adminID int64, body string) (*Review, error) {
+	if id == 0 || adminID == 0 {
+		return nil, errs.New(errs.CodeParamInvalid, "id/admin_id required")
+	}
+	body = strings.TrimSpace(body)
+	if utf8.RuneCountInString(body) > 500 {
+		return nil, errs.New(errs.CodeParamInvalid, "reply too long (max 500 chars)")
+	}
+	r, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrReviewNotFound) {
+			return nil, errs.New(errs.CodeNotFound, "review not found")
+		}
+		return nil, errs.Wrap(errs.CodeInternal, "find review", err)
+	}
+	if r.Reply != "" {
+		return nil, errs.New(errs.CodeConflict, "review already replied")
+	}
+	if err := s.repo.UpdateReply(ctx, id, body, adminID); err != nil {
+		return nil, errs.Wrap(errs.CodeInternal, "update reply", err)
+	}
+	r.Reply = body
+	r.RepliedBy = adminID
+	return r, nil
 }
