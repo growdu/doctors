@@ -17,6 +17,7 @@
 import 'package:escort_app/pages/availability/availability_page.dart';
 import 'package:escort_app/pages/invitations/invitations_page.dart';
 import 'package:escort_app/pages/login/login_page.dart';
+import 'package:escort_app/pages/orders/orders_page.dart';
 import 'package:escort_app/pages/profile/profile_page.dart';
 import 'package:escort_app/pages/wallet/wallet_page.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +46,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home/availability',
         builder: (context, state) => const AvailabilityPage(),
+      ),
+      // 我的订单（E6）
+      GoRoute(
+        path: '/home/orders',
+        builder: (context, state) => const OrdersPage(),
       ),
       // 个人中心（E4）
       GoRoute(
