@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/user/internal/address"
+	"github.com/growdu/doctors/services/user/internal/coupon"
 	"github.com/growdu/doctors/services/user/internal/handler"
 	"github.com/growdu/doctors/services/user/internal/server"
 	"github.com/growdu/doctors/services/user/internal/service"
@@ -32,8 +33,9 @@ func main() {
 
 	profileSvc := service.New(nilProfileRepo{})
 	addrSvc := address.NewService(nilAddrRepo{})
+	couponSvc := coupon.NewService(nilCouponRepo{})
 	h := handler.New(profileSvc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc)
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -80,5 +82,22 @@ func (nilAddrRepo) GetByID(ctx context.Context, id, userID int64) (*address.Reco
 func (nilAddrRepo) Update(ctx context.Context, a *address.Record) error             { return errNil }
 func (nilAddrRepo) SetDefault(ctx context.Context, id, userID int64) error          { return errNil }
 func (nilAddrRepo) Delete(ctx context.Context, id, userID int64) error              { return errNil }
+
+// nilCouponRepo 占位实现：coupon 模块的假 repo。
+type nilCouponRepo struct{}
+
+func (nilCouponRepo) ListActive(ctx context.Context, limit, offset int) ([]*coupon.Record, error) {
+	return nil, errNil
+}
+func (nilCouponRepo) GetByID(ctx context.Context, id int64) (*coupon.Record, error) {
+	return nil, errNil
+}
+func (nilCouponRepo) Claim(ctx context.Context, userID, couponID int64) (*coupon.UserCoupon, error) {
+	return nil, errNil
+}
+func (nilCouponRepo) ListByUser(ctx context.Context, userID int64) ([]*coupon.UserCouponWithTemplate, error) {
+	return nil, errNil
+}
+func (nilCouponRepo) MarkUsed(ctx context.Context, id, userID int64) error { return errNil }
 
 var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")
