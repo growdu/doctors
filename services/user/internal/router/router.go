@@ -9,16 +9,18 @@ import (
 	"github.com/growdu/doctors/services/user/internal/handler"
 	"github.com/growdu/doctors/services/user/internal/hospital"
 	"github.com/growdu/doctors/services/user/internal/middleware"
+	pkgpkg "github.com/growdu/doctors/services/user/internal/pkg"
 	"github.com/growdu/doctors/services/user/internal/service"
 	"github.com/growdu/doctors/shared/httpx"
 )
 
 // Deps 装配 router 所需的依赖。
 type Deps struct {
-	ProfileSvc *service.Service
-	AddressSvc *address.Service
-	CouponSvc  *coupon.Service
+	ProfileSvc  *service.Service
+	AddressSvc  *address.Service
+	CouponSvc   *coupon.Service
 	HospitalSvc *hospital.Service
+	PackageSvc  *pkgpkg.Service
 }
 
 // New 返回挂好路由的 gin engine。
@@ -44,6 +46,11 @@ func New(d Deps, h *handler.Handler, jwtSecret string) *gin.Engine {
 	if d.HospitalSvc != nil {
 		hh := hospital.NewHandler(d.HospitalSvc)
 		hh.RegisterRoutes(v1)
+	}
+	// package（服务包）模块独立路由
+	if d.PackageSvc != nil {
+		ph := pkgpkg.NewHandler(d.PackageSvc)
+		ph.RegisterRoutes(v1)
 	}
 	return r
 }

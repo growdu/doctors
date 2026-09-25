@@ -18,6 +18,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/coupon"
 	"github.com/growdu/doctors/services/user/internal/handler"
 	"github.com/growdu/doctors/services/user/internal/hospital"
+	pkgpkg "github.com/growdu/doctors/services/user/internal/pkg"
 	"github.com/growdu/doctors/services/user/internal/server"
 	"github.com/growdu/doctors/services/user/internal/service"
 	"github.com/growdu/doctors/shared/config"
@@ -36,8 +37,9 @@ func main() {
 	addrSvc := address.NewService(nilAddrRepo{})
 	couponSvc := coupon.NewService(nilCouponRepo{})
 	hospitalSvc := hospital.NewService(nilHospitalRepo{})
+	pkgSvc := pkgpkg.NewService(nilPackageRepo{})
 	h := handler.New(profileSvc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc)
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc, pkgSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -109,5 +111,13 @@ func (nilHospitalRepo) List(ctx context.Context, f hospital.ListFilter) ([]*hosp
 	return nil, 0, errNil
 }
 func (nilHospitalRepo) GetByID(ctx context.Context, id int64) (*hospital.Record, error) { return nil, errNil }
+
+// nilPackageRepo 占位实现：pkg 模块的假 repo。
+type nilPackageRepo struct{}
+
+func (nilPackageRepo) ListByHospital(ctx context.Context, hospitalID int64) ([]*pkgpkg.Record, error) {
+	return nil, errNil
+}
+func (nilPackageRepo) GetByID(ctx context.Context, id int64) (*pkgpkg.Record, error) { return nil, errNil }
 
 var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")

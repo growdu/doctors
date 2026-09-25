@@ -12,6 +12,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/coupon"
 	"github.com/growdu/doctors/services/user/internal/handler"
 	"github.com/growdu/doctors/services/user/internal/hospital"
+	pkgpkg "github.com/growdu/doctors/services/user/internal/pkg"
 	"github.com/growdu/doctors/services/user/internal/router"
 )
 
@@ -19,8 +20,8 @@ type Server struct {
 	httpSrv *http.Server
 }
 
-func New(addr string, h *handler.Handler, jwtSecret string, addressSvc *address.Service, couponSvc *coupon.Service, hospitalSvc *hospital.Service) *Server {
-	engine := router.New(router.Deps{AddressSvc: addressSvc, CouponSvc: couponSvc, HospitalSvc: hospitalSvc}, h, jwtSecret)
+func New(addr string, h *handler.Handler, jwtSecret string, addressSvc *address.Service, couponSvc *coupon.Service, hospitalSvc *hospital.Service, packageSvc *pkgpkg.Service) *Server {
+	engine := router.New(router.Deps{AddressSvc: addressSvc, CouponSvc: couponSvc, HospitalSvc: hospitalSvc, PackageSvc: packageSvc}, h, jwtSecret)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,
