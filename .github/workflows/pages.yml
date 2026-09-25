@@ -1,0 +1,55 @@
+name: Pages
+
+# GitHub Pages 部署：
+#   - trigger：push to main + workflow_dispatch（手动重部署）
+#   - artifact：docs/（README + dev.md + diagrams/ + superpowers/plans/ + superpowers/specs/）
+#   - deploy：actions/deploy-pages@v4（OIDC，无需 PAT）
+#   - permissions：contents: read + pages: write + id-token: write
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'dev.md'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Pages 部署需要 pages:write + id-token:write（OIDC）。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 避免并发部署互相覆盖。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & upload docs artifact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
