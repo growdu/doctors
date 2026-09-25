@@ -18,6 +18,7 @@ import 'package:escort_app/pages/availability/availability_page.dart';
 import 'package:escort_app/pages/invitations/invitations_page.dart';
 import 'package:escort_app/pages/login/login_page.dart';
 import 'package:escort_app/pages/profile/profile_page.dart';
+import 'package:escort_app/pages/wallet/wallet_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -49,6 +50,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home/profile',
         builder: (context, state) => const ProfilePage(),
+      ),
+      // 钱包（E5）
+      GoRoute(
+        path: '/home/wallet',
+        builder: (context, state) => const WalletPage(),
       ),
     ],
   );
