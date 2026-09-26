@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/shared/health"
+	"github.com/growdu/doctors/shared/metrics"
 )
 
 // staticCheck 是测试 helper：返回一个固定 result 的 Checker。
@@ -309,4 +311,95 @@ func TestCheckFunc_Adapter(t *testing.T) {
 	assert.Equal(t, "inline", iface.Name())
 	require.NoError(t, iface.Check(context.Background()))
 	assert.Equal(t, 1, called)
+}
+
+// =============================================================================
+// ReadyzHandler / Prometheus counter（readyz_check_total）
+// =============================================================================
+
+// readCounter 读 readyz_check_total{check,status} 当前值；label 不存在 → 0。
+func readCounter(t *testing.T, check, status string) float64 {
+	t.Helper()
+	return testutil.ToFloat64(metrics.ReadyzCheckTotal.WithLabelValues(check, status))
+}
+
+// TestReadyzHandler_IncrementsCounter 验证：每次 /readyz 调用 → readyz_check_total
+// 在请求级（_request/status=request）+ 每个 checker 维度各 +1。
+//
+// 断言路径：
+//  1. 启动前快照 _request / ok / fail 计数
+//  2. 一次请求（1 个 ok checker + 1 个 fail checker）
+//  3. 断言 _request=request +1；ok checker 维度的 status=ok +1；fail checker 维度的 status=fail +1
+func TestReadyzHandler_IncrementsCounter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	m := health.NewManager()
+	m.MustRegister(staticCheck{name: "pg-main", err: nil})
+	m.MustRegister(staticCheck{name: "redis-main", err: errors.New("redis down")})
+
+	beforeRequest := readCounter(t, "_request", "request")
+	beforeOK := readCounter(t, "pg-main", "ok")
+	beforeFail := readCounter(t, "redis-main", "fail")
+
+	r := gin.New()
+	r.GET("/readyz", health.ReadyzHandler(m))
+
+	// 触发 /readyz 一次（应 503，因为 redis-main fail）。
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, w.Code,
+		"任一 checker fail → 503")
+
+	// 1 次请求 → _request/request +1。
+	assert.Equal(t, beforeRequest+1, readCounter(t, "_request", "request"),
+		"1 次 /readyz 调用 → readyz_check_total{check=_request,status=request} +1")
+	// ok checker 维度 +1。
+	assert.Equal(t, beforeOK+1, readCounter(t, "pg-main", "ok"),
+		"ok checker → readyz_check_total{check=pg-main,status=ok} +1")
+	// fail checker 维度 +1。
+	assert.Equal(t, beforeFail+1, readCounter(t, "redis-main", "fail"),
+		"fail checker → readyz_check_total{check=redis-main,status=fail} +1")
+}
+
+// TestReadyzHandler_NilManagerIncrementsFail 验证：nil manager 走 fail-closed 分支，
+// 同时也 Inc 计数器（check=_manager, status=fail）——便于告警识别"忘了装配"事故。
+func TestReadyzHandler_NilManagerIncrementsFail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	beforeReq := readCounter(t, "_request", "request")
+	beforeMgr := readCounter(t, "_manager", "fail")
+
+	r := gin.New()
+	r.GET("/readyz", health.ReadyzHandler(nil))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	assert.Equal(t, beforeReq+1, readCounter(t, "_request", "request"),
+		"nil manager 也算一次 /readyz 调用 → _request/request +1")
+	assert.Equal(t, beforeMgr+1, readCounter(t, "_manager", "fail"),
+		"nil manager 走 fail-closed 分支 → _manager/fail +1")
+}
+
+// TestReadyzHandler_AllOK_NoFailCounter 验证：全 OK 路径不应让任何 fail 计数器增长
+// （避免误报）。
+func TestReadyzHandler_AllOK_NoFailCounter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	m := health.NewManager()
+	m.MustRegister(staticCheck{name: "pg-main", err: nil})
+	m.MustRegister(staticCheck{name: "kafka-brokers", err: nil})
+
+	beforeFail := readCounter(t, "pg-main", "fail")
+	beforeFail2 := readCounter(t, "kafka-brokers", "fail")
+
+	r := gin.New()
+	r.GET("/readyz", health.ReadyzHandler(m))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	assert.Equal(t, beforeFail, readCounter(t, "pg-main", "fail"),
+		"全 OK 时 pg-main/fail 计数器不应增长")
+	assert.Equal(t, beforeFail2, readCounter(t, "kafka-brokers", "fail"),
+		"全 OK 时 kafka-brokers/fail 计数器不应增长")
 }

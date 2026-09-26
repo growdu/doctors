@@ -87,3 +87,34 @@ groups:
                   2) Redis 命中率 / Kafka 消费滞后
                   3) 资源水位（CPU / 内存 / conntrack）
           runbook_url: "https://wiki.doctors.local/runbooks/high-latency"
+
+      # ---------------------------------------------------------------------
+      # /readyz 依赖失败：任一 checker 连续 1 分钟持续 fail → readinessProbe
+      #   摘流失败意味着 K8s readinessProbe 也失败（HTTP 503 持续），流量
+      #   不会自动重定向，需人工排查依赖。
+      #   指标源：shared/health.ReadyzHandler → shared/metrics.ReadyzCheckTotal
+      #   label：check = checker 名字（如 "postgres-main" / "redis-main" /
+      #          "kafka-brokers" / "_manager"）；status = "fail"。
+      #   注意：使用 rate() 持续非零 + for: 1m 而非瞬时失败，避免 readinessProbe
+      #         抖动 / 慢 Ping 误报。
+      # ---------------------------------------------------------------------
+      - alert: ReadyzCheckFailure
+        expr: |
+          sum by (job, check) (
+            rate(readyz_check_total{status="fail"}[1m])
+          ) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: readiness
+        annotations:
+          summary: "{{ $labels.job }} /readyz 依赖 {{ $labels.check }} 持续失败"
+          description: |
+            {{ $labels.job }} /readyz 端点的依赖 {{ $labels.check }} 已持续
+            1 分钟返回失败。K8s readinessProbe 也会同时返回 503，流量将被摘除。
+            排查：1) 查容器日志对应 checker 名字的 error message
+                  2) 直接 curl http://<pod>:8080/readyz 看 JSON body
+                  3) DB / Redis / Kafka broker 是否可达（防火墙 / 网络策略）
+            如为 "_manager" → main 装配 bug（shared/health.Manager 未初始化）。
+          runbook_url: "https://wiki.doctors.local/runbooks/readyz-failure"

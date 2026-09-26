@@ -109,6 +109,26 @@ var RecoveryPanicsTotal = promauto.NewCounterVec(
 	[]string{"path"},
 )
 
+// ReadyzCheckTotal /readyz 端点调用次数（按 check 名字 + 单次 ok/fail 状态）。
+//
+// 由 shared/health.ReadyzHandler 在入口（status="request"，无论 readyz 整体结果）
+// + 每个 checker 调用后（status="ok" / "fail"）Inc。
+//
+// 标签：
+//   - check：checker 名字（如 "postgres-main" / "kafka-brokers"）；请求级 Inc 时为
+//     "_total"（避免误读为某个具体依赖）。
+//   - status："ok" / "fail" / "request" 三选一。
+//
+// 对应 deploy/prometheus/alerts/general.yaml 的 ReadyzCheckFailure 告警
+// （status="fail" 持续 1 分钟即触发 critical）。
+var ReadyzCheckTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "readyz_check_total",
+		Help: "Total number of /readyz invocations, labeled by check name and status (ok/fail/request).",
+	},
+	[]string{"check", "status"},
+)
+
 // DBPoolStat 是单条 pool 指标的快照；由 StatProvider 批量返回。
 type DBPoolStat struct {
 	Name       string // pool 标识（如 "main" / "wallet"）
