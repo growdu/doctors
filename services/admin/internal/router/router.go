@@ -2,6 +2,8 @@
 //
 // 设计要点：
 //   - /healthz 不挂任何中间件（K8s liveness）。
+//   - /metrics 挂 Prometheus 抓取端（promhttp.Handler()）。
+//   - Metrics 中间件（middleware.Metrics()）早于 Auth 挂载：401/403 也计入 http_requests_total。
 //   - /api/v1/admin/* 全部挂 Auth（JWT）+ RoleAuth（白名单按 API 区分）。
 //   - 角色白名单矩阵与 admin-web-design.md §3.2 一致。
 package router
@@ -11,6 +13,7 @@ import (
 
 	"github.com/growdu/doctors/services/admin/internal/handler"
 	"github.com/growdu/doctors/shared/httpx"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/middleware"
 )
 
@@ -19,9 +22,13 @@ import (
 // h 是业务 handler；jwtSecret 用于鉴权中间件。
 func New(h *handler.Handler, jwtSecret string) *gin.Engine {
 	r := gin.New()
+	// Prometheus HTTP 指标中间件（最先挂，保证 4xx/5xx 也被统计）
+	r.Use(middleware.Metrics())
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK(c, gin.H{"status": "ok"})
 	})
+	// Prometheus 抓取端
+	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
 	auth := middleware.Auth(jwtSecret, "uid", middleware.RoleKey)
 	v1 := r.Group("/api/v1", auth)

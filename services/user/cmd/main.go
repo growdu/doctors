@@ -26,6 +26,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
 )
 
@@ -56,6 +57,9 @@ func main() {
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
+
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	metrics.InitMetrics("user-service", cfg.ServiceVersion)
 
 	profileSvc := service.New(nilProfileRepo{})
 	addrSvc := address.NewService(nilAddrRepo{})

@@ -29,6 +29,7 @@ import (
 	"github.com/growdu/doctors/services/admin/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
 )
 
@@ -58,6 +59,10 @@ func main() {
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
+
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	// DB pool 未接入 → 不注入 StatProvider，DB 指标不会出现在 /metrics。
+	metrics.InitMetrics("admin-service", cfg.ServiceVersion)
 
 	// pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
 	woRepo := repo.NewWorkOrderRepo(nil)

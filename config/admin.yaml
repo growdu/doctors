@@ -37,6 +37,13 @@ tracing:
   otlp_endpoint: ""
   sampling_ratio: 1.0
 
+# Prometheus 业务指标（§29 metrics plan）：
+#   - enabled：false → router 不挂 metrics 中间件、不暴露 /metrics（默认 true）。
+#   - service_name：覆盖 InitMetrics 注入的 service_name（默认从 cfg.Service 取）。
+metrics:
+  enabled: true
+  service_name: admin-service
+
 # admin 调其他服务的内部接口 baseURL
 admin:
   order_base_url: http://127.0.0.1:8082

@@ -36,3 +36,8 @@ logging:
 tracing:
   otlp_endpoint: ""
   sampling_ratio: 1.0
+
+# Prometheus 业务指标（§29 metrics plan）
+metrics:
+  enabled: true
+  service_name: review-service

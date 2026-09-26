@@ -33,3 +33,8 @@ logging:
 tracing:
   otlp_endpoint: ""
   sampling_ratio: 1.0
+
+# Prometheus 业务指标（§29 metrics plan）：wallet 已接 pgxpool，DB pool 指标自动暴露。
+metrics:
+  enabled: true
+  service_name: wallet-service

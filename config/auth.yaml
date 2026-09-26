@@ -37,3 +37,8 @@ logging:
 tracing:
   otlp_endpoint: ""
   sampling_ratio: 1.0
+
+# Prometheus 业务指标（§29 metrics plan）：默认 enabled，service_name 注入 InitMetrics。
+metrics:
+  enabled: true
+  service_name: auth-service

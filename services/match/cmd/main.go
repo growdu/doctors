@@ -23,6 +23,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
 )
 
@@ -52,6 +53,9 @@ func main() {
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
+
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	metrics.InitMetrics("match-service", cfg.ServiceVersion)
 
 	// v1 用 NopPool；接 Redis 后换 RedisPool
 	svc := service.New(pool.NewNopPool(), nilEscortLoader{}, 0)

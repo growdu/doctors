@@ -30,6 +30,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/lock"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
 )
 
@@ -59,6 +60,10 @@ func main() {
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
+
+	// Prometheus 业务指标（§29 metrics plan）：service_info 已就绪。
+	// pool=nil：DB pool 指标暂不出现；接入 pgxpool 后注入 StatProvider。
+	metrics.InitMetrics("order-service", cfg.ServiceVersion)
 
 	// pool=nil：路由生效，业务调用会 panic；smoke 不走业务路径。
 	orderRepo := repo.NewOrderRepo(nil)

@@ -35,6 +35,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
 )
 
@@ -72,6 +73,23 @@ func main() {
 	if pool != nil {
 		defer pool.Close()
 	}
+
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	// pool 已构建 → 闭包在 30s ticker 中读取 pool.Stat()。
+	metrics.InitMetrics("wallet-service", cfg.ServiceVersion,
+		metrics.WithDBStatProvider(func() []metrics.DBPoolStat {
+			if pool == nil {
+				return nil
+			}
+			s := pool.Stat()
+			return []metrics.DBPoolStat{{
+				Name:       "main",
+				Acquired:   s.AcquiredConns(),
+				Idle:       s.IdleConns(),
+				TotalConns: s.TotalConns(),
+			}}
+		}),
+	)
 
 	walletRepo := repo.NewWalletRepo(pool)
 	svc := service.New(walletRepo)

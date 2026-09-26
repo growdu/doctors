@@ -146,9 +146,10 @@ doctors/
 │   ├── config/                  # viper 配置加载（DOCTORS_<SVC>_* env override）
 │   ├── logger/                  # zap 结构化日志 + trace_id 上下文传递
 │   ├── tracing/                 # OTel 全链路追踪（OTLP HTTP + W3C TraceContext）
+│   ├── metrics/                 # Prometheus 业务指标（HTTP / DB / Kafka）+ /metrics 抓取端
 │   ├── auth/                    # JWT 签发 / 校验
 │   ├── httpx/                   # 统一响应 / 错误码
-│   ├── middleware/              # Gin 中间件（Auth / RoleAuth / Cors / Logging）
+│   ├── middleware/              # Gin 中间件（Auth / RoleAuth / Metrics / Cors / Logging）
 │   ├── contracts/               # 共享事件契约（OrderCompleted / PaymentRefunded / ...）
 │   ├── db/                      # pgxpool 封装 + 健康检查
 │   ├── redis/                   # go-redis 封装
@@ -385,6 +386,8 @@ docker compose -f docker-compose.deploy.yml down -v
 | `DOCTORS_<SVC>_JWT_SECRET`              | JWT 签名密钥（**生产必须改**）    | `dev-secret-change-me`                              |
 | `DOCTORS_<SVC>_LOGGING_LEVEL`           | zap 日志级别                      | `debug` / `info` / `warn` / `error`                 |
 | `DOCTORS_<SVC>_TRACING_OTLP_ENDPOINT`   | OTel OTLP 接收端（留空 → Noop）   | `otel-collector:4318`                               |
+| `DOCTORS_<SVC>_METRICS_ENABLED`        | Prometheus 指标开关               | `true` / `false`                                    |
+| `DOCTORS_<SVC>_METRICS_SERVICE_NAME`   | 覆盖 `service_info{service=}`     | `auth-service`                                      |
 
 ### 7.4 镜像与体积
 
@@ -419,6 +422,56 @@ docker compose -f docker-compose.deploy.yml down -v
 - 中间件（PG / Redis / Kafka）由官方镜像内置 healthcheck，`depends_on.condition: service_healthy` 等待其就绪。
 - 3 个前端 nginx 在 Dockerfile 内置 `HEALTHCHECK CMD wget -q --spider http://127.0.0.1/index.html`。
 - 11 个 Go 服务运行在 distroless（无 shell / 无 curl / 无 wget）；容器内 HTTP 探针通过 `-healthz` flag 启独立 :9090 server 返回 200 OK。
+
+### 8.4 Prometheus 业务指标（§29 metrics plan）
+
+- 包：[`shared/metrics`](./shared/metrics) + [`shared/middleware/metrics.go`](./shared/middleware/metrics.go)
+- 抓取端：11 个 Go 服务在主端口（:8080）暴露 `GET /metrics`（标准 prom 文本格式），与 `/healthz` 共用同一 HTTP server。
+- 中间件：router 最先挂 `middleware.Metrics()`，自动记录 `http_requests_total{method,path,status}` + `http_request_duration_seconds{method,path}`。
+- 6 个默认业务指标：
+
+| 指标名                              | 类型        | 标签                       | 含义                                                  |
+| ----------------------------------- | ----------- | -------------------------- | ----------------------------------------------------- |
+| `http_requests_total`               | CounterVec  | `method`,`path`,`status`   | HTTP 请求累计数；`status` 归桶到 2xx/3xx/4xx/5xx。   |
+| `http_request_duration_seconds`     | HistogramVec| `method`,`path`            | HTTP 请求耗时分布（buckets 5ms~5s）。                |
+| `db_pool_acquired_connections`      | GaugeVec    | `pool`                     | DB 连接池占用连接数。                                |
+| `db_pool_idle_connections`          | GaugeVec    | `pool`                     | DB 连接池空闲连接数。                                |
+| `db_pool_total_connections`         | GaugeVec    | `pool`                     | DB 连接池总连接数。                                  |
+| `kafka_consumer_lag`                | GaugeVec    | `topic`,`group`            | Kafka 消费者滞后。                                   |
+| `service_info`                      | Gauge (=1)  | `service`,`version`,`go_version` | 服务构建元信息（单序列）。                        |
+
+- DB pool 自动采集：接入 `metrics.WithDBStatProvider(func() []DBPoolStat{...})` 后启动 30s 一次的后台 goroutine。`wallet-service` 已接 pgxpool；其余服务 pool=nil 时该指标暂不出现。
+- **Prometheus scrape 配置示例**：
+
+  ```yaml
+  scrape_configs:
+    - job_name: doctors-services
+      metrics_path: /metrics
+      scrape_interval: 15s
+      static_configs:
+        - targets:
+          - auth-service:8080
+          - order-service:8080
+          - match-service:8080
+          - message-service:8080
+          - payment-service:8080
+          - review-service:8080
+          - sos-service:8080
+          - user-service:8080
+          - escort-service:8080
+          - wallet-service:8080
+          - admin-service:8080
+  ```
+
+- 配置项（`config/<svc>.yaml`）：
+
+  ```yaml
+  metrics:
+    enabled: true            # false → router 不挂 metrics 中间件
+    service_name: auth-service  # 覆盖 service_info{service="..."}
+  ```
+
+- 关停 HEALTHCHECK：`/metrics` 由 Prometheus Operator / kube-prometheus-stack 的 ServiceMonitor 拉取，不进 Docker HEALTHCHECK（K8s 仍走 `-healthz` 探 liveness）。
 
 ---
 

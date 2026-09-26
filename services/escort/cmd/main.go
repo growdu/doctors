@@ -27,6 +27,7 @@ import (
 	"github.com/growdu/doctors/services/escort/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
 )
 
@@ -56,6 +57,9 @@ func main() {
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
+
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	metrics.InitMetrics("escort-service", cfg.ServiceVersion)
 
 	// pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
 	svc := service.New(nilRepo{}, nilPublisher{}).

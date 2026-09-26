@@ -13,6 +13,8 @@ import (
 	"github.com/growdu/doctors/services/user/internal/service"
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
 	"github.com/growdu/doctors/shared/httpx"
+	"github.com/growdu/doctors/shared/metrics"
+	sharedmw "github.com/growdu/doctors/shared/middleware"
 )
 
 // Deps 装配 router 所需的依赖。
@@ -28,9 +30,14 @@ type Deps struct {
 // New 返回挂好路由的 gin engine。
 func New(d Deps, h *handler.Handler, jwtSecret string) *gin.Engine {
 	r := gin.New()
+	// Prometheus HTTP 指标中间件（最先挂）
+	r.Use(sharedmw.Metrics())
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK[any](c, gin.H{"status": "ok"})
 	})
+	// Prometheus 抓取端
+	r.GET("/metrics", gin.WrapH(metrics.Handler()))
+
 	v1 := r.Group("/api/v1", middleware.Auth(jwtSecret))
 	h.RegisterRoutes(v1)
 

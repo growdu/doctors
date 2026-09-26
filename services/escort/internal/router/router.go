@@ -2,6 +2,8 @@
 //
 // 设计要点：
 //   - /healthz 不挂任何中间件（K8s liveness）。
+//   - /metrics 挂 Prometheus 抓取端（promhttp.Handler()）。
+//   - Metrics 中间件（middleware.Metrics()）最先挂载：401/403 也计入 http_requests_total。
 //   - /api/v1/escorts/* 全部挂 Auth（JWT）。
 //   - 公开端点（ListByEscort availability）单独挂到 no-auth 的 group（来自 availability 子包 handler）。
 package router
@@ -13,6 +15,8 @@ import (
 	"github.com/growdu/doctors/services/escort/internal/handler"
 	"github.com/growdu/doctors/services/escort/internal/middleware"
 	"github.com/growdu/doctors/shared/httpx"
+	"github.com/growdu/doctors/shared/metrics"
+	sharedmw "github.com/growdu/doctors/shared/middleware"
 )
 
 // New 返回挂好路由的 gin engine。
@@ -20,9 +24,13 @@ import (
 // h 是业务 escort handler；availH 是 availability 子包 handler；jwtSecret 用于鉴权中间件。
 func New(h *handler.Handler, availH *availability.Handler, jwtSecret string) *gin.Engine {
 	r := gin.New()
+	// Prometheus HTTP 指标中间件（最先挂）
+	r.Use(sharedmw.Metrics())
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK(c, gin.H{"status": "ok"})
 	})
+	// Prometheus 抓取端
+	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
 	auth := middleware.Auth(jwtSecret, middleware.UserIDKey, middleware.RoleKey)
 	v1 := r.Group("/api/v1", auth)

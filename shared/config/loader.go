@@ -28,6 +28,7 @@ type Config struct {
 	Logging        Logging `mapstructure:"logging"`
 	Admin          Admin   `mapstructure:"admin"`
 	Tracing        Tracing `mapstructure:"tracing"`
+	Metrics        Metrics `mapstructure:"metrics"`
 }
 
 // HTTP 是 HTTP 服务配置。
@@ -89,6 +90,15 @@ type Tracing struct {
 	SamplingRatio  float64 `mapstructure:"sampling_ratio"`
 }
 
+// Metrics 是 Prometheus 业务指标配置（v1.0 §29 增量，2026-09-26）。
+//
+// Enabled=false → router 不挂 metrics 中间件、不暴露 /metrics（默认 true）。
+// ServiceName 注入到 service_info{service="<name>"}；默认从 cfg.Service 派生。
+type Metrics struct {
+	Enabled     bool   `mapstructure:"enabled"`
+	ServiceName string `mapstructure:"service_name"`
+}
+
 // Load 读取 config/<service>.yaml + 环境变量，解析为 *Config。
 //
 // 环境变量覆盖规则：DOCTORS_<UPPER_SNAKE>，例如 DOCTORS_AUTH_JWT_SECRET。
@@ -110,6 +120,7 @@ func Load(service string) (*Config, error) {
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("service_version", "dev")
 	v.SetDefault("tracing.sampling_ratio", 1.0)
+	v.SetDefault("metrics.enabled", true)
 
 	// 环境变量绑定
 	v.SetEnvPrefix("DOCTORS")
