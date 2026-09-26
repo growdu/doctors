@@ -4,6 +4,8 @@
 //  - 装配 config + logger + DB pool + repo + service + handler + router + server + scanner + Kafka consumer。
 //  - cfg.DB.DSN 缺失 → 起空 pool；仅 /healthz 工作；业务 endpoint 调用会报错（v1 dev 阶段）。
 //  - cfg.Kafka.Brokers 缺失 → Kafka 监听降级为 noop（不启动 consumer）。
+//  - §32 接入：consumer reader 通过 shared/kafka.NewReader 构造（统一校验 brokers/topic/groupID），
+//    reader.Close 注册到 shutdown hook（LIFO）。
 //  - Scanner 间隔 = 1 分钟（v1 测试用；生产改 7*24h + daily tick，由环境变量 DOCTORS_WALLET_THRESHOLD 覆盖）。
 //  - 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool + kafka-readers（LIFO）。
 package main
@@ -36,6 +38,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 	shareddb "github.com/growdu/doctors/shared/db"
+	sharedkafka "github.com/growdu/doctors/shared/kafka"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -190,14 +193,12 @@ func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service,
 }
 
 func consumeTopic(ctx context.Context, brokers []string, groupID, topic string, handle func(context.Context, []byte) error) *kafka.Reader {
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        brokers,
-		GroupID:        groupID,
-		Topic:          topic,
-		MinBytes:       1,
-		MaxBytes:       10e6,
-		CommitInterval: time.Second,
-	})
+	// §32 接入：reader 通过 shared/kafka.NewReader 构造（统一校验 brokers/topic/groupID），
+	// 关闭由 shutdown hook 触发。
+	r, err := sharedkafka.NewReader(brokers, topic, groupID)
+	if err != nil {
+		log.Fatalf("wallet-service: build kafka reader for %s: %v", topic, err)
+	}
 	logger.FromContext(ctx).Info("wallet kafka consumer started", zap.String("topic", topic))
 	var wg sync.WaitGroup
 	wg.Add(1)
