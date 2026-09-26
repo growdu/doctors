@@ -3,7 +3,12 @@
 // 装配 5 张表仓储：address / coupon / hospital / pkg / virtualnumber。
 // DSN 缺失 → 各模块 nil 占位 + warn log（路由仍生效，业务 endpoint 调用时报错）。
 //
-// 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool。
+// §32 Kafka 接入：virtualnumber 模块新增 kafkapublisher.Publisher；
+//
+//	cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；
+//	非空 → 真实 Kafka publisher，订阅 TopicVirtualNumberAllocated/Released。
+//
+// 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool + kafka-publisher。
 //
 // 注意：用户 profile（users 表）由 auth-service 持有；user-service 通过 auth / gRPC 获取，
 //
@@ -33,7 +38,9 @@ import (
 	"github.com/growdu/doctors/services/user/internal/server"
 	"github.com/growdu/doctors/services/user/internal/service"
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
+	vnkafkapublisher "github.com/growdu/doctors/services/user/internal/virtualnumber/kafkapublisher"
 	"github.com/growdu/doctors/shared/config"
+	"github.com/growdu/doctors/shared/contracts"
 	shareddb "github.com/growdu/doctors/shared/db"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
@@ -124,15 +131,20 @@ func main() {
 	couponSvc := coupon.NewService(couponRepo)
 	hospitalSvc := hospital.NewService(hospitalRepo)
 	pkgSvc := pkgpkg.NewService(pkgRepo)
-	vnSvc := virtualnumber.NewService(vnRepo)
+	// virtualnumber publisher：cfg.Kafka.Brokers 空 → nilPublisher；非空 → 真实 Kafka。
+	vnPublisher, kafkaCloser := buildVNPublisher(cfg)
+	vnSvc := virtualnumber.NewService(vnRepo).WithPublisher(vnPublisher)
 
 	h := handler.New(profileSvc)
 	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc, pkgSvc, vnSvc)
 
-	// 优雅停机：先关 OTel tracer，再关 DB pool（LIFO）。
+	// 优雅停机：先关 OTel tracer，再关 DB pool，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
 	if pool != nil {
 		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
+	if kafkaCloser != nil {
+		srv.RegisterShutdownHook("kafka-publisher", kafkaCloser)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -158,6 +170,27 @@ func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 		MaxConns: cfg.DB.MaxConns,
 		MinConns: cfg.DB.MinConns,
 	})
+}
+
+// buildVNPublisher 根据 cfg.Kafka 构造 virtualnumber publisher 与可选 closer。
+//
+// §32 公共模式：Brokers 空 → *virtualnumber.nilPublisher（dev）+ nil closer；
+//
+//	非空 → *vnkafkapublisher.Publisher + 同对象 closer。
+func buildVNPublisher(cfg *config.Config) (virtualnumber.Publisher, func() error) {
+	if len(cfg.Kafka.Brokers) == 0 {
+		logger.L().Warn("user-service: kafka.brokers empty; virtualnumber publisher disabled (fallback to nil)")
+		// 复用 virtualnumber 包的 nil 占位（NewService 已默认注入；这里返回 nil 让 main 跳过 WithPublisher）。
+		return nil, nil
+	}
+	kp, err := vnkafkapublisher.New(cfg.Kafka.Brokers)
+	if err != nil {
+		log.Fatalf("user-service: build kafka publisher: %v", err)
+	}
+	logger.L().Info("user-service: virtualnumber kafka publisher wired",
+		zap.Strings("brokers", cfg.Kafka.Brokers),
+		zap.Strings("topics", []string{contracts.TopicVirtualNumberAllocated, contracts.TopicVirtualNumberReleased}))
+	return kp, kp.Close
 }
 
 // ---------- nil 占位（业务接口 fallback；调用即返回 errNil） ----------

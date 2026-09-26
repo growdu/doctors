@@ -2,7 +2,8 @@
 //
 // 设计要点：
 //   - 2 个端点：POST /virtual-numbers/allocate（创建）、GET /virtual-numbers/:id（详情）；
-//   - v1 不接 Kafka 广播（注释说明 v2 接 message/notification 时再发布 contracts.VirtualNumberAllocatedEvent）；
+//   - §32 Kafka 接入：Allocate / Release 后广播 contracts.VirtualNumberAllocated/ReleasedEvent；
+//     publisher 缺失时降级为 nilPublisher（dev / 单测友好）。
 //   - status 重算在 repo 读取时进行。
 package virtualnumber
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/growdu/doctors/shared/contracts"
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
 )
@@ -24,15 +26,34 @@ type Repository interface {
 	Release(ctx context.Context, id int64, reason string) (*Record, error)
 }
 
-// Service 是 virtualnumber 业务编排器。
-type Service struct {
-	repo Repository
-	now  func() time.Time
+// Publisher 是虚拟号事件发布抽象（§32 接入）。
+//
+//	实现见 internal/virtualnumber/kafkapublisher；dev 模式用 nilPublisher 占位。
+type Publisher interface {
+	PublishVirtualNumberAllocated(ctx context.Context, ev contracts.VirtualNumberAllocatedEvent) error
+	PublishVirtualNumberReleased(ctx context.Context, ev contracts.VirtualNumberReleasedEvent) error
 }
 
-// NewService 装配。
+// Service 是 virtualnumber 业务编排器。
+type Service struct {
+	repo      Repository
+	publisher Publisher
+	now       func() time.Time
+}
+
+// NewService 装配（无 publisher）。
 func NewService(repo Repository) *Service {
-	return &Service{repo: repo, now: func() time.Time { return time.Now() }}
+	return &Service{repo: repo, publisher: nilPublisher{}, now: func() time.Time { return time.Now() }}
+}
+
+// WithPublisher 注入 publisher；返回新实例（不可变装配模式）。
+func (s *Service) WithPublisher(p Publisher) *Service {
+	if p == nil {
+		return s
+	}
+	cp := *s
+	cp.publisher = p
+	return &cp
 }
 
 // AllocateRequest 是 service Allocate 入参（不含 phone，v1 自动生成）。
@@ -44,6 +65,8 @@ type AllocateRequest struct {
 }
 
 // Allocate 分配虚拟号；参数校验 + 唯一性由 DB partial unique 保证。
+//
+//	成功后广播 contracts.VirtualNumberAllocatedEvent（publisher 缺失则降级）。
 func (s *Service) Allocate(ctx context.Context, in AllocateRequest) (*Record, error) {
 	if in.OrderID <= 0 {
 		return nil, errs.New(errs.CodeParamInvalid, "order_id must be > 0")
@@ -69,6 +92,18 @@ func (s *Service) Allocate(ctx context.Context, in AllocateRequest) (*Record, er
 		}
 		return nil, errs.Wrap(errs.CodeInternal, "allocate virtual number", err)
 	}
+	// §32 广播 allocated 事件（best-effort；失败不阻塞业务）
+	if s.publisher != nil {
+		_ = s.publisher.PublishVirtualNumberAllocated(ctx, contracts.VirtualNumberAllocatedEvent{
+			VirtualNumberID: v.ID,
+			OrderID:         v.OrderID,
+			PatientID:       v.PatientID,
+			EscortID:        v.EscortID,
+			Phone:           v.Phone,
+			ExpireAt:        v.ExpireAt,
+			AllocatedAt:     s.now(),
+		})
+	}
 	return v, nil
 }
 
@@ -85,13 +120,37 @@ func (s *Service) Get(ctx context.Context, id int64) (*Record, error) {
 }
 
 // Release 释放虚拟号（v1 暂不接管理端，仅供 service 内部使用；v2 接 admin 后再加 handler）。
+//
+//	成功后广播 contracts.VirtualNumberReleasedEvent（publisher 缺失则降级）。
 func (s *Service) Release(ctx context.Context, id int64, reason string) error {
-	if _, err := s.repo.Release(ctx, id, reason); err != nil {
+	v, err := s.repo.Release(ctx, id, reason)
+	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return errs.New(errs.CodeNotFound, "virtual number not found")
 		}
 		return errs.Wrap(errs.CodeInternal, "release virtual number", err)
 	}
+	// §32 广播 released 事件（best-effort；失败不阻塞业务）
+	if s.publisher != nil && v != nil {
+		_ = s.publisher.PublishVirtualNumberReleased(ctx, contracts.VirtualNumberReleasedEvent{
+			VirtualNumberID: v.ID,
+			OrderID:         v.OrderID,
+			Reason:          reason,
+			ReleasedAt:      s.now(),
+		})
+	}
+	return nil
+}
+
+// ---------- 占位实现（dev / 单测） ----------
+
+// nilPublisher 是 publisher 缺失时的占位；事件不外发。
+type nilPublisher struct{}
+
+func (nilPublisher) PublishVirtualNumberAllocated(_ context.Context, _ contracts.VirtualNumberAllocatedEvent) error {
+	return nil
+}
+func (nilPublisher) PublishVirtualNumberReleased(_ context.Context, _ contracts.VirtualNumberReleasedEvent) error {
 	return nil
 }
 

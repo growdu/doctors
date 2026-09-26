@@ -76,3 +76,24 @@ func TestNilRepos_AllSentinel(t *testing.T) {
 	_, err = vr.GetByID(ctx, 1)
 	assert.True(t, errors.Is(err, errNil))
 }
+
+// TestBuildVNPublisher_EmptyBrokersReturnsNil 验证 brokers 空时返回 nil publisher + nil closer。
+//
+// §32 公共模式：dev 模式保留 nilPublisher（由 virtualnumber.NewService 默认注入）。
+func TestBuildVNPublisher_EmptyBrokersReturnsNil(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Kafka.Brokers = nil
+	pub, closer := buildVNPublisher(cfg)
+	assert.Nil(t, pub, "空 brokers 应返回 nil publisher（virtualnumber.NewService 默认 nilPublisher）")
+	assert.Nil(t, closer, "空 brokers 不应返回非 nil closer")
+}
+
+// TestBuildVNPublisher_NonEmptyBrokersReturnsKafka 验证 brokers 非空时构造 kafkapublisher + 同对象 closer。
+func TestBuildVNPublisher_NonEmptyBrokersReturnsKafka(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Kafka.Brokers = []string{"localhost:9092"}
+	pub, closer := buildVNPublisher(cfg)
+	assert.NotNil(t, pub)
+	assert.NotNil(t, closer, "Kafka 模式下 closer 必须非 nil")
+	assert.NotPanics(t, func() { _ = closer() }, "closer 不应 panic")
+}
