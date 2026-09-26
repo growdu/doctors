@@ -3,8 +3,9 @@
 // 设计要点：
 //  - v1 简化为 in-memory store：review 按 orderID 唯一索引，自增 ID。
 //  - 路由生效，业务 endpoint 可用（重启会丢评价，符合 v1 dev 范围）。
-//  - Kafka publisher 暂用 nilPublisher（v2 接入）。
-//  - 本服务不接 DB（§31）；只注册 otel-tracer shutdown hook。
+//  - §32 Kafka 接入：cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；
+//    非空 → kafkapublisher.Publisher 真实 Kafka，订阅 TopicOrderReviewed。
+//  - 本服务不接 DB（§31）；注册 otel-tracer + kafka-publisher shutdown hook。
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/review/internal/handler"
+	"github.com/growdu/doctors/services/review/internal/kafkapublisher"
 	"github.com/growdu/doctors/services/review/internal/router"
 	"github.com/growdu/doctors/services/review/internal/server"
 	"github.com/growdu/doctors/services/review/internal/service"
@@ -68,22 +70,18 @@ func main() {
 	// v1 in-memory repo：按 orderID 唯一，自增 ID，按 escortID 分桶。
 	memRepo := newMemoryRepo()
 
-	// Publisher：v1 nil 占位；cfg.Kafka.Brokers 非空打印接入提示。
-	var publisher service.Publisher
-	if len(cfg.Kafka.Brokers) > 0 {
-		logger.L().Info("review-service: kafka brokers configured; publisher wired (v2 接入)",
-			zap.Strings("brokers", cfg.Kafka.Brokers))
-	} else {
-		logger.L().Info("review-service: kafka brokers empty; publisher disabled (dev mode)")
-	}
-	publisher = nilPublisher{}
+	// Publisher：cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；非空 → 真实 Kafka publisher。
+	publisher, kafkaCloser := buildPublisher(cfg)
 
 	svc := service.New(memRepo, publisher)
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
 
-	// 优雅停机：先关 OTel tracer（review 无 DB / 无长连接 consumer）。
+	// 优雅停机：先关 OTel tracer，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if kafkaCloser != nil {
+		srv.RegisterShutdownHook("kafka-publisher", kafkaCloser)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -246,6 +244,24 @@ type nilPublisher struct{}
 
 func (nilPublisher) PublishOrderReviewed(ctx context.Context, ev contracts.OrderReviewedEvent) error {
 	return nil
+}
+
+// buildPublisher 根据 cfg.Kafka 构造 publisher 与可选 closer。
+//
+// §32 公共模式：Brokers 空 → *nilPublisher + nil closer；非空 → *kafkapublisher.Publisher + 同对象 closer。
+func buildPublisher(cfg *config.Config) (service.Publisher, func() error) {
+	if len(cfg.Kafka.Brokers) == 0 {
+		logger.L().Warn("review-service: kafka.brokers empty; publisher disabled (fallback to nilPublisher)")
+		return nilPublisher{}, nil
+	}
+	kp, err := kafkapublisher.New(cfg.Kafka.Brokers, contracts.TopicOrderReviewed)
+	if err != nil {
+		log.Fatalf("review-service: build kafka publisher: %v", err)
+	}
+	logger.L().Info("review-service: kafka publisher wired",
+		zap.Strings("brokers", cfg.Kafka.Brokers),
+		zap.String("topic", contracts.TopicOrderReviewed))
+	return kp, kp.Close
 }
 
 // 引用占位 errors（避免 unused）。
