@@ -1,28 +1,137 @@
+# ============================================================
+# golangci-lint v2 配置（兼容 golangci-lint v1.61+ 与 v2.x）
+# ============================================================
+# 文档：https://golangci-lint.run/product/configuration/
+#
+# 启用 linter 与适用场景（每条对应 shared/middleware 等代码示例）：
+#   - errcheck       : 检查 error 是否被忽略（IO / RPC 调用必须处理 err）
+#   - gosimple       : 简化代码（如可省略的类型转换）
+#   - govet          : 标准库 vet 检查（printf / shadow / structtag 等）
+#   - ineffassign    : 无效赋值（变量赋了新值但从未使用）
+#   - staticcheck    : 高级静态分析（unused / unreachable code / 性能陷阱）
+#   - unused         : 未使用变量 / 常量 / 函数 / 类型
+#   - bodyclose      : HTTP response body 未关闭（middleware 中常见）
+#   - gocritic       : 风格 / 性能 / 可读性提示（rangeValCopy / ifElseChain 等）
+#   - misspell       : 拼写错误（中英文注释 / 字符串字面量）
+#   - nakedret       : 裸返回（长函数可读性差）
+#   - prealloc       : slice 预分配容量（append 性能）
+#
+# 排除规则（避免历史代码噪音）：
+#   - shared/contracts/：自动生成的事件契约（protobuf / goverter 输出），禁用 errcheck / gosimple
+#   - _test.go：测试代码 errcheck / gosimple 宽容（断言里常见 defer+nil）
+#
+# formatters（v2 拆分）：
+#   - gofmt  : 标准格式化（缩进 / 空格 / import 排序）
+#   - goimports : gofmt + import 分组（标准 / 第三方 / 内部）
+# ============================================================
+
+version: "2"
+
 run:
   timeout: 5m
   tests: true
+  build-tags:
+    - integration
 
 linters:
-  disable-all: true
+  default: none
   enable:
+    # 基础 6 项（§26 已启用）
     - errcheck
     - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
+    # 增量新增 5 项（本期）
+    - bodyclose    # HTTP response body close
+    - gocritic     # 风格 / 性能 / 可读性
+    - misspell     # 拼写错误
+    - nakedret     # 裸返回（>25 行函数禁用）
+    - prealloc     # slice 预分配
 
-linters-settings:
-  govet:
-    enable-all: true
-  staticcheck:
-    checks:
-      - all
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        # 标准库 analyzer 太严，且本项目暂未启用 cgo / assembly
+        - stdmethods
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-tags:
+        - experimental
+      settings:
+        # ifElseChain: 提示 if/else if/else 链可改为 switch（v2 改名）
+        ifElseChain:
+          threshold: 5
+        # rangeValCopy: range 拷贝大结构体警示
+        rangeValCopy:
+          sizeThreshold: 128
+    misspell:
+      locale: zh
+      ignore-words:
+        - cancelation   # 标准库 spelling（不改正）
+    nakedret:
+      max-func-lines: 25
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: true
+    staticcheck:
+      checks:
+        - all
+        - -ST1000    # 允许包名与目录不一致（v1 dev 期灵活）
+        - -ST1003    # 允许首字母小写（与项目命名约定一致）
+    errcheck:
+      # 忽略 type assertion 的 comma-ok 形式（testify assert.NotNil 不返 err）
+      check-type-assertions: false
+      # 忽略 uncheckedErr 测试辅助函数
+      ignore: stdlib
+
+  exclusions:
+    rules:
+      # 共享 middleware 路径放宽：历史代码噪音，避免 PR 阻塞
+      - path: shared/middleware/
+        linters:
+          - gosimple
+          - gocritic
+        text: "should use.*instead"
+      # 契约包自动生成代码放宽
+      - path: shared/contracts/
+        linters:
+          - errcheck
+          - gosimple
+          - staticcheck
+        text: "(SA|ST|QF|GS)"
+      # 测试文件
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosimple
+          - gocritic
+          - nakedret
+        text: "(SA|QF|GS|naked|dupl|cyclop)"
 
 issues:
   max-same-issues: 0
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosimple
+  max-issues-per-linter: 0
+  new: false
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+      rewrite-rules:
+        - pattern: 'interface{}'
+          replacement: 'any'
+    goimports:
+      local-prefixes:
+        - github.com/growdu/doctors
+  exclusions:
+    generated: lax
