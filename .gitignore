@@ -22,9 +22,12 @@ go.work.sum
 *.iml
 
 # Env
-.env
-.env.local
-.env.*.local
+#   - 默认忽略所有 .env* 文件（防误提交真实密钥）
+#   - 但 .env.example / .env.dev 是模板文件 / dev 默认值，**必须可提交**
+#   - 真实 .env / .env.prod / .env.staging / ... 必须保持被忽略
+.env*
+!.env.example
+!.env.dev
 
 # Local data
 /.data/
