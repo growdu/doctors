@@ -182,3 +182,53 @@ func TestWrapWriter_ErrorSpan(t *testing.T) {
 	assert.Equal(t, "Error", s.Status.Code.String(),
 		"broker 不可达时 span status 应为 Error")
 }
+
+// TestWrapWriter_BusinessPublisherPattern 模拟业务 publisher（如
+// services/message/internal/kafkapublisher.Publisher）接入 WrapWriter 后的
+// publish 路径——确认 1 次 PublishMessageSent → 1 个 messaging.publish span。
+//
+// 这是一条"业务真实使用模式"的回归测试：业务侧构造 shared/kafka.NewWriter →
+// tracing.WrapWriter(..., "<svc>-service")，发布时 WriteMessages 必然起
+// "publish <topic>" span（kind=Producer + messaging.system=kafka）。
+//
+// 与 TestWrapWriter_PublishSpan 的区别：本测试额外验证 wrapper 可在调用方
+// 持有 Close() 句柄（writer.W.Close 仍然可达，shutdown hook 能正常释放）。
+func TestWrapWriter_BusinessPublisherPattern(t *testing.T) {
+	exp, restore := newKafkaTestProvider(t)
+	defer restore()
+
+	// 不可达 broker → WriteMessages 必然失败，但 span 已被 wrapper 启动。
+	w := &kafka.Writer{
+		Addr: kafka.TCP("127.0.0.1:1"),
+		Topic: "message.sent",
+	}
+	tw := tracing.WrapWriter(w, "message-service")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_ = tw.WriteMessages(ctx, kafka.Message{
+		Key:   []byte("1"),
+		Value: []byte(`{"message_id":1}`),
+	})
+
+	spans := exp.GetSpans()
+	require.GreaterOrEqual(t, len(spans), 1,
+		"publisher 写 1 条 → 应至少捕获 1 个 publish span")
+	publishSpan := spans[0]
+	assert.Equal(t, "publish message.sent", publishSpan.Name,
+		"span name = publish <topic>")
+	assert.Equal(t, trace.SpanKindProducer, publishSpan.SpanKind)
+
+	attrs := map[string]string{}
+	for _, kv := range publishSpan.Attributes {
+		attrs[string(kv.Key)] = kv.Value.Emit()
+	}
+	assert.Equal(t, "kafka", attrs["messaging.system"])
+	assert.Equal(t, "message.sent", attrs["messaging.destination.name"])
+	assert.Equal(t, "publish", attrs["messaging.operation.name"])
+	assert.Equal(t, "message-service", attrs["service.name"],
+		"业务 publisher 传入 service 名应注入到 span attribute")
+
+	// 验证业务侧仍可通过 tw.W.Close() 拿到底层 writer（shutdown hook 依赖）。
+	require.NotNil(t, tw.W, "wrapper 必须暴露底层 writer 给业务 Close")
+}

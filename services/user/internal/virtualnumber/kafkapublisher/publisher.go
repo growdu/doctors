@@ -3,6 +3,8 @@
 // 设计要点：
 //   - 双 topic（allocated / released）；通过 shared/kafka.NewWriter 构造底层 writer，
 //     借用 TopicVirtualNumberAllocated 占位初始化，发布时按事件类型覆写 Topic。
+//   - 构造期 shared/tracing.WrapWriter 注入 OTel span（kind=Producer；span name
+//     反映占位 topic "publish virtual_number.allocated"，实际 topic 由 msg.Topic 决定）。
 //   - Publish* 失败只 log 错误，不阻塞业务（best-effort）。
 //   - Close 由 main 注册 shutdown hook 调用，释放 writer。
 package kafkapublisher
@@ -18,11 +20,12 @@ import (
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
 	"github.com/growdu/doctors/shared/contracts"
 	sharedkafka "github.com/growdu/doctors/shared/kafka"
+	"github.com/growdu/doctors/shared/tracing"
 )
 
 // Publisher 实现 virtualnumber.Publisher 接口。
 type Publisher struct {
-	writer *kafka.Writer
+	writer *tracing.TracedWriter
 }
 
 // New 构造真实 Kafka publisher；brokers 由 main 传入。
@@ -31,15 +34,15 @@ func New(brokers []string) (*Publisher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Publisher{writer: w}, nil
+	return &Publisher{writer: tracing.WrapWriter(w, "user-service")}, nil
 }
 
 // Close 关闭底层 writer；main 注册到 shutdown hook（LIFO）。
 func (p *Publisher) Close() error {
-	if p == nil || p.writer == nil {
+	if p == nil || p.writer == nil || p.writer.W == nil {
 		return nil
 	}
-	return p.writer.Close()
+	return p.writer.W.Close()
 }
 
 // publish 内部写一条 JSON 到 topic。
