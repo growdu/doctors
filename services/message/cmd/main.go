@@ -3,14 +3,14 @@
 // 设计要点：
 //  - v1 简化为 in-memory store：repo 用内存版（按 orderID 分桶 + 自增 ID），
 //    路由生效，业务 endpoint 可用（重启会丢消息，符合 v1 dev 范围）。
-//  - cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；非空 → KafkaPublisher（v2 接入）。
+//  - §32 Kafka 接入：cfg.Kafka.Brokers 空 → NopPublisher + warn log（dev / 单测友好）；
+//    非空 → kafkapublisher.Publisher 真实 Kafka publisher，订阅 TopicMessageSent。
 //  - service.New 装配；handler.RegisterRoutes 挂载；server.Run 启动。
-//  - 本服务不接 DB（§31）；只注册 otel-tracer shutdown hook。
+//  - 本服务不接 DB（§31）；只注册 otel-tracer + kafka-publisher shutdown hook。
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -26,6 +26,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/message/internal/handler"
+	"github.com/growdu/doctors/services/message/internal/kafkapublisher"
 	"github.com/growdu/doctors/services/message/internal/router"
 	"github.com/growdu/doctors/services/message/internal/server"
 	"github.com/growdu/doctors/services/message/internal/service"
@@ -69,23 +70,18 @@ func main() {
 	// v1 in-memory repo（线程安全，自增 ID，按 orderID 索引）。
 	memRepo := newMemoryRepo()
 
-	// Publisher：cfg.Kafka.Brokers 空 → nilPublisher；非空 → 接入点占位。
-	var publisher service.Publisher
-	if len(cfg.Kafka.Brokers) > 0 {
-		logger.L().Info("message-service: kafka brokers configured; publisher wired (v2 接入)",
-			zap.Strings("brokers", cfg.Kafka.Brokers))
-		publisher = nilPublisher{}
-	} else {
-		logger.L().Info("message-service: kafka brokers empty; publisher disabled (dev mode)")
-		publisher = nilPublisher{}
-	}
+	// Publisher：cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；非空 → 真实 Kafka publisher。
+	publisher, kafkaCloser := buildPublisher(cfg)
 
 	svc := service.New(memRepo, publisher)
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
 
-	// 优雅停机：先关 OTel tracer（message 无 DB / 无长连接 consumer）。
+	// 优雅停机：先关 OTel tracer，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if kafkaCloser != nil {
+		srv.RegisterShutdownHook("kafka-publisher", kafkaCloser)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -180,8 +176,25 @@ func (nilPublisher) PublishMessageSent(ctx context.Context, ev contracts.Message
 	return nil
 }
 
-// 显式占位引用以保持 import。
-var _ = errors.New
+// buildPublisher 根据 cfg.Kafka 构造 publisher 与可选 closer。
+//
+// §32 公共模式：
+//   - Brokers 空 → *nilPublisher（dev 模式），closer=nil（无资源）
+//   - Brokers 非空 → *kafkapublisher.Publisher（真实 Kafka），closer=同一对象供 shutdown hook 释放
+func buildPublisher(cfg *config.Config) (service.Publisher, func() error) {
+	if len(cfg.Kafka.Brokers) == 0 {
+		logger.L().Warn("message-service: kafka.brokers empty; publisher disabled (fallback to nilPublisher)")
+		return nilPublisher{}, nil
+	}
+	kp, err := kafkapublisher.New(cfg.Kafka.Brokers, contracts.TopicMessageSent)
+	if err != nil {
+		log.Fatalf("message-service: build kafka publisher: %v", err)
+	}
+	logger.L().Info("message-service: kafka publisher wired",
+		zap.Strings("brokers", cfg.Kafka.Brokers),
+		zap.String("topic", contracts.TopicMessageSent))
+	return kp, kp.Close
+}
 
 func parseLevel(s string) zapcore.Level {
 	switch s {

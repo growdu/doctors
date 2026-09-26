@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/growdu/doctors/services/message/internal/service"
+	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 )
 
@@ -86,4 +87,29 @@ func TestNilPublisher_Noop(t *testing.T) {
 // messageSentEvt 构造一个事件，nilPublisher 应无脑返回 nil。
 func messageSentEvt() contracts.MessageSentEvent {
 	return contracts.MessageSentEvent{}
+}
+
+// TestBuildPublisher_EmptyBrokersReturnsNil 验证 brokers 空时降级为 nilPublisher + nil closer。
+//
+// §32 公共模式：dev 模式保留 nilPublisher，closer=nil 表示无资源需释放。
+func TestBuildPublisher_EmptyBrokersReturnsNil(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Kafka.Brokers = nil
+	pub, closer := buildPublisher(cfg)
+	assert.NotNil(t, pub)
+	assert.Nil(t, closer, "空 brokers 不应返回非 nil closer")
+	_, ok := pub.(nilPublisher)
+	assert.True(t, ok, "空 brokers 应返回 nilPublisher")
+}
+
+// TestBuildPublisher_NonEmptyBrokersReturnsKafka 验证 brokers 非空时构造 kafkapublisher。
+//
+// §32 公共模式：真实 Kafka 模式下 closer 必须非 nil 以便 RegisterShutdownHook 释放 writer。
+func TestBuildPublisher_NonEmptyBrokersReturnsKafka(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Kafka.Brokers = []string{"localhost:9092"}
+	pub, closer := buildPublisher(cfg)
+	assert.NotNil(t, pub)
+	assert.NotNil(t, closer, "Kafka 模式下 closer 必须非 nil")
+	assert.NotPanics(t, func() { _ = closer() }, "closer 不应 panic（writer 释放）")
 }
