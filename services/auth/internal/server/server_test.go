@@ -79,3 +79,60 @@ func TestServer_RunShutdownGracefully(t *testing.T) {
 		t.Fatal("server.Run did not return within 3s after ctx cancel")
 	}
 }
+
+// TestServer_ShutdownHooksRunInLIFO 验证 Run() 退出时注册的 hook 按 LIFO 顺序调用，
+// 且 panic 不会中断后续 hook。
+func TestServer_ShutdownHooksRunInLIFO(t *testing.T) {
+	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", time.Minute)
+	h := handler.New(svc)
+	s := New("127.0.0.1:0", h, "secret")
+
+	var calls []string
+	s.RegisterShutdownHook("first", func() error {
+		calls = append(calls, "first")
+		return nil
+	})
+	s.RegisterShutdownHook("second", func() error {
+		calls = append(calls, "second")
+		return nil
+	})
+	s.RegisterShutdownHook("third-panic", func() error {
+		calls = append(calls, "third-panic")
+		panic("intentional")
+	})
+	s.RegisterShutdownHook("fourth", func() error {
+		calls = append(calls, "fourth")
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+
+	// LIFO：fourth → third-panic → second → first
+	assert.Equal(t, []string{"fourth", "third-panic", "second", "first"}, calls,
+		"hook 应按 LIFO 顺序调用；panic 不阻断后续")
+}
+
+// TestServer_ShutdownHookNilSkipped 验证 RegisterShutdownHook 对 nil/空名直接忽略。
+func TestServer_ShutdownHookNilSkipped(t *testing.T) {
+	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", time.Minute)
+	h := handler.New(svc)
+	s := New("127.0.0.1:0", h, "secret")
+
+	// 全部 nil/空注册 → 不应 panic
+	s.RegisterShutdownHook("", func() error { return nil })
+	s.RegisterShutdownHook("a", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+}

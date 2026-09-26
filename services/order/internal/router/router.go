@@ -5,14 +5,20 @@
 //   - /orders/{id}/accept /cancel /finish 走同一前缀中间件。
 //   - /healthz 不挂任何中间件（K8s liveness）。
 //   - /metrics 挂 Prometheus 抓取端（promhttp.Handler()）。
-//   - Metrics 中间件（middleware.Metrics()）最先挂载：401/403 也计入 http_requests_total。
+//
+// 全局中间件挂载顺序（外 → 内）：
+//
+//	Metrics()        最外层：401/403/panic/429 也被埋点
+//	Recovery()       panic 恢复 → 500 + 业务码 500000
+//	RateLimit(...)   按 IP token bucket：超限 429 + 业务码 13001
+//	Auth(...)        /api/v1 group 内挂，未通过 token 不消耗限流桶
 package router
 
 import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/growdu/doctors/services/order/internal/handler"
-	"github.com/growdu/doctors/services/order/internal/middleware"
+	mw "github.com/growdu/doctors/services/order/internal/middleware"
 	"github.com/growdu/doctors/shared/httpx"
 	"github.com/growdu/doctors/shared/metrics"
 	sharedmw "github.com/growdu/doctors/shared/middleware"
@@ -22,15 +28,17 @@ import (
 // h 是业务 handler；jwtSecret 用于鉴权中间件。
 func New(h *handler.Handler, jwtSecret string) *gin.Engine {
 	r := gin.New()
-	// Prometheus HTTP 指标中间件（最先挂）
+	// 中间件顺序：Metrics → Recovery → RateLimit（全局）
 	r.Use(sharedmw.Metrics())
+	r.Use(sharedmw.Recovery())
+	r.Use(sharedmw.RateLimit())
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK[any](c, gin.H{"status": "ok"})
 	})
 	// Prometheus 抓取端
 	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
-	v1 := r.Group("/api/v1", middleware.Auth(jwtSecret))
+	v1 := r.Group("/api/v1", mw.Auth(jwtSecret))
 	h.RegisterRoutes(v1)
 
 	return r
