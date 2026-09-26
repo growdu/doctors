@@ -88,12 +88,12 @@ func main() {
 		go scheduler.NewExpiredLockScanner(orderRepo, svc, publisher, 5*time.Second).Run(ctx)
 	}
 
-	logger.L().Info("order-service starting", zap.String("addr", cfg.HTTP.Addr))
+	logger.FromContext(ctx).Info("order-service starting", zap.String("addr", cfg.HTTP.Addr))
 	if err := srv.Run(ctx); err != nil {
-		logger.L().Error("order-service exited", zap.Error(err))
+		logger.FromContext(ctx).Error("order-service exited", zap.Error(err))
 		os.Exit(1)
 	}
-	logger.L().Info("order-service stopped")
+	logger.FromContext(ctx).Info("order-service stopped")
 }
 
 // buildLocker 根据 cfg.Redis 配置构造 Locker；配置缺失 → NopLocker。

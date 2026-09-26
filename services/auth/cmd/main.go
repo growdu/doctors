@@ -75,12 +75,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.L().Info("auth-service starting", zap.String("addr", cfg.HTTP.Addr))
+	logger.FromContext(ctx).Info("auth-service starting", zap.String("addr", cfg.HTTP.Addr))
 	if err := srv.Run(ctx); err != nil {
-		logger.L().Error("auth-service exited", zap.Error(err))
+		logger.FromContext(ctx).Error("auth-service exited", zap.Error(err))
 		os.Exit(1)
 	}
-	logger.L().Info("auth-service stopped")
+	logger.FromContext(ctx).Info("auth-service stopped")
 }
 
 // nilRepo 是为了让 main 能编译 / 启动；接入 pgxpool 后会替换。

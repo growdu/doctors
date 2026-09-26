@@ -86,15 +86,15 @@ func main() {
 	if pool != nil {
 		go service.NewScanner(walletRepo, threshold, time.Now).WithTick(tick).Run(ctx)
 	} else {
-		logger.L().Warn("wallet-service: no DB pool; scanner disabled")
+		logger.FromContext(ctx).Warn("wallet-service: no DB pool; scanner disabled")
 	}
 
-	logger.L().Info("wallet-service starting", zap.String("addr", cfg.HTTP.Addr))
+	logger.FromContext(ctx).Info("wallet-service starting", zap.String("addr", cfg.HTTP.Addr))
 	if err := srv.Run(ctx); err != nil {
-		logger.L().Error("wallet-service exited", zap.Error(err))
+		logger.FromContext(ctx).Error("wallet-service exited", zap.Error(err))
 		os.Exit(1)
 	}
-	logger.L().Info("wallet-service stopped")
+	logger.FromContext(ctx).Info("wallet-service stopped")
 }
 
 func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
@@ -134,7 +134,7 @@ func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service)
 	go consumeTopic(ctx, cfg.Kafka.Brokers, groupID, contracts.TopicOrderCompleted, func(ctx context.Context, value []byte) error {
 		var ev contracts.OrderCompletedEvent
 		if err := json.Unmarshal(value, &ev); err != nil {
-			logger.L().Warn("unmarshal order.completed failed", zap.Error(err))
+			logger.FromContext(ctx).Warn("unmarshal order.completed failed", zap.Error(err))
 			return nil
 		}
 		amt, _ := decimal.NewFromString(formatFloat(ev.Amount))
@@ -143,7 +143,7 @@ func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service)
 	go consumeTopic(ctx, cfg.Kafka.Brokers, groupID, contracts.TopicPaymentRefunded, func(ctx context.Context, value []byte) error {
 		var ev contracts.PaymentRefundedEvent
 		if err := json.Unmarshal(value, &ev); err != nil {
-			logger.L().Warn("unmarshal payment.refunded failed", zap.Error(err))
+			logger.FromContext(ctx).Warn("unmarshal payment.refunded failed", zap.Error(err))
 			return nil
 		}
 		amt, _ := decimal.NewFromString(formatFloat(ev.Amount))
@@ -161,19 +161,19 @@ func consumeTopic(ctx context.Context, brokers []string, groupID, topic string, 
 		CommitInterval: time.Second,
 	})
 	defer func() { _ = r.Close() }()
-	logger.L().Info("wallet kafka consumer started", zap.String("topic", topic))
+	logger.FromContext(ctx).Info("wallet kafka consumer started", zap.String("topic", topic))
 	for {
 		m, err := r.ReadMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			logger.L().Warn("kafka read failed", zap.String("topic", topic), zap.Error(err))
+			logger.FromContext(ctx).Warn("kafka read failed", zap.String("topic", topic), zap.Error(err))
 			time.Sleep(time.Second)
 			continue
 		}
 		if err := handle(ctx, m.Value); err != nil {
-			logger.L().Warn("kafka handler failed", zap.String("topic", topic), zap.Error(err))
+			logger.FromContext(ctx).Warn("kafka handler failed", zap.String("topic", topic), zap.Error(err))
 		}
 	}
 }

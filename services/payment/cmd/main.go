@@ -64,12 +64,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.L().Info("payment-service starting", zap.String("addr", cfg.HTTP.Addr))
+	logger.FromContext(ctx).Info("payment-service starting", zap.String("addr", cfg.HTTP.Addr))
 	if err := srv.Run(ctx); err != nil {
-		logger.L().Error("payment-service exited", zap.Error(err))
+		logger.FromContext(ctx).Error("payment-service exited", zap.Error(err))
 		os.Exit(1)
 	}
-	logger.L().Info("payment-service stopped")
+	logger.FromContext(ctx).Info("payment-service stopped")
 }
 
 // runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。

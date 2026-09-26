@@ -4,6 +4,8 @@
 //   - 默认 JSON 输出到 stdout，便于容器日志采集。
 //   - 全局 L() 返回 *zap.Logger，可在任何地方直接调用。
 //   - WithTrace / FromContext 让 trace_id 沿 context 传递，业务代码无侵入。
+//   - FromContext 同时读取 OTel SpanContext，自动注入 otel_trace_id /
+//     otel_span_id 字段，实现「日志↔trace」关联（Jaeger UI 一键跳转）。
 //   - 测试可注入 observer 或 writer。
 package logger
 
@@ -13,6 +15,7 @@ import (
 	"os"
 	"sync"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -72,10 +75,23 @@ func TraceIDFrom(ctx context.Context) string {
 }
 
 // FromContext 返回绑定了 trace_id 字段的 logger（无侵入）。
+//
+// 若 ctx 携带 OTel SpanContext（HasTraceID），则额外追加：
+//   - otel_trace_id：OTel 32-hex TraceID（与 Jaeger traceId 一致）
+//   - otel_span_id：OTel 16-hex SpanID
+//
+// 这两个字段是日志↔trace 关联的锚点：Jaeger UI 可按 traceId 检索，
+// 反之日志平台也可按 otel_trace_id 反查到整条 trace 的所有 span。
 func FromContext(ctx context.Context) *zap.Logger {
 	l := L()
 	if id := TraceIDFrom(ctx); id != "" {
 		l = l.With(zap.String("trace_id", id))
+	}
+	if sc := trace.SpanContextFromContext(ctx); sc.HasTraceID() {
+		l = l.With(
+			zap.String("otel_trace_id", sc.TraceID().String()),
+			zap.String("otel_span_id", sc.SpanID().String()),
+		)
 	}
 	return l
 }

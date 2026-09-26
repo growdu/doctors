@@ -64,12 +64,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	logger.L().Info("user-service starting", zap.String("addr", cfg.HTTP.Addr))
+	logger.FromContext(ctx).Info("user-service starting", zap.String("addr", cfg.HTTP.Addr))
 	if err := srv.Run(ctx); err != nil {
-		logger.L().Error("user-service exited", zap.Error(err))
+		logger.FromContext(ctx).Error("user-service exited", zap.Error(err))
 		os.Exit(1)
 	}
-	logger.L().Info("user-service stopped")
+	logger.FromContext(ctx).Info("user-service stopped")
 }
 
 func parseLevel(s string) zapcore.Level {
