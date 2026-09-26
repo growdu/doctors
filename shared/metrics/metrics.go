@@ -94,6 +94,21 @@ var KafkaConsumerLag = promauto.NewGaugeVec(
 	[]string{"topic", "group"},
 )
 
+// RecoveryPanicsTotal panic 恢复计数（按 path 维度）。
+//
+// 由 shared/middleware.Recovery 在捕获到 panic 时 Inc。
+// 对应 deploy/prometheus/alerts/panic_recovery.yaml 的 4 条告警规则
+// （任意 panic → critical；同端点反复 panic；panic 速率 > 5/min；进程重启）。
+//
+// 标签仅 path（路由模板，如 "/api/v1/users/:id"），避免 label 基数爆炸。
+var RecoveryPanicsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "recovery_panics_total",
+		Help: "Total number of panics recovered by middleware.Recovery, labeled by request path.",
+	},
+	[]string{"path"},
+)
+
 // DBPoolStat 是单条 pool 指标的快照；由 StatProvider 批量返回。
 type DBPoolStat struct {
 	Name       string // pool 标识（如 "main" / "wallet"）

@@ -3,11 +3,10 @@
 # -----------------------------------------------------------------------------
 # panic 恢复告警：服务内任何 goroutine panic 必须被 middleware.Recovery 捕获，
 #   但只要出现 1 次 panic，就应当报警 + 抓 stack + 复盘。
-# 指标源：需要 shared/middleware.Recovery 注入 recovery_metrics_total 计数器
-#   （v1.4+ 计划字段：{service, path, method}）
-#   - 当前 v1.4 的 middleware/recovery.go 已实现日志记录，prometheus 计数器
-#     将在下个版本接入（与 logging 字段对齐）：emit MetricsHook 由
-#     metrics.PanicRecoveredCounter 提供。
+# 指标源：shared/middleware.Recovery → shared/metrics.RecoveryPanicsTotal
+#   （指标名 recovery_panics_total{path=路由模板}，path 由 c.FullPath() 注入，
+#   避免 label 基数爆炸；未匹配路由退化为 URL.Path）。
+#   4 条规则均引用 recovery_panics_total。
 # =============================================================================
 groups:
   - name: doctors.panic_recovery
@@ -16,10 +15,10 @@ groups:
 
       # ---------------------------------------------------------------------
       # 任意服务出现过 1 次 panic → critical（哪怕只 1 次）
-      #   recovery_metrics_total > 0
+      #   recovery_panics_total > 0
       # ---------------------------------------------------------------------
       - alert: DoctorsPanicDetected
-        expr: increase(recovery_metrics_total[5m]) > 0
+        expr: increase(recovery_panics_total[5m]) > 0
         for: 0m
         labels:
           severity: critical
@@ -29,7 +28,7 @@ groups:
         annotations:
           summary: "服务 {{ $labels.service }} 在 {{ $labels.path }} 触发 panic"
           description: |
-            {{ $labels.service }} 在 {{ $labels.method }} {{ $labels.path }}
+            {{ $labels.service }} 在 {{ $labels.path }}
             触发了 panic（已被 middleware.Recovery 捕获，未造成进程崩溃）。
             5 分钟内共发生 {{ $value }} 次。
             panic 仍属严重事件：即使被捕获，请求已被中断、客户端拿到 500。
@@ -45,7 +44,7 @@ groups:
       - alert: DoctorsPanicRepeated
         expr: |
           sum by (service, path) (
-            increase(recovery_metrics_total[5m])
+            increase(recovery_panics_total[5m])
           ) >= 3
         for: 0m
         labels:
@@ -66,7 +65,7 @@ groups:
       - alert: DoctorsPanicRateHigh
         expr: |
           sum by (service) (
-            increase(recovery_metrics_total[1m])
+            increase(recovery_panics_total[1m])
           ) > 5
         for: 1m
         labels:

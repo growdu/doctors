@@ -24,6 +24,13 @@
 //	        return c.GetHeader("X-Tenant-ID")
 //	    }),
 //	))
+//
+// 测试 / 进阶：
+//
+//	reg := middleware.NewLimiterRegistry(100, 200)
+//	r.Use(middleware.RateLimitWithRegistry(reg, nil))
+//	// reg.Snapshot() 拿到 (key, *rate.Limiter) 快照，可直接读 Tokens() 校验
+//	// "两个 key 的桶互相独立"，不依赖真实时钟推进。
 package middleware
 
 import (
@@ -108,15 +115,29 @@ func RateLimit(opts ...RateLimitOption) gin.HandlerFunc {
 		cfg.burst = 1
 	}
 
-	limiterRegistry := newLimiterRegistry(cfg.perSecond, cfg.burst)
+	reg := NewLimiterRegistry(cfg.perSecond, cfg.burst)
+	return RateLimitWithRegistry(reg, cfg.keyFunc)
+}
 
+// RateLimitWithRegistry 是 RateLimit 的"外部注入 registry"形态。
+//
+// 主要用途：
+//  1. 测试：通过 reg.Snapshot() 直接读 *rate.Limiter.Tokens()，
+//     避免依赖真实 sleep 推进 clock 而出现 flaky。
+//  2. 高级场景：跨中间件共享同一个 registry（如同一 IP 既出现在限流 A 又出现在限流 B）。
+//
+// keyFunc 传 nil 时回退为 c.ClientIP()。
+func RateLimitWithRegistry(reg *LimiterRegistry, keyFunc func(*gin.Context) string) gin.HandlerFunc {
+	if keyFunc == nil {
+		keyFunc = func(c *gin.Context) string { return c.ClientIP() }
+	}
 	return func(c *gin.Context) {
-		key := cfg.keyFunc(c)
+		key := keyFunc(c)
 		if key == "" {
 			// key 为空（如未取到 IP）→ 视为单 key 全局限流，避免 bypass
 			key = "_"
 		}
-		if limiterRegistry.get(key).Allow() {
+		if reg.get(key).Allow() {
 			c.Next()
 			return
 		}
@@ -130,31 +151,42 @@ func RateLimit(opts ...RateLimitOption) gin.HandlerFunc {
 	}
 }
 
-// limiterRegistry 按 key 缓存 *rate.Limiter 的并发安全容器。
-//
-// 实现要点：
-//   - map + sync.RWMutex：读多写少（同一 IP 读 limiter，陌生 IP 写一行）
-//   - 每个 limiter 独立，互不影响
-//   - 生产可加 LRU 淘汰以防止恶意 IP 撑爆内存；本期先实现功能完整性
-type limiterRegistry struct {
-	mu        sync.RWMutex
-	limiters  map[string]*rate.Limiter
-	perSecond rate.Limit
-	burst     int
-}
-
-func newLimiterRegistry(perSecond rate.Limit, burst int) *limiterRegistry {
-	return &limiterRegistry{
+// NewLimiterRegistry 构造 *LimiterRegistry；RateLimit() 内部隐式调用，
+// 也可由测试 / 高级用法显式构造后传入 RateLimitWithRegistry。
+func NewLimiterRegistry(perSecond rate.Limit, burst int) *LimiterRegistry {
+	if perSecond <= 0 {
+		perSecond = 1
+	}
+	if burst <= 0 {
+		burst = 1
+	}
+	return &LimiterRegistry{
 		limiters:  make(map[string]*rate.Limiter),
 		perSecond: perSecond,
 		burst:     burst,
 	}
 }
 
+// LimiterRegistry 按 key 缓存 *rate.Limiter 的并发安全容器。
+//
+// 实现要点：
+//   - map + sync.RWMutex：读多写少（同一 IP 读 limiter，陌生 IP 写一行）
+//   - 每个 limiter 独立，互不影响
+//   - 生产可加 LRU 淘汰以防止恶意 IP 撑爆内存；本期先实现功能完整性
+//
+// 公开 Snapshot() 与 Size()，便于测试断言"两个 key 的桶互相独立"——
+// 直接通过 Tokens() 读桶剩余 token 数，不依赖 sleep 推进 clock。
+type LimiterRegistry struct {
+	mu        sync.RWMutex
+	limiters  map[string]*rate.Limiter
+	perSecond rate.Limit
+	burst     int
+}
+
 // get 取出或新建指定 key 的 *rate.Limiter。
 //
 // 读多写少：读路径用 RLock；首次写入退化为 Lock。
-func (r *limiterRegistry) get(key string) *rate.Limiter {
+func (r *LimiterRegistry) get(key string) *rate.Limiter {
 	r.mu.RLock()
 	if lim, ok := r.limiters[key]; ok {
 		r.mu.RUnlock()
@@ -173,8 +205,23 @@ func (r *limiterRegistry) get(key string) *rate.Limiter {
 	return lim
 }
 
-// size 返回当前注册的 key 数（测试 / 监控用）。
-func (r *limiterRegistry) size() int {
+// Snapshot 返回当前所有 (key, limiter) 的副本（测试用）。
+//
+// 测试场景常需要断言"两个不同 key 的桶互相独立"——直接读取
+// internal map 易触发 data race；Snapshot 在 RLock 下遍历并复制指针，
+// 让测试拿到稳定快照后再校验。
+func (r *LimiterRegistry) Snapshot() map[string]*rate.Limiter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]*rate.Limiter, len(r.limiters))
+	for k, v := range r.limiters {
+		out[k] = v
+	}
+	return out
+}
+
+// Size 返回当前注册的 key 数（测试 / 监控用）。
+func (r *LimiterRegistry) Size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.limiters)

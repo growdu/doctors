@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -16,6 +17,7 @@ import (
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/middleware"
 )
 
@@ -39,6 +41,8 @@ func panickingHandler(c *gin.Context) {
 
 // TestRecovery_PanicReturns500AndInternalCode 验证 panic → 500 + body.code=500000。
 func TestRecovery_PanicReturns500AndInternalCode(t *testing.T) {
+	_, restore := withObservedLogger(t)
+	defer restore()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.Recovery())
@@ -66,6 +70,8 @@ func TestRecovery_PanicReturns500AndInternalCode(t *testing.T) {
 //
 // 不变量：进程 / engine 未被一次 panic 拖垮。
 func TestRecovery_MultiplePanicsKeepServing(t *testing.T) {
+	_, restore := withObservedLogger(t)
+	defer restore()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.Recovery())
@@ -151,6 +157,67 @@ func fieldsOf(fs []zapcore.Field) map[string]any {
 		out[f.Key] = fieldAny(f)
 	}
 	return out
+}
+
+// TestRecovery_IncrementsPanicCounter 验证 Recovery 触发 panic 后，
+// metrics.RecoveryPanicsTotal{path=路由模板} 计数器 +1。
+//
+// 覆盖场景：
+//  1. 已注册路由上的 panic → label = c.FullPath()（路由模板，不含变量值）
+//  2. 未匹配路由（404 路径上 panic）→ label 退化为 URL.Path，保证仍被埋点
+//
+// 这是 deploy/prometheus/alerts/panic_recovery.yaml 4 条告警规则所依赖的指标；
+// 测试保证埋点路径真的生效。
+func TestRecovery_IncrementsPanicCounter(t *testing.T) {
+	// 替换全局 logger 为 observer，避免默认 stderr 输出淹没测试报告。
+	_, restore := withObservedLogger(t)
+	defer restore()
+
+	gin.SetMode(gin.TestMode)
+
+	// 用 routes 子路由让 FullPath() 返回稳定模板（"/api/v1/users/:id"）
+	r := gin.New()
+	r.Use(middleware.Recovery())
+	r.GET("/api/v1/users/:id", panickingHandler)
+	r.GET("/api/v1/orders", panickingHandler)
+	// 未匹配路由（404）+ handler panic → label 应退化为 URL.Path
+	r.NoRoute(func(c *gin.Context) { panic("boom") })
+
+	// 1. 注册路由 /api/v1/users/:id panic
+	beforeA := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues("/api/v1/users/:id"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users/42", nil))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	afterA := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues("/api/v1/users/:id"))
+	assert.InDelta(t, 1, afterA-beforeA, 0.0001,
+		"路由模板 /api/v1/users/:id panic 后 counter 应 +1")
+
+	// 2. 同一路由再 panic 一次 → 累计 +2
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users/99", nil))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	afterA2 := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues("/api/v1/users/:id"))
+	assert.InDelta(t, 2, afterA2-beforeA, 0.0001,
+		"同一路由再次 panic 后 counter 应为 2")
+
+	// 3. 另一注册路由 panic → 该路径 counter +1
+	beforeB := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues("/api/v1/orders"))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/orders", nil))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	afterB := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues("/api/v1/orders"))
+	assert.InDelta(t, 1, afterB-beforeB, 0.0001,
+		"另一路由 panic 应只增加该路径 counter")
+
+	// 4. 未匹配路由 panic → label 退化为 URL.Path（保证仍被埋点，避免 panic "失踪"）
+	wildcardPath := "/no-such-route"
+	beforeC := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues(wildcardPath))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, wildcardPath, nil))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	afterC := testutil.ToFloat64(metrics.RecoveryPanicsTotal.WithLabelValues(wildcardPath))
+	assert.InDelta(t, 1, afterC-beforeC, 0.0001,
+		"未匹配路由 panic 后 URL.Path 维度 counter 应 +1")
 }
 
 // fieldAny 提取 zapcore.Field 的值（仅覆盖测试会用到的类型）。

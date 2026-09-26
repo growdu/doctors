@@ -34,6 +34,7 @@ import (
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/metrics"
 )
 
 // RecoveryOption 配置 Recovery。
@@ -103,6 +104,16 @@ func Recovery(opts ...RecoveryOption) gin.HandlerFunc {
 				fields = append(fields, zap.ByteString("stack", debug.Stack()))
 			}
 			cfg.logger.Error("panic recovered", fields...)
+
+			// 1.5 Prometheus 埋点：recovery_panics_total{path=路由模板}。
+			// 用 c.FullPath()（路由模板，如 /api/v1/users/:id）而非 URL.Path，
+			// 避免高基数（如 id=123 / id=124 各占一个 label）。
+			// 404 路由（FullPath 为空）→ 退化为 URL.Path，保证 panic 仍被记录。
+			label := c.FullPath()
+			if label == "" {
+				label = c.Request.URL.Path
+			}
+			metrics.RecoveryPanicsTotal.WithLabelValues(label).Inc()
 
 			// 2. 双层防御：tryResponse 里再 recover 一次，避免 c.Writer 已损坏
 			//    导致 AbortWithStatusJSON 二次 panic 把 goroutine 带走。
