@@ -4,6 +4,8 @@
 //   - 仅暴露 *pgxpool.Pool，业务自行管理事务。
 //   - DSN 必须以 postgres:// 或 postgresql:// 开头，避免误连到 MySQL。
 //   - WithTx 用泛型 fn 包装事务，自动处理 commit/rollback。
+//   - WithTracer 注入 pgxpool.ConnConfig.Tracer，让 SQL 自动写 span
+//     （与 shared/tracing.WithPgxPool 配合，调用方无感知）。
 //   - 集成测试用 //go:build integration 隔离，需 docker-compose up 后运行。
 package db
 
@@ -28,6 +30,9 @@ import (
 //     的 TCP 拨号 / auth 阶段）。
 //   - HealthCheckPeriod：默认 30s；设为 0 时关闭主动 ping。
 //   - MaxConnLifetime / MaxConnIdleTime：默认 1h / 10m。
+//   - Tracer：注入到 pgxpool.ConnConfig.Tracer（pgx 内部嵌入 QueryTracer /
+//     ConnectTracer / BatchTracer / CopyFromTracer / PrepareTracer 等）；
+//     nil = 不埋点；通常填 shared/tracing.WithPgxPool 注入的 *otelpgx.Tracer。
 type Config struct {
 	DSN               string
 	MaxConns          int32
@@ -36,6 +41,7 @@ type Config struct {
 	HealthCheckPeriod time.Duration
 	MaxConnLifetime   time.Duration
 	MaxConnIdleTime   time.Duration
+	Tracer            pgx.QueryTracer
 }
 
 // ApplyDefaults 填默认值。
@@ -95,6 +101,12 @@ func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	pcfg.MaxConnLifetime = cfg.MaxConnLifetime
 	pcfg.MaxConnIdleTime = cfg.MaxConnIdleTime
 	pcfg.ConnConfig.ConnectTimeout = cfg.ConnectTimeout
+	if cfg.Tracer != nil {
+		// pgxpool.ConnConfig.Tracer 是 any（pgx 内部嵌入 QueryTracer /
+		// ConnectTracer / BatchTracer 等多接口），调用方负责传兼容 tracer
+		// （典型为 *otelpgx.Tracer）。
+		pcfg.ConnConfig.Tracer = cfg.Tracer
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, pcfg)
 	if err != nil {

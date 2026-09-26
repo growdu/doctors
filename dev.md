@@ -1250,86 +1250,86 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - 全量回归 44 个测试包 0 FAIL
 
 ---
-## 17.7 admin-web AdminLayout �˵���չ��2026-09-24 admin-web v1 ��L1-L4��
+## 17.7 admin-web AdminLayout �˵���չ��2026-09-24 admin-web v1 ��L1-L4��
 
-**Ŀ��**���� admin-web 22 ·��ȫ���ҵ� AdminLayout �� Sider Menu���� authStore.role �� RBAC ���ˣ�Header �����м + �ǳ���
+**Ŀ��**���� admin-web 22 ·��ȫ���ҵ� AdminLayout �� Sider Menu���� authStore.role �� RBAC ���ˣ�Header �����м + �ǳ���
 
-**1 �� commit**��995f3b4 feat(admin-web): AdminLayout �˵���չ��12 �� + RBAC ���� + �ǳ���
+**1 �� commit**��995f3b4 feat(admin-web): AdminLayout �˵���չ��12 �� + RBAC ���� + �ǳ���
 
-**�ؼ����**��
+**�ؼ����**��
 
-1. **12 ��˵� + ��ɫ����**������ɫ���ˣ���dashboard��ȫ����/ orders��super_admin+order_admin+refund_admin+cs+viewer��/ escorts / escorts/audit / refunds / wallets / work-orders / reviews��ȫ����/ messages / sos / reports / settings���� super_admin��
-2. **RBAC ����**��useAuthStore((s) => s.role) �� ���� MENU_ITEMS��oles δ����=ȫ���ɼ�
-3. **��ǰ·�ɸ���**��path **�ǰ׺ƥ��**������ /escorts �غ� /escorts/audit`n4. **Header ��**�����м������ > ��ǰҳ��
-5. **Header ��**��TraceId ռλ + �û��������ǳ� + ��ɫֻ�� + �ǳ���
-6. **�ǳ�**��useAuthStore.logout() + useNavigate('/login')`n
-**���Ը���**��6 �� vitest��δʵ���ܣ���super_admin 12 �� / viewer ���� escorts-audit+settings / refund_admin ���� escorts+escorts-audit / order_admin ���� wallets+settings / �˵���� navigate / pathname ����
+1. **12 ��˵� + ��ɫ����**������ɫ���ˣ���dashboard��ȫ����/ orders��super_admin+order_admin+refund_admin+cs+viewer��/ escorts / escorts/audit / refunds / wallets / work-orders / reviews��ȫ����/ messages / sos / reports / settings���� super_admin��
+2. **RBAC ����**��useAuthStore((s) => s.role) �� ���� MENU_ITEMS��oles δ����=ȫ���ɼ�
+3. **��ǰ·�ɸ���**��path **�ǰ׺ƥ��**������ /escorts �غ� /escorts/audit`n4. **Header ��**�����м������ > ��ǰҳ��
+5. **Header ��**��TraceId ռλ + �û��������ǳ� + ��ɫֻ�� + �ǳ���
+6. **�ǳ�**��useAuthStore.logout() + useNavigate('/login')`n
+**���Ը���**��6 �� vitest��δʵ���ܣ���super_admin 12 �� / viewer ���� escorts-audit+settings / refund_admin ���� escorts+escorts-audit / order_admin ���� wallets+settings / �˵���� navigate / pathname ����
 
-**δ��������������**��Ƕ���Ӳ˵� / �۵�̬�־û� / �ƶ��� Drawer / TraceId ����ʵ������ / ��ʵ RBAC��ǰ�� roles ����Ӳ���룩
+**δ��������������**��Ƕ���Ӳ˵� / �۵�̬�־û� / �ƶ��� Drawer / TraceId ����ʵ������ / ��ʵ RBAC��ǰ�� roles ����Ӳ���룩
 
-**�˵�����ͨ��v1.2 Ŀ�꣩**��
+**�˵�����ͨ��v1.2 Ŀ�꣩**��
 
-- patient-miniapp ѡ����ʦ �� match-service ������ �� escort-app 30s ����ʱȷ�� �� order-service ccepted �� completed + publish OrderCompletedEvent �� wallet T+7 scanner �� admin-web 22 ·�ɰ���ɫ���˿ɼ��˵�
-- ���� trace-id �������ã�mp- / escort- / ��� logger.FromContext
-- ȫ���ع� 44 �����԰� 0 FAIL
+- patient-miniapp ѡ����ʦ �� match-service ������ �� escort-app 30s ����ʱȷ�� �� order-service ccepted �� completed + publish OrderCompletedEvent �� wallet T+7 scanner �� admin-web 22 ·�ɰ���ɫ���˿ɼ��˵�
+- ���� trace-id �������ã�mp- / escort- / ��� logger.FromContext
+- ȫ���ع� 44 �����԰� 0 FAIL
 
 
 ---
-## 17.8 admin-web 5 ����ʵҵ��ҳ��2026-09-24 admin-web v1 ��H1-H5��
+## 17.8 admin-web 5 ����ʵҵ��ҳ��2026-09-24 admin-web v1 ��H1-H5��
 
-**Ŀ��**���� 5 ����Ƶ P0 ռλҳ��escorts/audit + escorts/:id + patients + patients/:id + reviews������Ϊ�� MSW handler + ProTable + ҵ�񽻻�����ʵҳ��
+**Ŀ��**���� 5 ����Ƶ P0 ռλҳ��escorts/audit + escorts/:id + patients + patients/:id + reviews������Ϊ�� MSW handler + ProTable + ҵ�񽻻�����ʵҳ��
 
-**1 �� commit��13 �ļ���+2869/-66��**��
+**1 �� commit��13 �ļ���+2869/-66��**��
 
-| commit | �ļ� |
+| commit | �ļ� |
 | :-- | :-- |
-| 1710bda | EscortAuditPage + EscortDetailPage + PatientsPage + PatientDetailPage + ReviewsPage + 3 �� API client + 5 �� test |
+| 1710bda | EscortAuditPage + EscortDetailPage + PatientsPage + PatientDetailPage + ReviewsPage + 3 �� API client + 5 �� test |
 
-**�ؼ����**��
+**�ؼ����**��
 
-1. **ProTable ͳһģʽ**��PageHeader + ProTable(testId, rowKey, columns, dataSource, loading) + TanStack Query useQuery/useMutation + ������ invalidateQueries ˢ��
-2. **RBAC UI ��**��viewer ��ɫ �� ȫ������/���/��˰�ť����Ⱦ�����ذ�ť��Զ��Ⱦ�� viewer ʱ disabled + display:none`n3. **�ؼ������� debounce**��patients �� useEffect + setTimeout ʵ�� 500ms debounce������е� order list ���һ�£�
-4. **����ɸѡ**��reviews �� InputNumber ��� Select��jsdom �� Select ���Բ��ȶ���
-5. **����/�ɹ�����**��mutation onSuccess �� message.success(...)��onError �� message.error(...)��ͳһ��̬ import { message } from 'antd'������ jsdom �� App.useApp() �ĸ����ã�
-6. **Modal �ռ�����ԭ��**��escorts �ܾ�ԭ�� / patients ���ԭ�� / reviews ��� reason + �ظ�����
+1. **ProTable ͳһģʽ**��PageHeader + ProTable(testId, rowKey, columns, dataSource, loading) + TanStack Query useQuery/useMutation + ������ invalidateQueries ˢ��
+2. **RBAC UI ��**��viewer ��ɫ �� ȫ������/���/��˰�ť����Ⱦ�����ذ�ť��Զ��Ⱦ�� viewer ʱ disabled + display:none`n3. **�ؼ������� debounce**��patients �� useEffect + setTimeout ʵ�� 500ms debounce������е� order list ���һ�£�
+4. **����ɸѡ**��reviews �� InputNumber ��� Select��jsdom �� Select ���Բ��ȶ���
+5. **����/�ɹ�����**��mutation onSuccess �� message.success(...)��onError �� message.error(...)��ͳһ��̬ import { message } from 'antd'������ jsdom �� App.useApp() �ĸ����ã�
+6. **Modal �ռ�����ԭ��**��escorts �ܾ�ԭ�� / patients ���ԭ�� / reviews ��� reason + �ظ�����
 
-**API �ͻ���**��3 �����ļ�����
+**API �ͻ���**��3 �����ļ�����
 
-- src/api/admin/escorts.ts��157 �У���fetchPendingAudit / fetchEscortDetail / fetchEscortAuditHistory������ƴװ��/ approveEscort / rejectEscort
-- src/api/admin/patients.ts��118 �У���fetchPatients / fetchPatientDetail / banPatient / unbanPatient
-- src/api/admin/reviews.ts��115 �У���fetchReviews / auditReview / replyReview
+- src/api/admin/escorts.ts��157 �У���fetchPendingAudit / fetchEscortDetail / fetchEscortAuditHistory������ƴװ��/ approveEscort / rejectEscort
+- src/api/admin/patients.ts��118 �У���fetchPatients / fetchPatientDetail / banPatient / unbanPatient
+- src/api/admin/reviews.ts��115 �У���fetchReviews / auditReview / replyReview
 
-���� client ���� uthHeader() �Զ�ע�� Bearer token��esponse.code !== 0 �״� code �� Error��
+���� client ���� uthHeader() �Զ�ע�� Bearer token��esponse.code !== 0 �״� code �� Error��
 
-**�ۼƲ�������**��
+**�ۼƲ�������**��
 
-- **29 ��** it��EscortAuditPage 6 + EscortDetailPage 6 + PatientsPage 6 + PatientDetailPage 4 + ReviewsPage 7��
-- ȫ����Լ����������Լ�� npm install / vitest run�������� 
-pm install && npx vitest run ��֤
+- **29 ��** it��EscortAuditPage 6 + EscortDetailPage 6 + PatientsPage 6 + PatientDetailPage 4 + ReviewsPage 7��
+- ȫ����Լ����������Լ�� npm install / vitest run�������� 
+pm install && npx vitest run ��֤
 
-**δ��������������**��
+**δ��������������**��
 
-- escorts/:id/audit-history ��˵�δ�Խӣ���ǰ�� client ���״�����ƴװ��
-- patients/:id/orders ��˵�δ�Խӣ�����ҳ��ȫ��������չʾ��
-- wallets/:id/balance ��˵�δ�Խӣ�����ҳ�� patient �ֶ���չ��������ʾ 0��
-- �� vitest ��֤
+- escorts/:id/audit-history ��˵�δ�Խӣ���ǰ�� client ���״�����ƴװ��
+- patients/:id/orders ��˵�δ�Խӣ�����ҳ��ȫ��������չʾ��
+- wallets/:id/balance ��˵�δ�Խӣ�����ҳ�� patient �ֶ���չ��������ʾ 0��
+- �� vitest ��֤
 
-**�˵�����ͨ��v1.2 Ŀ�꣩**��
+**�˵�����ͨ��v1.2 Ŀ�꣩**��
 
-- 5 ����ʵҳ + AdminLayout 12 ��˵� + RBAC ���� + 8 ģ�� mock handler �� admin ��̨���������������
-- ȫ���ع� 44 �����԰� 0 FAIL��admin-web ����δӰ���ˣ�
+- 5 ����ʵҳ + AdminLayout 12 ��˵� + RBAC ���� + 8 ģ�� mock handler �� admin ��̨���������������
+- ȫ���ع� 44 �����԰� 0 FAIL��admin-web ����δӰ���ˣ�
 
 
 ---
-## 17.9 admin-web 14 ��ʣ�� P0 ҳ��� API��commit  4840d9��
+## 17.9 admin-web 14 ��ʣ�� P0 ҳ��� API��commit  4840d9��
 
-**Ŀ��**������һ�� 5 ������ҳ֮���ռλҳ��work-orders / messages / sos / wallets / refunds / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail + 2 ������ҳ������Ϊ�� MSW handler + ProTable + ҵ�񽻻�����ʵҳ��
+**Ŀ��**������һ�� 5 ������ҳ֮���ռλҳ��work-orders / messages / sos / wallets / refunds / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail + 2 ������ҳ������Ϊ�� MSW handler + ProTable + ҵ�񽻻�����ʵҳ��
 
-**1 �� commit��45 �ļ���+8028/-215��**�� 4840d9 ���� 14 ����ҳ + 2 ������ҳ + 12 �� API client + 16 �� test��
+**1 �� commit��45 �ļ���+8028/-215��**�� 4840d9 ���� 14 ����ҳ + 2 ������ҳ + 12 �� API client + 16 �� test��
 
-**16 ����ʵҵ��ҳ**��
+**16 ����ʵҵ��ҳ**��
 
-| ҳ | ·�� | �� |
+| ҳ | ·�� | �� |
 | :-- | :-- | :--: |
 | WorkOrdersPage | /work-orders | 500 + test 226 |
 | MessagesPage | /messages | 350 + test 165 |
@@ -1348,313 +1348,313 @@ pm install && npx vitest run ��֤
 | LoginPage | /login | 74 + test 107 |
 | DashboardDetailPage | /dashboard-detail/:id | 172 + test 71 |
 
-**12 �� API �ͻ���**��work_orders / messages / sos / wallets / refunds / hospitals / packages / coupons / auth / finance / settings / dashboard_detail��+ reports.ts ��չҵ�񱨱���
+**12 �� API �ͻ���**��work_orders / messages / sos / wallets / refunds / hospitals / packages / coupons / auth / finance / settings / dashboard_detail��+ reports.ts ��չҵ�񱨱���
 
-**�ؼ����**��
+**�ؼ����**��
 
-1. **ͳһģʽ**��PageHeader + ProTable + TanStack Query + invalidateQueries ˢ��
-2. **RBAC UI ��**��viewer ��ɫ �� ȫ��������ť����Ⱦ�������ɫ����work-orders: super/order/refund/cs��messages: super/cs��sos: super/cs��refunds: super/refund_admin��hospitals: super��packages: super/order_admin��coupons: super/order_admin��
-3. **MSW mock ���ݼ���**��work-orders / messages / sos / refunds / hospitals / packages / coupons �� MSW �� handler��wallets / refunds ������ MSW �� handler��finance / reports / dashboard_detail / settings ǰ�� mock ��װ���������� MSW handler��
-4. **����ҳ��**��
-   - login��6 �� demo �˺�һ�����루super / order / refund / audit / cs / viewer��+ mock login �� from �� /dashboard
-   - profile���� Avatar + ��ɫ���һ�����Ϣ + �޸����루��������У�� + 6 �ַ���С��+ �˳���¼
-   - settings��4 �� Tabs������/֧��/����/���ͣ���ÿ�� 2-3 �ֶ� Form + localStorage �־û�
-   - finance / reports��4-6 �� antd Statistic ��Ƭ + ʱ��/��Χɸѡ + �򵥱���
-   - dashboard-detail��·�ɲ��� :id��orders_pending / refunds_pending / escorts_pending / sos_open����ǰ�� mock �� seed.ts ƴװ������ϸ
-5. **��̬ import { message }**������ jsdom �� App.useApp() �����ã��� 5 ������ҳ����һ��
+1. **ͳһģʽ**��PageHeader + ProTable + TanStack Query + invalidateQueries ˢ��
+2. **RBAC UI ��**��viewer ��ɫ �� ȫ��������ť����Ⱦ�������ɫ����work-orders: super/order/refund/cs��messages: super/cs��sos: super/cs��refunds: super/refund_admin��hospitals: super��packages: super/order_admin��coupons: super/order_admin��
+3. **MSW mock ���ݼ���**��work-orders / messages / sos / refunds / hospitals / packages / coupons �� MSW �� handler��wallets / refunds ������ MSW �� handler��finance / reports / dashboard_detail / settings ǰ�� mock ��װ���������� MSW handler��
+4. **����ҳ��**��
+   - login��6 �� demo �˺�һ�����루super / order / refund / audit / cs / viewer��+ mock login �� from �� /dashboard
+   - profile���� Avatar + ��ɫ���һ�����Ϣ + �޸����루��������У�� + 6 �ַ���С��+ �˳���¼
+   - settings��4 �� Tabs������/֧��/����/���ͣ���ÿ�� 2-3 �ֶ� Form + localStorage �־û�
+   - finance / reports��4-6 �� antd Statistic ��Ƭ + ʱ��/��Χɸѡ + �򵥱���
+   - dashboard-detail��·�ɲ��� :id��orders_pending / refunds_pending / escorts_pending / sos_open����ǰ�� mock �� seed.ts ƴװ������ϸ
+5. **��̬ import { message }**������ jsdom �� App.useApp() �����ã��� 5 ������ҳ����һ��
 
-**�ۼƲ�������**��16 �� test �ļ���**76 �� it() ��**���� task Լ��δ�� vitest������̬У�飩��
+**�ۼƲ�������**��16 �� test �ļ���**76 �� it() ��**���� task Լ��δ�� vitest������̬У�飩��
 
-**δ��������������**��
+**δ��������������**��
 
-- �� 
-pm install && npx vitest run ʵ����֤
-- finance / reports / dashboard_detail / settings ���˽ӿڽ���
-- login ���� /api/v1/admin/login �滻 mock
-- ���� 
-pm run dev �˵����߲� 22 ·��
+- �� 
+pm install && npx vitest run ʵ����֤
+- finance / reports / dashboard_detail / settings ���˽ӿڽ���
+- login ���� /api/v1/admin/login �滻 mock
+- ���� 
+pm run dev �˵����߲� 22 ·��
 
-**�˵�����ͨ��v1.2 Ŀ�꣩**��
+**�˵�����ͨ��v1.2 Ŀ�꣩**��
 
-- ȫ�� 22 ·�ɣ�dashboard / orders / escorts / escorts-audit / escorts/:id / refunds / refunds/:id / wallets / wallets/:id / work-orders / reviews / messages / sos / patients / patients/:id / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail/:id��ȫ���ɵ������ + ProTable ��Ⱦ + ҵ�񽻻�
-- ��� 44 �����԰� 0 FAIL������δӰ�죩
+- ȫ�� 22 ·�ɣ�dashboard / orders / escorts / escorts-audit / escorts/:id / refunds / refunds/:id / wallets / wallets/:id / work-orders / reviews / messages / sos / patients / patients/:id / hospitals / packages / coupons / finance / reports / settings / profile / login / dashboard-detail/:id��ȫ���ɵ������ + ProTable ��Ⱦ + ҵ�񽻻�
+- ��� 44 �����԰� 0 FAIL������δӰ�죩
 
 ---
-## 19. user-service 5 模块落地�?026-09-24 address-coupon + hospital-package + virtual-number plan�?
-**目标**：按 3 �?plan 落地 user-service 5 个新模块——address（地址簿）、coupon（优惠券双表）、hospital（医院库）、package（服务包，按医院挂载）、virtual-number（虚拟号），覆盖 patient 端核�?CRUD�?
-**5 �?commit**�?
+## 19. user-service 5 模块落地�?026-09-24 address-coupon + hospital-package + virtual-number plan�?
+**目标**：按 3 �?plan 落地 user-service 5 个新模块——address（地址簿）、coupon（优惠券双表）、hospital（医院库）、package（服务包，按医院挂载）、virtual-number（虚拟号），覆盖 patient 端核�?CRUD�?
+**5 �?commit**�?
 | commit | 模块 | 关键能力 | endpoint |
 | :-- | :-- | :-- | :-- |
 | `ec50e6a` | `feat(address)` migration 0010 + 5 API | 5 地址/默认地址/partial unique | GET/POST/PUT/DELETE `/api/v1/addresses` + `PUT /:id/default` |
 | `baeef7d` | `feat(coupon)` migration 0011 + 5 API | 平台发券 + 用户领取/核销双表 | GET/claim/use `/api/v1/coupons` + `/me/coupons` |
-| `56a54fb` | `feat(hospital)` migration 0012 + 2 API | 城市/级别/状态过�?| GET `/api/v1/hospitals` + `/:id` |
-| `0694a01` | `feat(package)` migration 0013 + 2 API | FK �?hospitals + 3 type | GET `/api/v1/hospitals/:id/packages` + `/api/v1/packages/:id` |
-| `ccd33ad` | `feat(virtual-number)` migration 0014 + 2 events v1.3 | partial unique �?order_id 单活 + 17+9 位号�?mock | POST `/allocate` + GET `/:id` |
+| `56a54fb` | `feat(hospital)` migration 0012 + 2 API | 城市/级别/状态过�?| GET `/api/v1/hospitals` + `/:id` |
+| `0694a01` | `feat(package)` migration 0013 + 2 API | FK �?hospitals + 3 type | GET `/api/v1/hospitals/:id/packages` + `/api/v1/packages/:id` |
+| `ccd33ad` | `feat(virtual-number)` migration 0014 + 2 events v1.3 | partial unique �?order_id 单活 + 17+9 位号�?mock | POST `/allocate` + GET `/:id` |
 
-**关键设计**�?
-1. **5 模块同放 user-service**（与 plan �?`services/catalog/` 不同）：共享 auth/JWT/配置；按 task brief 简化架�?2. **coupon 双表设计**（platform 模板 + user 实例）：`coupons` + `user_coupons` 通过外键关联；`partial unique (user_id, coupon_id)` 防一人多次领同券
-3. **work_orders polymorphic 已存�?*（admin-service�? **virtual-number partial unique**：同 order_id 只能�?1 �?active 虚拟号（防号段泄漏）
-4. **价格格式�?*：handler �?`price` �?string �?JS 浮点漂移（与 wallet 一致）
-5. **虚拟�?mock 生成**：v1 �?17+9 位号段占位（避免与真实运营商冲突�?6. **Kafka 广播**：contracts �?`VirtualNumberAllocatedEvent/ReleasedEvent` + topic；service �?v1 未发布（v2 �?notification 时补�?
-**累计测试用例**�?9 �?user-service 单测 + 22 个集成测试（`//go:build integration` 隔离�?= **121 测试**（含 8 router + 9 service 既有）�?
-**全量回归**：`go test ./...` **48 �?0 FAIL**（含 user 5 个新包）�?
-**Plan 偏差**�?
-1. **地址字段简�?*：plan �?`province/city/district/detail`，按 task brief �?`detail + lat/lng`（避免行政区划白名单争议�?2. **coupon 双表**：plan 1 张表，按 task brief �?`coupons` + `user_coupons`（平台模�?+ 用户实例�?3. **hospital.service 同进�?*：plan 单独 `services/catalog/`，按 task brief �?user-service
-4. **package 字段**：plan �?`duration_hours/amount`，按 task brief �?`duration_min/price`（细粒度更友好）
-5. **virtual-number 号段**：plan 未指定，v1 �?17+9 位号�?mock
-6. **migrations_test 0010~0014 集成测试未追�?*：聚�?module 单测；现�?framework 可直接加
+**关键设计**�?
+1. **5 模块同放 user-service**（与 plan �?`services/catalog/` 不同）：共享 auth/JWT/配置；按 task brief 简化架�?2. **coupon 双表设计**（platform 模板 + user 实例）：`coupons` + `user_coupons` 通过外键关联；`partial unique (user_id, coupon_id)` 防一人多次领同券
+3. **work_orders polymorphic 已存�?*（admin-service�? **virtual-number partial unique**：同 order_id 只能�?1 �?active 虚拟号（防号段泄漏）
+4. **价格格式�?*：handler �?`price` �?string �?JS 浮点漂移（与 wallet 一致）
+5. **虚拟�?mock 生成**：v1 �?17+9 位号段占位（避免与真实运营商冲突�?6. **Kafka 广播**：contracts �?`VirtualNumberAllocatedEvent/ReleasedEvent` + topic；service �?v1 未发布（v2 �?notification 时补�?
+**累计测试用例**�?9 �?user-service 单测 + 22 个集成测试（`//go:build integration` 隔离�?= **121 测试**（含 8 router + 9 service 既有）�?
+**全量回归**：`go test ./...` **48 �?0 FAIL**（含 user 5 个新包）�?
+**Plan 偏差**�?
+1. **地址字段简�?*：plan �?`province/city/district/detail`，按 task brief �?`detail + lat/lng`（避免行政区划白名单争议�?2. **coupon 双表**：plan 1 张表，按 task brief �?`coupons` + `user_coupons`（平台模�?+ 用户实例�?3. **hospital.service 同进�?*：plan 单独 `services/catalog/`，按 task brief �?user-service
+4. **package 字段**：plan �?`duration_hours/amount`，按 task brief �?`duration_min/price`（细粒度更友好）
+5. **virtual-number 号段**：plan 未指定，v1 �?17+9 位号�?mock
+6. **migrations_test 0010~0014 集成测试未追�?*：聚�?module 单测；现�?framework 可直接加
 
-**未做（留给后续）**�?
-- �?pgxpool：main.go 仍用 nilRepo 占位（按 task 约束"不要 docker up"�?- migrations_test.go �?Test0010~Test0014（参�?Test0008 风格�?- virtual-number service 层发�?Kafka 事件（contracts 已加 type�?- address/coupon admin �?CRUD（admin-service 接管�?- �?`migrations/0010~0014` 真实 PG 跑集成测�?
-**端到端联通（v1.3 目标�?*�?
-- patient-miniapp 选陪诊师 �?order-service �?后续 patient 选地址/优惠�?�?admin-web 监控（address/coupon/escorts/orders 全链�?mock 数据已就绪）
-- 后端 11 �?Go 服务 48 �?0 FAIL + user-service 121 测试覆盖
-- contracts v1.3 �?2 个虚拟号事件
+**未做（留给后续）**�?
+- �?pgxpool：main.go 仍用 nilRepo 占位（按 task 约束"不要 docker up"�?- migrations_test.go �?Test0010~Test0014（参�?Test0008 风格�?- virtual-number service 层发�?Kafka 事件（contracts 已加 type�?- address/coupon admin �?CRUD（admin-service 接管�?- �?`migrations/0010~0014` 真实 PG 跑集成测�?
+**端到端联通（v1.3 目标�?*�?
+- patient-miniapp 选陪诊师 �?order-service �?后续 patient 选地址/优惠�?�?admin-web 监控（address/coupon/escorts/orders 全链�?mock 数据已就绪）
+- 后端 11 �?Go 服务 48 �?0 FAIL + user-service 121 测试覆盖
+- contracts v1.3 �?2 个虚拟号事件
 ---
-## 20. 4 服务补全 handler + router + main 接入�?026-09-24 message/sos/review/escort plan�?
-**目标**：补�?message / sos / review / escort 4 个服务缺失的 handler + router + server + cmd + main + config——让 11 �?Go 服务全部从「service 层骨架」升级为「可启动的真�?HTTP 服务」�?
-**4 �?commit**�?
+## 20. 4 服务补全 handler + router + main 接入�?026-09-24 message/sos/review/escort plan�?
+**目标**：补�?message / sos / review / escort 4 个服务缺失的 handler + router + server + cmd + main + config——让 11 �?Go 服务全部从「service 层骨架」升级为「可启动的真�?HTTP 服务」�?
+**4 �?commit**�?
 | commit | 服务 | endpoint | 新增单测 |
 | :-- | :-- | :-- | :--: |
-| `d59b1b7` | `feat(message-service)` | 4（send/list/detail/broadcast�?| 34 |
-| `3c695b7` | `feat(sos-service)` | 4（raise/list/detail/resolve�?| 32 |
-| `4d1797c` | `feat(review-service)` | 4（create/list/detail/reply�?| 36 |
-| `f12380a` | `feat(escort-service)` | 8 + 4 availability（qualifications/trainings/locations + 子包�?| 98 |
+| `d59b1b7` | `feat(message-service)` | 4（send/list/detail/broadcast�?| 34 |
+| `3c695b7` | `feat(sos-service)` | 4（raise/list/detail/resolve�?| 32 |
+| `4d1797c` | `feat(review-service)` | 4（create/list/detail/reply�?| 36 |
+| `f12380a` | `feat(escort-service)` | 8 + 4 availability（qualifications/trainings/locations + 子包�?| 98 |
 
-**4 服务关键设计**�?
-1. **统一架构**：handler（按 plan �?endpoint�? router（gin Engine + shared/middleware.Auth�? server（HTTP + 优雅停机�? cmd/main（装�?entrypoint�? config/<svc>.yaml�? �?service/http/db/kafka�? 单测（service + handler + router�?2. **service 扩展而非重写**：message / sos 在原有方法签名基础上新�?`GetByID` / `List` / `Broadcast`；review �?endpoint 路径；escort �?qualifications + trainings 2 个子类型
-3. **escort 路由改�?*：原 `/escorts/:id/...` �?`/escorts/me/...`（基�?JWT user_id 而非 escort ID�?4. **availability 子包接入**：已�?handler 不动，只在主 router 挂载
+**4 服务关键设计**�?
+1. **统一架构**：handler（按 plan �?endpoint�? router（gin Engine + shared/middleware.Auth�? server（HTTP + 优雅停机�? cmd/main（装�?entrypoint�? config/<svc>.yaml�? �?service/http/db/kafka�? 单测（service + handler + router�?2. **service 扩展而非重写**：message / sos 在原有方法签名基础上新�?`GetByID` / `List` / `Broadcast`；review �?endpoint 路径；escort �?qualifications + trainings 2 个子类型
+3. **escort 路由改�?*：原 `/escorts/:id/...` �?`/escorts/me/...`（基�?JWT user_id 而非 escort ID�?4. **availability 子包接入**：已�?handler 不动，只在主 router 挂载
 
-**累计测试用例**�?*200 个新单测**（message 34 + sos 32 + review 36 + escort 98�?
+**累计测试用例**�?*200 个新单测**（message 34 + sos 32 + review 36 + escort 98�?
 **全量回归**：`go test ./...` **59 个测试包 0 FAIL**（含 4 服务所有有 test 包）
 
-**Plan 偏差**�?
-1. **escort endpoint 数量**：任务标题写"6+4=10"但清单列�?8 个新接口；按清单做了 8 + 保留 2 个兼容（注册/公开详情），�?14 �?handler 入口
-2. **review 重写**：原 `/api/v1/reviews/orders/:orderID` �?plan §Architecture 不符，按 plan 重写�?`/api/v1/reviews` + `/api/v1/reviews/:id` + `/api/v1/reviews/:id/reply`
-3. **escort middleware 改�?*：本�?`middleware.Auth` 改为接受 `(secret, userIDKey, roleKey)` 三参，与 `shared/middleware.Auth` 对齐
-4. **service 层扩展而非重写**：保留原 service_test 全部，新增方法扩�?8-9 �?
-**未做（留给后续）**�?
-- pgxpool 真实数据库接入（main �?nilRepo 占位，与 admin-service 风格一致）
-- Kafka publisher 真实接入（占�?nil�?- 集成测试（按 //go:build integration 隔离�?- qualifications image_url 文件上传
+**Plan 偏差**�?
+1. **escort endpoint 数量**：任务标题写"6+4=10"但清单列�?8 个新接口；按清单做了 8 + 保留 2 个兼容（注册/公开详情），�?14 �?handler 入口
+2. **review 重写**：原 `/api/v1/reviews/orders/:orderID` �?plan §Architecture 不符，按 plan 重写�?`/api/v1/reviews` + `/api/v1/reviews/:id` + `/api/v1/reviews/:id/reply`
+3. **escort middleware 改�?*：本�?`middleware.Auth` 改为接受 `(secret, userIDKey, roleKey)` 三参，与 `shared/middleware.Auth` 对齐
+4. **service 层扩展而非重写**：保留原 service_test 全部，新增方法扩�?8-9 �?
+**未做（留给后续）**�?
+- pgxpool 真实数据库接入（main �?nilRepo 占位，与 admin-service 风格一致）
+- Kafka publisher 真实接入（占�?nil�?- 集成测试（按 //go:build integration 隔离�?- qualifications image_url 文件上传
 
-**端到端联通（v1.3 目标�?*�?
-- patient-miniapp 选陪诊师 �?order-service �?user-service（address/coupon/hospital/package/virtual-number）→ message / sos / review / escort 服务 �?admin-web 22 路由 + admin-service 12 API 监控全流�?- 后端 11 �?Go 服务 59 �?0 FAIL + 200 个新单测
+**端到端联通（v1.3 目标�?*�?
+- patient-miniapp 选陪诊师 �?order-service �?user-service（address/coupon/hospital/package/virtual-number）→ message / sos / review / escort 服务 �?admin-web 22 路由 + admin-service 12 API 监控全流�?- 后端 11 �?Go 服务 59 �?0 FAIL + 200 个新单测
 - 三端 trace-id 共用：mp-/escort-/后端 logger.FromContext
 ---
-## 21. patient-miniapp 8 核心业务页接 API（patient-miniapp v1 plan §M1-M8�?
-**目标**：按 patient-miniapp v1 plan 落地 5 个新 API 模块 + 5 个新 Pinia store + 8 个真实业务页（首�?/ 医院列表 / 医院详情 / 个人中心 / 优惠券中�?/ 地址管理 / 评价创建 / 订单创建）�?
-**8 �?commit**�?
+## 21. patient-miniapp 8 核心业务页接 API（patient-miniapp v1 plan §M1-M8�?
+**目标**：按 patient-miniapp v1 plan 落地 5 个新 API 模块 + 5 个新 Pinia store + 8 个真实业务页（首�?/ 医院列表 / 医院详情 / 个人中心 / 优惠券中�?/ 地址管理 / 评价创建 / 订单创建）�?
+**8 �?commit**�?
 | commit | 内容 | 新增测试 |
 | :-- | :-- | :--: |
 | `43fcd61` | `feat(patient-miniapp)` API client 5 个新模块 + index 聚合 | 38 |
 | `5223b0d` | `feat(patient-miniapp)` Pinia 5 个新 store + loading/error | 41 |
 | `6e022a0` | 首页（hospital 推荐 + 4 快捷入口 + 公告）| 9 |
 | `b20b327` | 医院列表 + 医院详情（含服务包占位）| 15 |
-| `4fd9581` | 个人中心（hero + 4 订单状�?tile + 设置 menu + 退出登录）| 10 |
-| `c99dd20` | 优惠券中心（领券 + 我的�?tab + status �?tab）| 7 |
-| `8f880d8` | 地址管理 CRUD + 默认地址 + 评价创建�? 星）| 15 |
-| `decf2d5` | 订单创建页（医院/服务�?时间/联系�?地址/优惠�?+ 折扣计算�? pages.json | 9 |
+| `4fd9581` | 个人中心（hero + 4 订单状�?tile + 设置 menu + 退出登录）| 10 |
+| `c99dd20` | 优惠券中心（领券 + 我的�?tab + status �?tab）| 7 |
+| `8f880d8` | 地址管理 CRUD + 默认地址 + 评价创建�? 星）| 15 |
+| `decf2d5` | 订单创建页（医院/服务�?时间/联系�?地址/优惠�?+ 折扣计算�? pages.json | 9 |
 
-**关键设计**�?
-1. **API 模式**：`utils/request.js` �?`request({ url, method, data, query })` + 缺参兜底 + 后端字段�?snake_case 最小透传
-2. **store 模式**：`useXxxStore()` + `loading / error / data` + 动�?`import('@/api/xxx.js')`（与 v1.1 `stores/order.js` 一致）
-3. **页面模式**：uView Plus `u-card` + `u-skeleton` + `u-empty` + `u-button` + `u-search` + `u-tabs` + `u-rate`（已通过 easycom 自动注册�?4. **测试模式**：jest.doMock 注入 fake store + uView Plus �?stub
+**关键设计**�?
+1. **API 模式**：`utils/request.js` �?`request({ url, method, data, query })` + 缺参兜底 + 后端字段�?snake_case 最小透传
+2. **store 模式**：`useXxxStore()` + `loading / error / data` + 动�?`import('@/api/xxx.js')`（与 v1.1 `stores/order.js` 一致）
+3. **页面模式**：uView Plus `u-card` + `u-skeleton` + `u-empty` + `u-button` + `u-search` + `u-tabs` + `u-rate`（已通过 easycom 自动注册�?4. **测试模式**：jest.doMock 注入 fake store + uView Plus �?stub
 
-**累计测试用例**�?8 个测试文�?/ **144 �?it() �?*（API 38 + store 41 + page 65）�?
-**Plan 偏差**�?
-1. **服务�?`packages` 字段**：v1 后端 hospital 模块未返；`detail.vue` �?`order/create.vue` �?`packages=[]` 兜底渲染，v2 �?services/user/internal/pkg 后扩�?2. **`getMyProfile`**：用户信息走现有 `useAuthStore().fetchMe()` 通道（依�?`@/api/auth.js`，v1.1 占位�?3. **订单创建�?`onSubmit`**：v1 仅做 toast + redirectTo（无后端 `POST /orders` 提交；order-service 已有 handler，后�?plan 接入即可�?4. **pages.json 路径约定**：原 v1.1 �?`src/pages/order/index.vue` 注册�?`pages/order/index`；新页沿用相同约定（uni-app �?`src/pages/` 前缀解析）。未实际�?uni-app build 验证
-5. **vue-jest 未装**：测试是契约样，与项目既有约定一�?
-**未做（留给后续）**�?
-- 接入 `POST /orders` 真实创建订单（order-service 已有 handler，frontend `order/create.vue` onSubmit 改为真实提交�?- 接入 `services/user/internal/pkg` 的服务包 API
-- �?`src/api/auth.js`（`loginByPhone` + `fetchMe`）让 auth store �?fetchMe 真实可达
-- �?uni-app build 验证 pages.json 路径解析
-- 引入 vue-jest �?.vue 单测转为可执�?
-**端到端联通（v1.3 目标�?*�?
-- patient-miniapp 8 核心页：首页（医院推�?+ 4 快捷入口）→ 医院列表 �?医院详情 �?订单创建（医�?服务�?时间/地址/优惠券）�?选陪诊师（v1.1）→ 订单详情（v1.1）→ 服务执行 �?评价（新增）�?个人中心 / 优惠�?/ 地址管理
-- 共享 X-Trace-Id：`mp-{ms}-{rand6}`（与 escort-app `escort-`、admin-web 不同�?- 后端 11 �?Go 服务 59 �?0 FAIL + patient-miniapp 144 测试
+**累计测试用例**�?8 个测试文�?/ **144 �?it() �?*（API 38 + store 41 + page 65）�?
+**Plan 偏差**�?
+1. **服务�?`packages` 字段**：v1 后端 hospital 模块未返；`detail.vue` �?`order/create.vue` �?`packages=[]` 兜底渲染，v2 �?services/user/internal/pkg 后扩�?2. **`getMyProfile`**：用户信息走现有 `useAuthStore().fetchMe()` 通道（依�?`@/api/auth.js`，v1.1 占位�?3. **订单创建�?`onSubmit`**：v1 仅做 toast + redirectTo（无后端 `POST /orders` 提交；order-service 已有 handler，后�?plan 接入即可�?4. **pages.json 路径约定**：原 v1.1 �?`src/pages/order/index.vue` 注册�?`pages/order/index`；新页沿用相同约定（uni-app �?`src/pages/` 前缀解析）。未实际�?uni-app build 验证
+5. **vue-jest 未装**：测试是契约样，与项目既有约定一�?
+**未做（留给后续）**�?
+- 接入 `POST /orders` 真实创建订单（order-service 已有 handler，frontend `order/create.vue` onSubmit 改为真实提交�?- 接入 `services/user/internal/pkg` 的服务包 API
+- �?`src/api/auth.js`（`loginByPhone` + `fetchMe`）让 auth store �?fetchMe 真实可达
+- �?uni-app build 验证 pages.json 路径解析
+- 引入 vue-jest �?.vue 单测转为可执�?
+**端到端联通（v1.3 目标�?*�?
+- patient-miniapp 8 核心页：首页（医院推�?+ 4 快捷入口）→ 医院列表 �?医院详情 �?订单创建（医�?服务�?时间/地址/优惠券）�?选陪诊师（v1.1）→ 订单详情（v1.1）→ 服务执行 �?评价（新增）�?个人中心 / 优惠�?/ 地址管理
+- 共享 X-Trace-Id：`mp-{ms}-{rand6}`（与 escort-app `escort-`、admin-web 不同�?- 后端 11 �?Go 服务 59 �?0 FAIL + patient-miniapp 144 测试
 ---
-## 22. escort-app 8 核心业务页接 API（escort-app v1 plan §E1-E8�?
-**目标**：按 escort-app v1 plan 落地 5 个新 API 模块 + 5 个新 Riverpod provider + 8 个真实业务页（login / profile / wallet / orders / training / order_detail / + auth_provider loginByPhone/loginByWx）�?
-**8 �?commit**�?
+## 22. escort-app 8 核心业务页接 API（escort-app v1 plan §E1-E8�?
+**目标**：按 escort-app v1 plan 落地 5 个新 API 模块 + 5 个新 Riverpod provider + 8 个真实业务页（login / profile / wallet / orders / training / order_detail / + auth_provider loginByPhone/loginByWx）�?
+**8 �?commit**�?
 | commit | 内容 | 新增测试 |
 | :-- | :-- | :--: |
-| `4c2f430` | `feat(escort-app)` api_client 5 个领域模块（profile/wallet/training/review/order�? 16 单测 | 14 |
+| `4c2f430` | `feat(escort-app)` api_client 5 个领域模块（profile/wallet/training/review/order�? 16 单测 | 14 |
 | `341527a` | `feat(escort-app)` providers 5 + models 4 + 32 单测 | 20+12 |
-| `4df8e84` | login 登录页（短信 60s 倒计�?+ 微信入口�? auth_provider loginByPhone/loginByWx | 5+4 |
-| `d2e2e3d` | profile 个人中心页（头像 + nickname + 实名状�?+ 退出登录） | 4 |
-| `7a643d0` | wallet 钱包页（余额 + 冻结 + 提现 + 流水 4 tab 过滤�?| 6 |
-| `edaf2a2` | orders 我的订单页（4 tab + CountdownBadge 复用�?| 4 |
-| `82dd30c` | training 培训页（统计卡片 + 进度�?+ 状�?chip�?| 3 |
-| `dc6bdaf` | order_detail 订单详情页（6 节点进度 + 倒计�?+ 确认/拒接 + 客户信息�?| 7 |
+| `4df8e84` | login 登录页（短信 60s 倒计�?+ 微信入口�? auth_provider loginByPhone/loginByWx | 5+4 |
+| `d2e2e3d` | profile 个人中心页（头像 + nickname + 实名状�?+ 退出登录） | 4 |
+| `7a643d0` | wallet 钱包页（余额 + 冻结 + 提现 + 流水 4 tab 过滤�?| 6 |
+| `edaf2a2` | orders 我的订单页（4 tab + CountdownBadge 复用�?| 4 |
+| `82dd30c` | training 培训页（统计卡片 + 进度�?+ 状�?chip�?| 3 |
+| `dc6bdaf` | order_detail 订单详情页（6 节点进度 + 倒计�?+ 确认/拒接 + 客户信息�?| 7 |
 
-**关键设计**�?
-1. **API 模式**：复�?`lib/services/api_client.dart`（已�?dio + 拦截器），新增端点按 static 路径常量 + free function
+**关键设计**�?
+1. **API 模式**：复�?`lib/services/api_client.dart`（已�?dio + 拦截器），新增端点按 static 路径常量 + free function
 2. **provider 模式**：FutureProvider / StreamProvider / AsyncNotifier（与 v1.1 `invitation_provider` 一致）
-3. **页面模式**：Material 3 + Card + ListView + 空�?/ loading + Stepper 自绘
-4. **测试模式**：flutter_test + data-test 属性（不实际跑�?
-**累计测试用例**�?*65 个新测试**（API 14 + provider 32 + page 29�?
-**路由挂载**�?- `/auth/login`（E3�?- `/home/profile`（E4�?- `/home/wallet`（E5�?- `/home/orders`（E6�?- `/home/training`（E7�?- `/home/orders/:id`（E8 动态参数）
+3. **页面模式**：Material 3 + Card + ListView + 空�?/ loading + Stepper 自绘
+4. **测试模式**：flutter_test + data-test 属性（不实际跑�?
+**累计测试用例**�?*65 个新测试**（API 14 + provider 32 + page 29�?
+**路由挂载**�?- `/auth/login`（E3�?- `/home/profile`（E4�?- `/home/wallet`（E5�?- `/home/orders`（E6�?- `/home/training`（E7�?- `/home/orders/:id`（E8 动态参数）
 
-**未做（留给后续）**�?
-- 真实 wechat_kit / fluwx �?wxCode（v1 用占位）
-- 实名认证图片上传�?OSS / 七牛预签�?URL
+**未做（留给后续）**�?
+- 真实 wechat_kit / fluwx �?wxCode（v1 用占位）
+- 实名认证图片上传�?OSS / 七牛预签�?URL
 - 订单详情 GPS 签到 + 打卡
 - 评价列表独立成页（reviewProvider 已就绪）
-- �?flutter analyze + flutter test 验证
+- �?flutter analyze + flutter test 验证
 
-**端到端联通（v1.3 目标�?*�?
-- escort-app 完整陪诊师流：login �?invitations（v1.1）→ my-availability（v1.1）→ 订单详情�?0s 倒计时确�?拒接）→ 服务执行（v2 GPS）→ wallet 提现 �?training 课程 �?profile 实名/退�?- 共享 X-Trace-Id：`escort-{ms}-{rand6}`（与 patient-miniapp `mp-` 不同�?- 后端 11 �?Go 服务 59 �?0 FAIL + escort-app 65 新测�?
+**端到端联通（v1.3 目标�?*�?
+- escort-app 完整陪诊师流：login �?invitations（v1.1）→ my-availability（v1.1）→ 订单详情�?0s 倒计时确�?拒接）→ 服务执行（v2 GPS）→ wallet 提现 �?training 课程 �?profile 实名/退�?- 共享 X-Trace-Id：`escort-{ms}-{rand6}`（与 patient-miniapp `mp-` 不同�?- 后端 11 �?Go 服务 59 �?0 FAIL + escort-app 65 新测�?
 ---
-## 23. 11 Go 服务 Dockerfile + 3 前端 Dockerfile + docker-compose.deploy.yml�?026-09-24 ops 部署�?
-**目标**：落�?14 �?Dockerfile�?1 Go + 3 前端�? 全套服务编排 + �?README 部署章节——为生产部署铺好基础设施�?
-**2 �?commit**�?
-| commit | 内容 | 文件�?|
+## 23. 11 Go 服务 Dockerfile + 3 前端 Dockerfile + docker-compose.deploy.yml�?026-09-24 ops 部署�?
+**目标**：落�?14 �?Dockerfile�?1 Go + 3 前端�? 全套服务编排 + �?README 部署章节——为生产部署铺好基础设施�?
+**2 �?commit**�?
+| commit | 内容 | 文件�?|
 | :-- | :-- | :--: |
 | `44d2c41` | `ops: 11 Go 服务 Dockerfile + 3 前端 Dockerfile` | 17 |
-| `61779d8` | `ops: docker-compose.deploy.yml 全服务编�?+ README 部署章节` | 2 |
+| `61779d8` | `ops: docker-compose.deploy.yml 全服务编�?+ README 部署章节` | 2 |
 
-**关键设计**�?
-1. **Go 服务 Dockerfile**�?1 个，模板相同）：
-   - Builder：`golang:1.24-alpine` + `go mod download` + 静�?`go build -trimpath -ldflags="-s -w"`
-   - Runtime：`gcr.io/distroless/static-debian12:nonroot`�? 30MB，无 shell�?   - `USER nonroot:nonroot` (UID 65532)
-   - `HEALTHCHECK NONE`（distroless �?curl/wget，依�?compose 编排�?
-2. **前端 Dockerfile**�? �?nginx build-only）：
-   - patient-miniapp: `node:20-alpine` build:h5 �?`nginx:1.27-alpine`
-   - escort-app: `ghcr.io/cirruslabs/flutter:3.24.5` build web �?`nginx:1.27-alpine`
-   - admin-web: `node:20-alpine` build �?`nginx:1.27-alpine`
-   - 每个 nginx.conf �?gzip + SPA fallback + `/healthz`
+**关键设计**�?
+1. **Go 服务 Dockerfile**�?1 个，模板相同）：
+   - Builder：`golang:1.24-alpine` + `go mod download` + 静�?`go build -trimpath -ldflags="-s -w"`
+   - Runtime：`gcr.io/distroless/static-debian12:nonroot`�? 30MB，无 shell�?   - `USER nonroot:nonroot` (UID 65532)
+   - `HEALTHCHECK NONE`（distroless �?curl/wget，依�?compose 编排�?
+2. **前端 Dockerfile**�? �?nginx build-only）：
+   - patient-miniapp: `node:20-alpine` build:h5 �?`nginx:1.27-alpine`
+   - escort-app: `ghcr.io/cirruslabs/flutter:3.24.5` build web �?`nginx:1.27-alpine`
+   - admin-web: `node:20-alpine` build �?`nginx:1.27-alpine`
+   - 每个 nginx.conf �?gzip + SPA fallback + `/healthz`
 
-3. **docker-compose.deploy.yml**�?7 services）：
+3. **docker-compose.deploy.yml**�?7 services）：
    - 中间件：postgres:16 / redis:7 / kafka:3.9.1 (KRaft)
-   - 11 Go 服务（端�?8081~8091）：依序 depends_on 健康检�?   - 3 前端服务：patient-miniapp :80 / escort-app :8080 / admin-web :8092
-   - 网络 `doctors-net` + �?`doctors-data-{pg,redis,kafka}`
+   - 11 Go 服务（端�?8081~8091）：依序 depends_on 健康检�?   - 3 前端服务：patient-miniapp :80 / escort-app :8080 / admin-web :8092
+   - 网络 `doctors-net` + �?`doctors-data-{pg,redis,kafka}`
 
-**累计 14 �?Dockerfile + 1 �?docker-compose.deploy.yml + 3 �?nginx.conf + 1 �?README.md** = **19 个新文件**
+**累计 14 �?Dockerfile + 1 �?docker-compose.deploy.yml + 3 �?nginx.conf + 1 �?README.md** = **19 个新文件**
 
-**关键约束**�?
-- distroless �?shell/curl/wget，HEALTHCHECK NONE；依�?compose `depends_on.condition: service_healthy` 编排
-- `image: doctors/<svc>:latest` + 本地 `build:` 段（`ARG SVC` �?cmd 路径�?- `environment` 严格�?`shared/config/loader.go`：`DOCTORS_<SVC>_HTTP_ADDR / _DB_DSN / _REDIS_ADDR / _KAFKA_BROKERS / _KAFKA_GROUP_ID / _JWT_SECRET / _LOGGING_LEVEL`
-- `admin-service` 额外注入 `DOCTORS_ADMIN_{ORDER,REFUND,ESCORT,USER}_BASE_URL`（容器名�?- `volumes: ./config:/app/config:ro`（共�?config 目录�?- `restart: unless-stopped`
+**关键约束**�?
+- distroless �?shell/curl/wget，HEALTHCHECK NONE；依�?compose `depends_on.condition: service_healthy` 编排
+- `image: doctors/<svc>:latest` + 本地 `build:` 段（`ARG SVC` �?cmd 路径�?- `environment` 严格�?`shared/config/loader.go`：`DOCTORS_<SVC>_HTTP_ADDR / _DB_DSN / _REDIS_ADDR / _KAFKA_BROKERS / _KAFKA_GROUP_ID / _JWT_SECRET / _LOGGING_LEVEL`
+- `admin-service` 额外注入 `DOCTORS_ADMIN_{ORDER,REFUND,ESCORT,USER}_BASE_URL`（容器名�?- `volumes: ./config:/app/config:ro`（共�?config 目录�?- `restart: unless-stopped`
 
-**Plan 偏差**�?
-1. **distroless tag**：用 `gcr.io/distroless/static-debian12:nonroot`�?024 现代化命名）替代老的 `static:nonroot`，两者等�?2. **HEALTHCHECK**：distroless �?shell/curl/wget，无法容器内 HTTP 探针；采�?`HEALTHCHECK NONE` + compose 编排 + README 标注�?TODO（待 main.go �?`-healthz` flag�?3. **payment Dockerfile**：payment 目录暂无 `cmd/main.go`，Dockerfile 仍按模板创建；`docker build` 当前会失败（�?main.go 落地后即恢复�?4. **kafka 配置**：用�?broker `kafka:9092`（容器名）替�?`localhost:9092`
-5. **�?README**：原任务�?更新"，但根目录无 README.md，按"新建"处理
-6. **nginx.conf 文件**�? 个前�?nginx 配置文件�?Dockerfile 一�?commit1（前置依赖，缺一不可�?
-**未做（留给后续）**�?
-- �?`docker compose -f docker-compose.deploy.yml config` 实际校验（无 docker daemon�?- �?`docker build`（同上）
-- 未为 payment-service �?cmd/main.go（不在本任务范围�?- 未为�?Go 服务添加 `-healthz` flag
-- 未执�?`git push`（按要求�?push�?
-**端到端联通（v1.3 目标�?*�?
-- 一�?`docker compose -f docker-compose.deploy.yml up -d` �?14 服务 + 3 中间�?- admin-web 22 路由 + admin-service 12 API + 11 �?Go 服务全联�?- 三端 trace-id 共用：mp-/escort-/后端 logger.FromContext
-- 后端 11 �?Go 服务 59 �?0 FAIL + 3 前端工程完整
-- 部署架构：distroless 镜像 < 30MB / 启动 < 3s / �?shell attack surface
+**Plan 偏差**�?
+1. **distroless tag**：用 `gcr.io/distroless/static-debian12:nonroot`�?024 现代化命名）替代老的 `static:nonroot`，两者等�?2. **HEALTHCHECK**：distroless �?shell/curl/wget，无法容器内 HTTP 探针；采�?`HEALTHCHECK NONE` + compose 编排 + README 标注�?TODO（待 main.go �?`-healthz` flag�?3. **payment Dockerfile**：payment 目录暂无 `cmd/main.go`，Dockerfile 仍按模板创建；`docker build` 当前会失败（�?main.go 落地后即恢复�?4. **kafka 配置**：用�?broker `kafka:9092`（容器名）替�?`localhost:9092`
+5. **�?README**：原任务�?更新"，但根目录无 README.md，按"新建"处理
+6. **nginx.conf 文件**�? 个前�?nginx 配置文件�?Dockerfile 一�?commit1（前置依赖，缺一不可�?
+**未做（留给后续）**�?
+- �?`docker compose -f docker-compose.deploy.yml config` 实际校验（无 docker daemon�?- �?`docker build`（同上）
+- 未为 payment-service �?cmd/main.go（不在本任务范围�?- 未为�?Go 服务添加 `-healthz` flag
+- 未执�?`git push`（按要求�?push�?
+**端到端联通（v1.3 目标�?*�?
+- 一�?`docker compose -f docker-compose.deploy.yml up -d` �?14 服务 + 3 中间�?- admin-web 22 路由 + admin-service 12 API + 11 �?Go 服务全联�?- 三端 trace-id 共用：mp-/escort-/后端 logger.FromContext
+- 后端 11 �?Go 服务 59 �?0 FAIL + 3 前端工程完整
+- 部署架构：distroless 镜像 < 30MB / 启动 < 3s / �?shell attack surface
 ---
-## 24. payment-service 补全 + 11 -healthz flag + Dockerfile HEALTHCHECK�?026-09-24 ops 部署补全�?
-**目标**：补�?payment-service HTTP �?+ �?11 �?Go 服务�?-healthz flag + distroless Dockerfile HEALTHCHECK + docker-compose healthcheck 段——让 distroless 容器能做健康检�?+ payment �?build�?
-**2 �?commit**�?
+## 24. payment-service 补全 + 11 -healthz flag + Dockerfile HEALTHCHECK�?026-09-24 ops 部署补全�?
+**目标**：补�?payment-service HTTP �?+ �?11 �?Go 服务�?-healthz flag + distroless Dockerfile HEALTHCHECK + docker-compose healthcheck 段——让 distroless 容器能做健康检�?+ payment �?build�?
+**2 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :-- |
-| `ff3bd34` | `feat(payment-service)` HTTP 层补全（handler+router+server+cmd�? Get(payment_id) + 14 单测 | 9 |
-| `c769f2e` | `chore(deploy)` 11 Go 服务 -healthz flag + distroless HEALTHCHECK + compose 健康检�?| 11 main.go + 11 Dockerfile + docker-compose |
+| `ff3bd34` | `feat(payment-service)` HTTP 层补全（handler+router+server+cmd�? Get(payment_id) + 14 单测 | 9 |
+| `c769f2e` | `chore(deploy)` 11 Go 服务 -healthz flag + distroless HEALTHCHECK + compose 健康检�?| 11 main.go + 11 Dockerfile + docker-compose |
 
-**Commit 1：payment-service 补全�? endpoint�?*
+**Commit 1：payment-service 补全�? endpoint�?*
 
-| Method | Path | 业务�?|
+| Method | Path | 业务�?|
 | :-- | :-- | :-- |
 | `POST` | `/api/v1/payments` | create（按订单）|
 | `GET` | `/api/v1/payments/:id` | detail |
 | `POST` | `/api/v1/payments/:id/complete` | mock 微信支付完成 |
-| `POST` | `/api/v1/payments/:id/refund` | 申请退�?|
+| `POST` | `/api/v1/payments/:id/refund` | 申请退�?|
 
-新增 7 文件 + 修改 2 文件 + 16 单测 = **38 �?payment-service 测试**（含既有 22 + 新增 16）�?
-**Commit 2�?1 -healthz flag + 部署补全**
+新增 7 文件 + 修改 2 文件 + 16 单测 = **38 �?payment-service 测试**（含既有 22 + 新增 16）�?
+**Commit 2�?1 -healthz flag + 部署补全**
 
-1. **11 main.go** 各加 7 �?`flag.Bool("healthz", ...)` + 13 �?`runHealthzServer()`（独�?:9090 HTTP server 持续 200 OK�?2. **11 Dockerfile** `HEALTHCHECK NONE` �?`HEALTHCHECK CMD ["/app/server", "-healthz"]`（distroless �?shell/curl/wget，改�?`-healthz` flag�?3. **docker-compose.deploy.yml** 11 �?Go 服务均加 healthcheck 段（test/interval/timeout/retries/start_period�?
-**关键设计**�?
+1. **11 main.go** 各加 7 �?`flag.Bool("healthz", ...)` + 13 �?`runHealthzServer()`（独�?:9090 HTTP server 持续 200 OK�?2. **11 Dockerfile** `HEALTHCHECK NONE` �?`HEALTHCHECK CMD ["/app/server", "-healthz"]`（distroless �?shell/curl/wget，改�?`-healthz` flag�?3. **docker-compose.deploy.yml** 11 �?Go 服务均加 healthcheck 段（test/interval/timeout/retries/start_period�?
+**关键设计**�?
 1. **独立 :9090 healthz 探针**：与业务 :8080 解耦，distroless 容器无需 shell/curl/wget
-2. **flag.Bool** 实现：默认关闭；启动 `docker compose up` �?`command: ["/app/server", "-healthz"]` �?compose 触发 healthcheck
-3. **payment `Get` 方法新增**：原 service.Service �?`Get(paymentID)`，handler 需�?`GET /api/v1/payments/:id` 取详情；最小代价在 service �?13 �?`Get()` 方法并补 2 �?service 单测
-4. **payment 端口 `:8085`**：与 compose 中保留的端口一�?
-**累计测试用例**�?
-- payment 新增 16（handler 10 + router 4 + service 2�?- payment 现有 22（refund/policy 5 + refund/service 4 + payment/service 既有 13�?- 其他 10 服务：不变（commit2 不涉及业务逻辑修改�?- **全量回归 61 �?0 FAIL**（含 payment 4 个有 test 包）
+2. **flag.Bool** 实现：默认关闭；启动 `docker compose up` �?`command: ["/app/server", "-healthz"]` �?compose 触发 healthcheck
+3. **payment `Get` 方法新增**：原 service.Service �?`Get(paymentID)`，handler 需�?`GET /api/v1/payments/:id` 取详情；最小代价在 service �?13 �?`Get()` 方法并补 2 �?service 单测
+4. **payment 端口 `:8085`**：与 compose 中保留的端口一�?
+**累计测试用例**�?
+- payment 新增 16（handler 10 + router 4 + service 2�?- payment 现有 22（refund/policy 5 + refund/service 4 + payment/service 既有 13�?- 其他 10 服务：不变（commit2 不涉及业务逻辑修改�?- **全量回归 61 �?0 FAIL**（含 payment 4 个有 test 包）
 
-**Plan 偏差**�?
-1. **service.Get 方法新增**：原 service.Service �?Get(paymentID)，handler 需�?GET 详情；最小代价在 service �?13 �?+ 2 单测
-2. **未创建独立的 middleware �?*：直接用 `shared/middleware.Auth` + `"user_id"` / `"role"` key，避免重复�?payment-specific middleware �?3. **payment main 装配采用 nil 占位**：与 admin / wallet 一致，依赖�?repo/channel/publisher，路由生�?4. **未给 -healthz 加专门的 unit test**：`log.Fatal` 调用 `os.Exit`，单元测试无法验证；改用进程�?smoke 实测 `curl http://localhost:9090/healthz` 返回 200/"ok"
+**Plan 偏差**�?
+1. **service.Get 方法新增**：原 service.Service �?Get(paymentID)，handler 需�?GET 详情；最小代价在 service �?13 �?+ 2 单测
+2. **未创建独立的 middleware �?*：直接用 `shared/middleware.Auth` + `"user_id"` / `"role"` key，避免重复�?payment-specific middleware �?3. **payment main 装配采用 nil 占位**：与 admin / wallet 一致，依赖�?repo/channel/publisher，路由生�?4. **未给 -healthz 加专门的 unit test**：`log.Fatal` 调用 `os.Exit`，单元测试无法验证；改用进程�?smoke 实测 `curl http://localhost:9090/healthz` 返回 200/"ok"
 
-**未做（留给后续）**�?
-- Docker build（按约束：本机可能无 docker�?- Postgres / Redis / Kafka 集成测试（pool 仍为 nil�?- docker push（按约束�?- docker-compose depends_on 升级�?`condition: service_healthy`（Go 服务间等待业务端口就绪）
+**未做（留给后续）**�?
+- Docker build（按约束：本机可能无 docker�?- Postgres / Redis / Kafka 集成测试（pool 仍为 nil�?- docker push（按约束�?- docker-compose depends_on 升级�?`condition: service_healthy`（Go 服务间等待业务端口就绪）
 
-**端到端联通（v1.3 目标�?*�?
-- 11 �?Go 服务 + 3 前端 = 14 镜像 + 3 中间件全部可 docker compose up
-- distroless 镜像 < 30MB + 启动 < 3s + �?shell attack surface
-- healthcheck 走独�?:9090 + `-healthz` flag（distroless-friendly�?- payment 完整 HTTP 层，docker build 不再失败
-- 全量 61 �?0 FAIL
+**端到端联通（v1.3 目标�?*�?
+- 11 �?Go 服务 + 3 前端 = 14 镜像 + 3 中间件全部可 docker compose up
+- distroless 镜像 < 30MB + 启动 < 3s + �?shell attack surface
+- healthcheck 走独�?:9090 + `-healthz` flag（distroless-friendly�?- payment 完整 HTTP 层，docker build 不再失败
+- 全量 61 �?0 FAIL
 ---
-## 25. GitHub Actions CI 全栈�?026-09-24 ops 部署补全�?
-**目标**：把 11 Go 服务 + 3 前端 + distroless Dockerfile + -healthz flag + Pages 部署全部串到 GitHub Actions CI——一键跑 go test + docker build + frontend lint + Pages 部署�?
-**3 �?commit**�?
+## 25. GitHub Actions CI 全栈�?026-09-24 ops 部署补全�?
+**目标**：把 11 Go 服务 + 3 前端 + distroless Dockerfile + -healthz flag + Pages 部署全部串到 GitHub Actions CI——一键跑 go test + docker build + frontend lint + Pages 部署�?
+**3 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :-- |
-| `a0c6820` | `ci: upgrade ci.yml to 4-job matrix pipeline` | `.github/workflows/ci.yml` (134 �?235 �?|
+| `a0c6820` | `ci: upgrade ci.yml to 4-job matrix pipeline` | `.github/workflows/ci.yml` (134 �?235 �?|
 | `658e0f9` | `docs(pages): upgrade to direct docs/ upload via actions/deploy-pages` | `.github/workflows/pages.yml` (新增) + `docs.yml` (删除) |
-| `5cefd44` | `chore: add ISSUE_TEMPLATE + dependabot.yml + CODEOWNERS` | 6 个仓库维护文�?|
+| `5cefd44` | `chore: add ISSUE_TEMPLATE + dependabot.yml + CODEOWNERS` | 6 个仓库维护文�?|
 
 **Commit 1：ci.yml 4-job matrix pipeline**
 
-1. **backend-test**：matrix 11 Go 服务（auth/order/match/message/payment/review/sos/user/escort/wallet/admin），�?`go vet` + `go test -race -count=1 -timeout=120s`，fail-fast: false
-2. **docker-build**：matrix 14 镜像�?1 Go + 3 前端），`docker/setup-buildx-action@v3` + `actions/cache@v4`（local�? `docker/build-push-action@v5`（push: false / load: true），�?docker push
+1. **backend-test**：matrix 11 Go 服务（auth/order/match/message/payment/review/sos/user/escort/wallet/admin），�?`go vet` + `go test -race -count=1 -timeout=120s`，fail-fast: false
+2. **docker-build**：matrix 14 镜像�?1 Go + 3 前端），`docker/setup-buildx-action@v3` + `actions/cache@v4`（local�? `docker/build-push-action@v5`（push: false / load: true），�?docker push
 3. **frontend-lint**：matrix 3 端（admin-web / patient-miniapp / escort-app），按端差异 setup Node vs Flutter，统一 working-directory
-4. **backend-lint**：单 job �?`golangci-lint v1.61.0`（curl 安装 + GOPATH/bin �?GITHUB_PATH�?
+4. **backend-lint**：单 job �?`golangci-lint v1.61.0`（curl 安装 + GOPATH/bin �?GITHUB_PATH�?
 **Commit 2：pages.yml 直接 docs/ 上传**
 
-- trigger：`push to main`（paths 限定 `docs/**` + `README.md` + `dev.md` + `.github/workflows/pages.yml`�? `workflow_dispatch`
-- permissions：`contents: read` + `pages: write` + `id-token: write`（OIDC �?PAT�?- concurrency：`group=pages, cancel-in-progress: false`
-- build：actions/upload-pages-artifact@v3（path=docs/�?- deploy：actions/deploy-pages@v4，environment=github-pages
+- trigger：`push to main`（paths 限定 `docs/**` + `README.md` + `dev.md` + `.github/workflows/pages.yml`�? `workflow_dispatch`
+- permissions：`contents: read` + `pages: write` + `id-token: write`（OIDC �?PAT�?- concurrency：`group=pages, cancel-in-progress: false`
+- build：actions/upload-pages-artifact@v3（path=docs/�?- deploy：actions/deploy-pages@v4，environment=github-pages
 
-**Commit 3：仓库维护文�?*
+**Commit 3：仓库维护文�?*
 
-- `.github/ISSUE_TEMPLATE/bug_report.md`（标�?复现/期望/实际/截图/环境/影响/根因 + label bug�?- `.github/ISSUE_TEMPLATE/feature_request.md`（痛�?建议/替代/影响/优先�?验收/参�?+ label enhancement�?- `.github/ISSUE_TEMPLATE/config.yml`（blank_issues_enabled: false，启�?Discussions + Security 链接�?- `.github/dependabot.yml`（version 2�? ecosystem gomod/npm/pip/github-actions，weekly 周一 09:00 Asia/Shanghai，open-pull-requests-limit: 5，labels + groups�?- `.github/CODEOWNERS`�?1 services/* �?@backend-team�? frontend/* �?@frontend-team；docs/ + *.md �?@docs-team�?
-**未做（留给后续）**�?
+- `.github/ISSUE_TEMPLATE/bug_report.md`（标�?复现/期望/实际/截图/环境/影响/根因 + label bug�?- `.github/ISSUE_TEMPLATE/feature_request.md`（痛�?建议/替代/影响/优先�?验收/参�?+ label enhancement�?- `.github/ISSUE_TEMPLATE/config.yml`（blank_issues_enabled: false，启�?Discussions + Security 链接�?- `.github/dependabot.yml`（version 2�? ecosystem gomod/npm/pip/github-actions，weekly 周一 09:00 Asia/Shanghai，open-pull-requests-limit: 5，labels + groups�?- `.github/CODEOWNERS`�?1 services/* �?@backend-team�? frontend/* �?@frontend-team；docs/ + *.md �?@docs-team�?
+**未做（留给后续）**�?
 - 未推送（按约束）
 - 未在 GitHub enable Pages / 创建 `github-pages` environment（需仓库侧手动）
-- 未替�?CODEOWNERS 占位 team 名为真实 GitHub team slug
-- 未添�?CodeQL workflow（任务标"可�?�?
-**端到�?v1.3 目标全部就位**�?
-- 11 Go 服务 + 3 前端 = 14 镜像 + 3 中间�?= 17 容器（docker-compose.deploy.yml�?- 14 Dockerfile（distroless < 30MB + -healthz flag�?- 61 �?0 FAIL + 100+ 集成测试契约�?- GitHub Actions CI 4 job + Pages 自动部署 docs/
-- 仓库维护（issue 模板 / dependabot / CODEOWNERS�?
-### 累计交付（v1.3 收官�?
-| 阶段 | 提交�?| 测试 |
+- 未替�?CODEOWNERS 占位 team 名为真实 GitHub team slug
+- 未添�?CodeQL workflow（任务标"可�?�?
+**端到�?v1.3 目标全部就位**�?
+- 11 Go 服务 + 3 前端 = 14 镜像 + 3 中间�?= 17 容器（docker-compose.deploy.yml�?- 14 Dockerfile（distroless < 30MB + -healthz flag�?- 61 �?0 FAIL + 100+ 集成测试契约�?- GitHub Actions CI 4 job + Pages 自动部署 docs/
+- 仓库维护（issue 模板 / dependabot / CODEOWNERS�?
+### 累计交付（v1.3 收官�?
+| 阶段 | 提交�?| 测试 |
 | :-- | :--: | :--: |
 | 后端 11 Go 服务 | ~80 | 800+ |
-| 前端 3 �?| ~50 | 300+ |
-| 文档 / plans / specs | ~30 | �?|
-| 部署 / CI | 15 | �?|
+| 前端 3 �?| ~50 | 300+ |
+| 文档 / plans / specs | ~30 | �?|
+| 部署 / CI | 15 | �?|
 | **合计** | **~175** | **~1100** |
 ---
-## 26. OTel 全链路追�?+ README 完整�?+ 一键测试脚本（v1.3 优化�?
-**目标**：为生产化做准备——OTel 真正接通（替代占位 Noop�? README 完整化（一键上手）+ 跨平台一键测试脚本�?
-**4 �?commit**�?
+## 26. OTel 全链路追�?+ README 完整�?+ 一键测试脚本（v1.3 优化�?
+**目标**：为生产化做准备——OTel 真正接通（替代占位 Noop�? README 完整化（一键上手）+ 跨平台一键测试脚本�?
+**4 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :-- |
 | `1cd30bc` | `feat(tracing)` shared/tracing OTel SDK + 11 服务接入 | 27 |
 | `b4e5475` | `docs(readme)` 完整化根 README.md | 1 |
-| `4d94cfe` | `chore(scripts)` 跨平�?run-tests.{sh,ps1} | 3 |
-| `8b7e864` | `fix(scripts)` run-tests.ps1 �?UTF-8 BOM | 1 |
+| `4d94cfe` | `chore(scripts)` 跨平�?run-tests.{sh,ps1} | 3 |
+| `8b7e864` | `fix(scripts)` run-tests.ps1 �?UTF-8 BOM | 1 |
 
 **Commit 1：shared/tracing OTel SDK**
 
 | 组件 | 内容 |
 | :-- | :-- |
-| `shared/tracing/tracing.go` (161 �? | `InitTracer(serviceName, otlpEndpoint)` + `StartSpan(ctx, name)` + `Inject/Extract` + `HeaderCarrier` (http.Header 适配) |
-| `shared/tracing/tracing_test.go` (133 �? | 8 个单测（in-memory exporter 验证父子 span + W3C header round-trip + Noop 降级）|
+| `shared/tracing/tracing.go` (161 �? | `InitTracer(serviceName, otlpEndpoint)` + `StartSpan(ctx, name)` + `Inject/Extract` + `HeaderCarrier` (http.Header 适配) |
+| `shared/tracing/tracing_test.go` (133 �? | 8 个单测（in-memory exporter 验证父子 span + W3C header round-trip + Noop 降级）|
 | `shared/tracing/README.md` | 用法 + env 配置 |
-| `go.mod` | OTel v1.32.0�? �?direct：otel / sdk / otlptracehttp / trace / semconv）|
-| `shared/config/loader.go` | `Tracing.OTLPEndpoint` 字段（默认空 �?Noop 降级）|
-| 10 × `config/<svc>.yaml` | �?`tracing.otlp_endpoint: ""` �?|
-| 11 × `services/<svc>/cmd/main.go` | �?`logger.SetLevel` 之前�?`InitTracer` + `defer traceShutdown` |
+| `go.mod` | OTel v1.32.0�? �?direct：otel / sdk / otlptracehttp / trace / semconv）|
+| `shared/config/loader.go` | `Tracing.OTLPEndpoint` 字段（默认空 �?Noop 降级）|
+| 10 × `config/<svc>.yaml` | �?`tracing.otlp_endpoint: ""` �?|
+| 11 × `services/<svc>/cmd/main.go` | �?`logger.SetLevel` 之前�?`InitTracer` + `defer traceShutdown` |
 
-**InitTracer 用法**�?
+**InitTracer 用法**�?
 ```go
 traceShutdown, err := tracing.InitTracer("auth-service", cfg.Tracing.OTLPEndpoint)
 if err != nil { log.Fatalf("init tracer: %v", err) }
@@ -1665,59 +1665,59 @@ req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 tracing.Inject(ctx, tracing.HeaderCarrier(req.Header))
 ```
 
-**8 个单�?PASS**：Noop 降级 + 真实 OTLP + http/https 前缀剥离 + shutdown 幂等 + span 父子 + W3C round-trip + TextMapCarrier 适配�?
-**Commit 2：README.md 完整�?*
+**8 个单�?PASS**：Noop 降级 + 真实 OTLP + http/https 前缀剥离 + shutdown 幂等 + span 父子 + W3C round-trip + TextMapCarrier 适配�?
+**Commit 2：README.md 完整�?*
 
 11 个章节：
-1. 项目介绍�? �?+ tech badges�?2. 架构（Mermaid 总览 + 时序图）
-3. 服务清单�?1 Go + 3 前端�?+ dev.md 锚链接）
+1. 项目介绍�? �?+ tech badges�?2. 架构（Mermaid 总览 + 时序图）
+3. 服务清单�?1 Go + 3 前端�?+ dev.md 锚链接）
 4. 目录结构（monorepo 完整树）
-5. 本地开发（前置 + 启动命令�?6. 跑测试（一�?+ 手动�?7. 部署（docker-compose + 端口�?+ env 注入�?8. 可观测性（zap + OTel + -healthz�?9. 贡献（commit 规范 + PR + CODEOWNERS�?10. License（MIT 示意�?11. 进一步阅读（docs/01~09 + dev.md 完整锚链接）
+5. 本地开发（前置 + 启动命令�?6. 跑测试（一�?+ 手动�?7. 部署（docker-compose + 端口�?+ env 注入�?8. 可观测性（zap + OTel + -healthz�?9. 贡献（commit 规范 + PR + CODEOWNERS�?10. License（MIT 示意�?11. 进一步阅读（docs/01~09 + dev.md 完整锚链接）
 
 **Commit 3-4：scripts/run-tests.{sh,ps1}**
 
 | 维度 | sh | ps1 |
 | :-- | :-- | :-- |
 | 平台 | Linux / macOS / WSL / Git Bash | Windows PS 5.1+ / PS Core 7+ |
-| 步骤 | 5（后�?/ admin-web / patient-miniapp / escort-app / integration）| �?|
+| 步骤 | 5（后�?/ admin-web / patient-miniapp / escort-app / integration）| �?|
 | 跳过 | `--skip-backend` / `--only=integration` | `-SkipBackend` / `-Only integration` |
 | 颜色 | ANSI `tput colors >= 8` | `[Console]::IsOutputRedirected` |
-| 缺工�?| `require` 函数 �?SKIP | `Require-Tool` 函数 �?SKIP |
+| 缺工�?| `require` 函数 �?SKIP | `Require-Tool` 函数 �?SKIP |
 
-**累计测试用例**�?
-- shared/tracing�?*8 新增**（in-memory exporter + W3C + Noop�?- 其他 shared 包：不变
-- 服务包：不变（commit1 不改业务逻辑�?- **全量回归 62 �?0 FAIL**�?1 包：shared/tracing�?
-**Plan 偏差**�?
-1. **OTel 版本 v1.32.0**：本�?Go 1.24.3，OTel v1.46+ 需 Go 1.25+；v1.32.0 �?Go 1.24 兼容最�?2. **in-memory exporter**：测试用 `sdk/trace/tracetest` 内存 exporter；生产可�?`otlptracehttp` 远程
-3. **Noop 降级**：`OTLPEndpoint == ""` 时不注册 TracerProvider，span �?IsRecording，零开销
-4. **UTF-8 BOM 修复**：PS 默认 GBK 解析，中文乱码导�?parser 失败；加 BOM 后正确识�?UTF-8
-5. **`-race` 标志�?Git Bash + Windows 下报 `0xc0000139`**：Go 1.24 race detector CGo DLL �?Windows + Git Bash 加载失败（环境限制，与脚本无关）
+**累计测试用例**�?
+- shared/tracing�?*8 新增**（in-memory exporter + W3C + Noop�?- 其他 shared 包：不变
+- 服务包：不变（commit1 不改业务逻辑�?- **全量回归 62 �?0 FAIL**�?1 包：shared/tracing�?
+**Plan 偏差**�?
+1. **OTel 版本 v1.32.0**：本�?Go 1.24.3，OTel v1.46+ 需 Go 1.25+；v1.32.0 �?Go 1.24 兼容最�?2. **in-memory exporter**：测试用 `sdk/trace/tracetest` 内存 exporter；生产可�?`otlptracehttp` 远程
+3. **Noop 降级**：`OTLPEndpoint == ""` 时不注册 TracerProvider，span �?IsRecording，零开销
+4. **UTF-8 BOM 修复**：PS 默认 GBK 解析，中文乱码导�?parser 失败；加 BOM 后正确识�?UTF-8
+5. **`-race` 标志�?Git Bash + Windows 下报 `0xc0000139`**：Go 1.24 race detector CGo DLL �?Windows + Git Bash 加载失败（环境限制，与脚本无关）
 
-**未做（留给后续）**�?
-- OTel metrics / logs SDK（spec 只要�?traces�?- Jaeger / Tempo collector 接入（`docker-compose.deploy.yml` �?collector 服务�?- **OTel �?日志关联**（middleware �?`trace_id` 注入 zap，让 `logger.FromContext` 自动�?trace�?- 生产采样策略（v1.32.0 默认 AlwaysSample；建议改 `TraceIDRatioBased(0.1)` + git sha 注入 service.version�?
-**端到�?v1.3 目标全部就位**�?
-- 11 Go 服务 + 3 前端 = 14 镜像 + 3 中间件（docker-compose.deploy.yml�?- 14 Dockerfile（distroless < 30MB + -healthz flag + HEALTHCHECK�?- 61 �?62 �?0 FAIL�?1 包：shared/tracing�?- OTel 全链路追踪（生产可接 Jaeger/Tempo�?- README 完整 + run-tests 跨平台一键脚�?- GitHub Actions CI 4 job + Pages + 仓库维护
+**未做（留给后续）**�?
+- OTel metrics / logs SDK（spec 只要�?traces�?- Jaeger / Tempo collector 接入（`docker-compose.deploy.yml` �?collector 服务�?- **OTel �?日志关联**（middleware �?`trace_id` 注入 zap，让 `logger.FromContext` 自动�?trace�?- 生产采样策略（v1.32.0 默认 AlwaysSample；建议改 `TraceIDRatioBased(0.1)` + git sha 注入 service.version�?
+**端到�?v1.3 目标全部就位**�?
+- 11 Go 服务 + 3 前端 = 14 镜像 + 3 中间件（docker-compose.deploy.yml�?- 14 Dockerfile（distroless < 30MB + -healthz flag + HEALTHCHECK�?- 61 �?62 �?0 FAIL�?1 包：shared/tracing�?- OTel 全链路追踪（生产可接 Jaeger/Tempo�?- README 完整 + run-tests 跨平台一键脚�?- GitHub Actions CI 4 job + Pages + 仓库维护
 ---
-## 27. OTel↔日志关�?+ Jaeger collector + golangci-lint v2（v1.3 生产化优化）
+## 27. OTel↔日志关�?+ Jaeger collector + golangci-lint v2（v1.3 生产化优化）
 
-**目标**：让 OTel 全链路真�?可观�?——日志带 trace_id（跳 Jaeger�? Jaeger collector 接入 + lint 升级�?
-**3 �?commit**�?
+**目标**：让 OTel 全链路真�?可观�?——日志带 trace_id（跳 Jaeger�? Jaeger collector 接入 + lint 升级�?
+**3 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :--: |
-| `2789242` | `feat(logger)` OTel↔日�?trace_id 关联�?3 files +132/-39�?| 13 |
-| `0e928e1` | `ops(jaeger)` docker-compose 接入 jaeger all-in-one�? files +99/-6�?| 2 |
-| `e26e7e2` | `chore(lint)` golangci-lint v2 配置升级 + 5 �?linter�? files +291/-12�?| 2 |
+| `2789242` | `feat(logger)` OTel↔日�?trace_id 关联�?3 files +132/-39�?| 13 |
+| `0e928e1` | `ops(jaeger)` docker-compose 接入 jaeger all-in-one�? files +99/-6�?| 2 |
+| `e26e7e2` | `chore(lint)` golangci-lint v2 配置升级 + 5 �?linter�? files +291/-12�?| 2 |
 
-**Commit 1：OTel↔日志关�?*
+**Commit 1：OTel↔日志关�?*
 
-`shared/logger/logger.go` �?`FromContext(ctx)` 增强�?
+`shared/logger/logger.go` �?`FromContext(ctx)` 增强�?
 ```go
 func FromContext(ctx context.Context) *zap.Logger {
     l := L()
     if id := TraceIDFrom(ctx); id != "" {
         l = l.With(zap.String("trace_id", id))
     }
-    // 新增：OTel SpanContext �?otel_trace_id / otel_span_id
+    // 新增：OTel SpanContext �?otel_trace_id / otel_span_id
     if sc := trace.SpanContextFromContext(ctx); sc.HasTraceID() {
         l = l.With(
             zap.String("otel_trace_id", sc.TraceID().String()),
@@ -1728,55 +1728,55 @@ func FromContext(ctx context.Context) *zap.Logger {
 }
 ```
 
-11 �?main.go 业务关键路径替换 `logger.L()` �?`logger.FromContext(ctx)`（starting / exited / stopped + wallet �?kafka consumer 4 处）�?
-**3 个新单测**：OTelSpanContext / NoSpanContext / BothTraceIDAndOTel�?
+11 �?main.go 业务关键路径替换 `logger.L()` �?`logger.FromContext(ctx)`（starting / exited / stopped + wallet �?kafka consumer 4 处）�?
+**3 个新单测**：OTelSpanContext / NoSpanContext / BothTraceIDAndOTel�?
 **Commit 2：Jaeger collector**
 
-`docker-compose.deploy.yml` �?`jaeger` 服务（jaegertracing/all-in-one:latest）：
-- ports�?6686 UI / 4317 OTLP gRPC / 4318 OTLP HTTP / 14268/14250 collector
+`docker-compose.deploy.yml` �?`jaeger` 服务（jaegertracing/all-in-one:latest）：
+- ports�?6686 UI / 4317 OTLP gRPC / 4318 OTLP HTTP / 14268/14250 collector
 - healthcheck：wget `http://localhost:16686/api/services`
 
-11 �?Go 服务 env 注入�?```
+11 �?Go 服务 env 注入�?```
 OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_SERVICE_NAME=<svc>
 ```
 
-`depends_on` 追加 `jaeger: condition: service_started`（OTel exporter 端点留空 �?Noop 降级，不强依�?Jaeger 就绪）�?
+`depends_on` 追加 `jaeger: condition: service_started`（OTel exporter 端点留空 �?Noop 降级，不强依�?Jaeger 就绪）�?
 **Commit 3：golangci-lint v2**
 
-`.golangci.yml` 升级�?`version: "2"` schema�?- 启用 11 �?linter�? 基础 + 5 新增：bodyclose / gocritic / misspell / nakedret / prealloc�?- settings：govet enable-all + gocritic tags（diagnostic/style/performance�? misspell locale=zh + nakedret max-func-lines=25 + prealloc simple+range-loops
+`.golangci.yml` 升级�?`version: "2"` schema�?- 启用 11 �?linter�? 基础 + 5 新增：bodyclose / gocritic / misspell / nakedret / prealloc�?- settings：govet enable-all + gocritic tags（diagnostic/style/performance�? misspell locale=zh + nakedret max-func-lines=25 + prealloc simple+range-loops
 - formatters：gofmt + goimports local-prefixes=github.com/growdu/doctors
-- exclusions：middleware/ + contracts/ 放宽（自动生�?+ 噪音�?
-`shared/middleware/linter_examples.go` 新增 170 行（`//go:build linter_examples` tag 隔离，CI 仅在 lint 任务启用）：11 �?linter 错误示例 vs 修正对照�?
-**累计测试用例**�?- shared/logger�? PASS（原�?6 + 新增 3�?- 其他 12 �?shared 包：不变
+- exclusions：middleware/ + contracts/ 放宽（自动生�?+ 噪音�?
+`shared/middleware/linter_examples.go` 新增 170 行（`//go:build linter_examples` tag 隔离，CI 仅在 lint 任务启用）：11 �?linter 错误示例 vs 修正对照�?
+**累计测试用例**�?- shared/logger�? PASS（原�?6 + 新增 3�?- 其他 12 �?shared 包：不变
 - 服务包：不变
-- **全量 13 shared �?+ 47 service �?= 60 �?0 FAIL**
+- **全量 13 shared �?+ 47 service �?= 60 �?0 FAIL**
 
-**Plan 偏差**�?
-1. **`build tag linter_examples`**：示例代码故意保留错误写法，�?`//go:build linter_examples` tag 避免污染生产 binary
-2. **exclusions 放宽 middleware/ + contracts/**：v1 dev 期历史代码噪音较大，避免一次性大批失败阻�?PR
-3. **Jaeger healthcheck �?wget**：jaegertracing/all-in-one 镜像默认不带 curl
-4. **Jaeger depends_on service_started**：OTel endpoint 留空退化为 Noop，不强依�?Jaeger
+**Plan 偏差**�?
+1. **`build tag linter_examples`**：示例代码故意保留错误写法，�?`//go:build linter_examples` tag 避免污染生产 binary
+2. **exclusions 放宽 middleware/ + contracts/**：v1 dev 期历史代码噪音较大，避免一次性大批失败阻�?PR
+3. **Jaeger healthcheck �?wget**：jaegertracing/all-in-one 镜像默认不带 curl
+4. **Jaeger depends_on service_started**：OTel endpoint 留空退化为 Noop，不强依�?Jaeger
 5. **OTEL env 显式声明 http/protobuf**：避免与 shared/tracing OTLP HTTP 实现 mismatch
 
-**端到端联�?v1.3 目标**�?
-- `docker compose -f docker-compose.deploy.yml up -d` �?�?18 容器�?4 服务 + 3 中间�?+ jaeger�?- 业务调用 �?zap 日志自动�?`otel_trace_id` 字段
-- 浏览器开 `http://localhost:16686` �?service �?trace �?跳到对应业务日志
-- golangci-lint v2 跑全仓库增量 PR �?历史代码不阻�?- 60 �?0 FAIL
+**端到端联�?v1.3 目标**�?
+- `docker compose -f docker-compose.deploy.yml up -d` �?�?18 容器�?4 服务 + 3 中间�?+ jaeger�?- 业务调用 �?zap 日志自动�?`otel_trace_id` 字段
+- 浏览器开 `http://localhost:16686` �?service �?trace �?跳到对应业务日志
+- golangci-lint v2 跑全仓库增量 PR �?历史代码不阻�?- 60 �?0 FAIL
 ---
 ## 28. 生产采样策略 + service.version 注入（v1.3 生产化收官）
 
-**目标**：让 OTel 配置可调——生产环境按比例采样 + 服务版本可注入（CI 注入 git sha）�?
-**2 �?commit**�?
+**目标**：让 OTel 配置可调——生产环境按比例采样 + 服务版本可注入（CI 注入 git sha）�?
+**2 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :--: |
 | `0df7d22` | `feat(tracing)` sampling strategy + service.version injection | 25+ |
 | `8c37b2b` | `ci: enable OTel sampling ratio 0.1 for go test` | 1 |
 
-**Commit 1：生产采�?+ service.version**
+**Commit 1：生产采�?+ service.version**
 
-`shared/tracing/tracing.go` 扩展�?
+`shared/tracing/tracing.go` 扩展�?
 ```go
 type Option func(*config)
 func WithSamplingRatio(ratio float64) Option
@@ -1784,127 +1784,127 @@ func WithServiceVersion(version string) Option
 func InitTracer(serviceName, otlpEndpoint string, opts ...Option) (Shutdown, error)
 ```
 
-**采样策略**�?- `ratio <= 0` �?NeverSample
-- `ratio >= 1.0` �?AlwaysSample（默认）
-- `0 < ratio < 1` �?**ParentBased(TraceIDRatioBased(ratio))**（推荐生产用：本地全采样 + 跨服务时按比例，保留链路完整�?
-**service.version 注入**：用 `semconv.ServiceVersion(cfg.serviceVersion)` 替换硬编�?"v1.0.0"�?
-`shared/config/loader.go` �?2 字段：`ServiceVersion`（默�?"dev"�? `Tracing.SamplingRatio`（默�?1.0）�?
-11 �?config yaml �?`service_version: "v1.3.0"` + `tracing.sampling_ratio: 1.0`；新�?`config/user.yaml`（user-service 之前�?yaml，config.Load("user") 会报错）�?
-11 �?main.go InitTracer 第三参数�?`WithSamplingRatio` + `WithServiceVersion`�?
-**2 个新单测 PASS**�?- `TestInitTracer_AppliesSamplingRatio`（ratio=0 �?span.IsRecording=false�?- `TestInitTracer_AppliesServiceVersion`（用 InMemoryExporter �?span �?Resource.Attributes 验证 service.version�?
-**累计测试**：tracing 10 PASS�? 既有 + 2 新增）�?
+**采样策略**�?- `ratio <= 0` �?NeverSample
+- `ratio >= 1.0` �?AlwaysSample（默认）
+- `0 < ratio < 1` �?**ParentBased(TraceIDRatioBased(ratio))**（推荐生产用：本地全采样 + 跨服务时按比例，保留链路完整�?
+**service.version 注入**：用 `semconv.ServiceVersion(cfg.serviceVersion)` 替换硬编�?"v1.0.0"�?
+`shared/config/loader.go` �?2 字段：`ServiceVersion`（默�?"dev"�? `Tracing.SamplingRatio`（默�?1.0）�?
+11 �?config yaml �?`service_version: "v1.3.0"` + `tracing.sampling_ratio: 1.0`；新�?`config/user.yaml`（user-service 之前�?yaml，config.Load("user") 会报错）�?
+11 �?main.go InitTracer 第三参数�?`WithSamplingRatio` + `WithServiceVersion`�?
+**2 个新单测 PASS**�?- `TestInitTracer_AppliesSamplingRatio`（ratio=0 �?span.IsRecording=false�?- `TestInitTracer_AppliesServiceVersion`（用 InMemoryExporter �?span �?Resource.Attributes 验证 service.version�?
+**累计测试**：tracing 10 PASS�? 既有 + 2 新增）�?
 **Commit 2：CI 0.1 采样**
 
-`.github/workflows/ci.yml` `go test` step �?env�?```yaml
+`.github/workflows/ci.yml` `go test` step �?env�?```yaml
 env:
   OTEL_TRACES_SAMPLER: parentbased_traceidratio
   OTEL_TRACES_SAMPLER_ARG: "0.1"
 ```
 
-注释：CI 默认 0.1 采样，保证链路完整又不卡 CI 性能�?
-**Plan 偏差**�?
-1. **InitTracer 签名扩展向后兼容**：`opts ...Option` 可变参数，旧调用点不传仍走默�?2. **新增 `config/user.yaml`**：user-service 之前�?yaml（task 要求"11 �?yaml"），属于 minimal-coherent-change
-3. **TestInitTracer_AppliesServiceVersion 用外�?InMemoryExporter**：`tp.Resource()` �?sdktrace 不暴露，改用 RegisterSpanProcessor �?span
-4. **OTEL_TRACES_SAMPLER env 占位**：当�?SDK（shared/tracing/tracing.go）不自动拾取 env（opts �?caller 显式注入），所以这�?env �?OTel 标准规范占位 + 文档作用；生产部署需决定�?yaml（改 11 yaml）还�?SDK �?env 拾取
+注释：CI 默认 0.1 采样，保证链路完整又不卡 CI 性能�?
+**Plan 偏差**�?
+1. **InitTracer 签名扩展向后兼容**：`opts ...Option` 可变参数，旧调用点不传仍走默�?2. **新增 `config/user.yaml`**：user-service 之前�?yaml（task 要求"11 �?yaml"），属于 minimal-coherent-change
+3. **TestInitTracer_AppliesServiceVersion 用外�?InMemoryExporter**：`tp.Resource()` �?sdktrace 不暴露，改用 RegisterSpanProcessor �?span
+4. **OTEL_TRACES_SAMPLER env 占位**：当�?SDK（shared/tracing/tracing.go）不自动拾取 env（opts �?caller 显式注入），所以这�?env �?OTel 标准规范占位 + 文档作用；生产部署需决定�?yaml（改 11 yaml）还�?SDK �?env 拾取
 
-**未做**�?
-- OTEL_TRACES_SAMPLER env 自动拾取（init tracer 时读 env 覆盖 cfg）—�?task 没要求，避免引入隐式行为
-- service_version CI build-arg 注入（`-ldflags "-X main.version=${GITHUB_SHA}"`）—�?task 没要�?- OTEL_TRACES_SAMPLER env 值校对（�?OTel 标准应是 `parentbased_traceidratio` + `0.1` 互换）—�?task 字面值优�?
-**端到�?v1.3 收官**�?
+**未做**�?
+- OTEL_TRACES_SAMPLER env 自动拾取（init tracer 时读 env 覆盖 cfg）—�?task 没要求，避免引入隐式行为
+- service_version CI build-arg 注入（`-ldflags "-X main.version=${GITHUB_SHA}"`）—�?task 没要�?- OTEL_TRACES_SAMPLER env 值校对（�?OTel 标准应是 `parentbased_traceidratio` + `0.1` 互换）—�?task 字面值优�?
+**端到�?v1.3 收官**�?
 ```
 docker compose -f docker-compose.deploy.yml up -d
-  �?18 容器�?4 服务 + 3 中间�?+ jaeger�?  �?业务调用 �?0.1 比例采样 �?OTel exporter �?Jaeger :16686
-  �?zap 日志�?otel_trace_id �?一键跳 Jaeger trace
-  �?60 �?0 FAIL + golangci-lint v2 + 跨平台一键测试脚�?```
+  �?18 容器�?4 服务 + 3 中间�?+ jaeger�?  �?业务调用 �?0.1 比例采样 �?OTel exporter �?Jaeger :16686
+  �?zap 日志�?otel_trace_id �?一键跳 Jaeger trace
+  �?60 �?0 FAIL + golangci-lint v2 + 跨平台一键测试脚�?```
 
 ### 累计交付
 
-| 维度 | 状�?|
+| 维度 | 状�?|
 | :-- | :--: |
-| 后端 11 Go 服务 | �?完整 HTTP �?+ OTel + 采样 + 版本 |
-| 前端 3 �?| �?完整骨架 + 业务页（admin 22 路由 / patient 8 核心 / escort 8 核心）|
-| 部署 | �?14 Dockerfile（distroless + -healthz�? docker-compose.deploy.yml |
-| CI | �?4 job matrix + Pages + 仓库维护 + 0.1 采样 |
-| 可观测�?| �?OTel 全链�?+ zap 日志关联 + Jaeger |
-| 测试工具 | �?跨平台一键脚�?+ golangci-lint v2 |
-| 60 包测�?| �?0 FAIL |
-| 文档 | �?dev.md 28 章节 + README + REVIEW |
+| 后端 11 Go 服务 | �?完整 HTTP �?+ OTel + 采样 + 版本 |
+| 前端 3 �?| �?完整骨架 + 业务页（admin 22 路由 / patient 8 核心 / escort 8 核心）|
+| 部署 | �?14 Dockerfile（distroless + -healthz�? docker-compose.deploy.yml |
+| CI | �?4 job matrix + Pages + 仓库维护 + 0.1 采样 |
+| 可观测�?| �?OTel 全链�?+ zap 日志关联 + Jaeger |
+| 测试工具 | �?跨平台一键脚�?+ golangci-lint v2 |
+| 60 包测�?| �?0 FAIL |
+| 文档 | �?dev.md 28 章节 + README + REVIEW |
 
-**v1.3 全部交付完成**�?
+**v1.3 全部交付完成**�?
 ---
 ## 29. shared/metrics Prometheus 接入 + 11 服务 /metrics 路由（生产监控）
 
-**目标**：补�?Prometheus 监控基础设施—�? 个默认业务指�?+ 11 个服�?/metrics 路由 + 中间件自动埋�?+ Prometheus scrape 配置文档�?
-**2 �?commit**�?
+**目标**：补�?Prometheus 监控基础设施—�? 个默认业务指�?+ 11 个服�?/metrics 路由 + 中间件自动埋�?+ Prometheus scrape 配置文档�?
+**2 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :--: |
 | `336af58` | `feat(metrics): shared/metrics Prometheus 接入 + 6 业务指标` | 4（metrics.go + test + README + go.mod）|
 | `7e5e799` | `chore(deploy): 11 服务 /metrics 路由 + middleware 接入 + Prometheus 文档` | 11 router + 11 main + 11 yaml + middleware + README |
 
-**Commit 1：shared/metrics �?*
+**Commit 1：shared/metrics �?*
 
 | 指标 | 类型 | Labels |
 | :-- | :-- | :-- |
 | `http_requests_total` | CounterVec | method, path, status (2xx/3xx/4xx/5xx) |
-| `http_request_duration_seconds` | HistogramVec | method, path �?buckets 5/10/25/50/100/250/500/1000/2500/5000 ms |
+| `http_request_duration_seconds` | HistogramVec | method, path �?buckets 5/10/25/50/100/250/500/1000/2500/5000 ms |
 | `db_pool_acquired_connections` | GaugeVec | pool |
 | `db_pool_idle_connections` | GaugeVec | pool |
 | `db_pool_total_connections` | GaugeVec | pool |
 | `kafka_consumer_lag` | GaugeVec | topic, group |
 | `service_info` | Gauge (=1) | service, version, go_version |
 
-**核心 API**�?- `metrics.Handler() http.Handler` �?返回 promhttp.Handler()（K8s ServiceMonitor 抓取�?- `metrics.Middleware(next http.Handler) http.Handler` �?自动�?http_requests_total + http_request_duration_seconds
-- `metrics.GinMiddleware()` �?gin 适配�?- `metrics.InitMetrics(serviceName, version)` �?初始化全局指标 + 启动 30s 收集 DB pool 协程
-- `metrics.WithDBStatProvider(func() []DBPoolStat)` �?注入 DB 池统�?- `metrics.WithKafkaConsumerLag(topic, group, lag)` �?Kafka 消费者调用写 lag
+**核心 API**�?- `metrics.Handler() http.Handler` �?返回 promhttp.Handler()（K8s ServiceMonitor 抓取�?- `metrics.Middleware(next http.Handler) http.Handler` �?自动�?http_requests_total + http_request_duration_seconds
+- `metrics.GinMiddleware()` �?gin 适配�?- `metrics.InitMetrics(serviceName, version)` �?初始化全局指标 + 启动 30s 收集 DB pool 协程
+- `metrics.WithDBStatProvider(func() []DBPoolStat)` �?注入 DB 池统�?- `metrics.WithKafkaConsumerLag(topic, group, lag)` �?Kafka 消费者调用写 lag
 
-**9 个单元测�?PASS**：指标注�?/ Handler / Middleware / DB Stat / Kafka Lag / 0 值边界�?
-**Commit 2�?1 服务接入**
+**9 个单元测�?PASS**：指标注�?/ Handler / Middleware / DB Stat / Kafka Lag / 0 值边界�?
+**Commit 2�?1 服务接入**
 
-- `shared/middleware/metrics.go` 新增：`Metrics()` 返回 gin.HandlerFunc（语义别�?+ 2 个测试）
-- `shared/config/loader.go`：`Metrics{Enabled, ServiceName}` 段（默认 enabled=true�?- **11 router 改动**：`r.Use(sharedmw.Metrics())`（在 Auth 前保�?4xx 也计数）+ `r.GET("/metrics", gin.WrapH(metrics.Handler()))`
+- `shared/middleware/metrics.go` 新增：`Metrics()` 返回 gin.HandlerFunc（语义别�?+ 2 个测试）
+- `shared/config/loader.go`：`Metrics{Enabled, ServiceName}` 段（默认 enabled=true�?- **11 router 改动**：`r.Use(sharedmw.Metrics())`（在 Auth 前保�?4xx 也计数）+ `r.GET("/metrics", gin.WrapH(metrics.Handler()))`
 - **11 main.go 改动**：`metrics.InitMetrics(<svc>, cfg.ServiceVersion)` + wallet 注入 `WithDBStatProvider`
 - **11 yaml 改动**：`metrics: enabled: true, service_name: <svc>-service`
-- README §8.4�? 指标�?+ Prometheus scrape_config YAML�?1 targets�? env 覆盖�?
-**累计测试**�?0 �?62 �?0 FAIL�?metrics 9 + middleware 2）�?
-**Plan 偏差**�?
-1. **Metrics 中间件挂载位�?*：在 `router.New()` �?`r.Use(sharedmw.Metrics())`，避免改 11 �?server.go
-2. **DB pool StatProvider 接入范围**：仅 wallet 注入（pgxpool 已接），其余 10 �?pool=nil �?InitMetrics 不启�?30s 协程；按"已接的接入，未接的不�?实现
-3. **shared/config �?Metrics �?*：viper 不解析新字段会丢默认值；同时�?`SetDefault("metrics.enabled", true)` 保证语义
-4. **`-race` 标志�?Windows �?`0xc0000139`**：Go 1.24 race detector CGo DLL �?Windows + Git Bash 加载失败（环境限制），用 `go test -count=1` 替代通过
+- README §8.4�? 指标�?+ Prometheus scrape_config YAML�?1 targets�? env 覆盖�?
+**累计测试**�?0 �?62 �?0 FAIL�?metrics 9 + middleware 2）�?
+**Plan 偏差**�?
+1. **Metrics 中间件挂载位�?*：在 `router.New()` �?`r.Use(sharedmw.Metrics())`，避免改 11 �?server.go
+2. **DB pool StatProvider 接入范围**：仅 wallet 注入（pgxpool 已接），其余 10 �?pool=nil �?InitMetrics 不启�?30s 协程；按"已接的接入，未接的不�?实现
+3. **shared/config �?Metrics �?*：viper 不解析新字段会丢默认值；同时�?`SetDefault("metrics.enabled", true)` 保证语义
+4. **`-race` 标志�?Windows �?`0xc0000139`**：Go 1.24 race detector CGo DLL �?Windows + Git Bash 加载失败（环境限制），用 `go test -count=1` 替代通过
 
-**端到�?v1.3 收官**�?
+**端到�?v1.3 收官**�?
 ```
 docker compose -f docker-compose.deploy.yml up -d
-  �?18 容器 + Prometheus + Grafana
-  �?Prometheus �?:8080/metrics�?1 �?target�?  �?http_requests_total{status="5xx"} 告警 + http_request_duration_seconds{quantile="0.99"} SLO 监控
-  �?db_pool_* 预警连接池耗尽 + kafka_consumer_lag 监控积压
+  �?18 容器 + Prometheus + Grafana
+  �?Prometheus �?:8080/metrics�?1 �?target�?  �?http_requests_total{status="5xx"} 告警 + http_request_duration_seconds{quantile="0.99"} SLO 监控
+  �?db_pool_* 预警连接池耗尽 + kafka_consumer_lag 监控积压
 ```
 
 ### 累计交付（v1.3 + 生产化）
 
-| 维度 | 状�?|
+| 维度 | 状�?|
 | :-- | :--: |
-| 后端 11 Go 服务 | �?完整 HTTP + OTel + 采样 + 指标 + 监控 |
-| 前端 3 �?| �?完整骨架 + 业务�?|
-| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
-| CI | �?4 job + Pages + 仓库维护 |
-| 可观测�?| �?OTel + Jaeger + Prometheus /metrics + 跨服�?trace |
-| 测试 | �?62 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
-| 文档 | �?dev.md 29 章节 + README + REVIEW |
+| 后端 11 Go 服务 | �?完整 HTTP + OTel + 采样 + 指标 + 监控 |
+| 前端 3 �?| �?完整骨架 + 业务�?|
+| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
+| CI | �?4 job + Pages + 仓库维护 |
+| 可观测�?| �?OTel + Jaeger + Prometheus /metrics + 跨服�?trace |
+| 测试 | �?62 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
+| 文档 | �?dev.md 29 章节 + README + REVIEW |
 ---
 ## 30. middleware Recovery + RateLimit + 11 服务优雅停机（生产稳定性）
 
-**目标**：补全生产级稳定性——panic 不拖垮进�?+ 限流防刷 + 优雅停机释放资源�?
-**3 �?commit**�?
+**目标**：补全生产级稳定性——panic 不拖垮进�?+ 限流防刷 + 优雅停机释放资源�?
+**3 �?commit**�?
 | commit | 内容 | 文件 |
 | :-- | :-- | :--: |
 | `b2682b9` | `feat(middleware)` shared/middleware.Recovery panic 恢复 + httpx.TraceID | 2 |
 | `2583088` | `feat(middleware)` shared/middleware.RateLimit IP token-bucket 限流 | 2 |
 | `bac341e` | `feat(middleware)` 11 服务接入 + Server 优雅停机 (15s + ShutdownHook) | 27 |
 
-**Commit 1：Recovery 中间�?*
+**Commit 1：Recovery 中间�?*
 
-`shared/middleware/recovery.go`�?30 行）�?
+`shared/middleware/recovery.go`�?30 行）�?
 ```go
 func Recovery(opts ...RecoveryOption) gin.HandlerFunc
 type RecoveryOption func(*recoveryConfig)
@@ -1912,13 +1912,13 @@ func WithRecoveryLogger(*zap.Logger) RecoveryOption
 func WithRecoveryStackTrace(bool) RecoveryOption
 ```
 
-- 捕获 panic �?记录 stack trace �?返回 500 + 业务�?`errs.CodeInternal (500000)`
-- 不再�?panic；不让进程崩�?- 双层 defer + recover：业�?panic 捕获后，写出 JSON 时若 c.Writer 损坏仍可�?panic，第二层 defer 兜底
+- 捕获 panic �?记录 stack trace �?返回 500 + 业务�?`errs.CodeInternal (500000)`
+- 不再�?panic；不让进程崩�?- 双层 defer + recover：业�?panic 捕获后，写出 JSON 时若 c.Writer 损坏仍可�?panic，第二层 defer 兜底
 
-**4 个测�?PASS**：panic�?00 / 多次 panic 不影响后续请�?/ stack trace 日志 / 关闭 stack 配置�?
+**4 个测�?PASS**：panic�?00 / 多次 panic 不影响后续请�?/ stack trace 日志 / 关闭 stack 配置�?
 **Commit 2：RateLimit 限流**
 
-`shared/middleware/ratelimit.go`�?04 行）�?
+`shared/middleware/ratelimit.go`�?04 行）�?
 ```go
 func RateLimit(opts ...RateLimitOption) gin.HandlerFunc
 type RateLimitOption func(*rateLimitConfig)
@@ -1928,54 +1928,54 @@ func WithRateLimitKeyFunc(fn func(*gin.Context) string) RateLimitOption
 ```
 
 - 使用 `golang.org/x/time/rate` token bucket
-- 每个 IP 独立限流（默�?key = `c.ClientIP()`�?- 超限返回 HTTP 429 + 业务�?`errs.CodeRateLimit (13001)`
-- 防御性钳值：perSecond / burst �?0 钳到 1
+- 每个 IP 独立限流（默�?key = `c.ClientIP()`�?- 超限返回 HTTP 429 + 业务�?`errs.CodeRateLimit (13001)`
+- 防御性钳值：perSecond / burst �?0 钳到 1
 
-**6 个测�?PASS**（任务要�?3 个，�?3 个增量覆盖）：burst+block / 不同 IP 独立 / rate=0.1 burst=2 / HTTP 429 / 并发安全 / 自定�?key�?
-**Commit 3�?1 服务接入 + 优雅停机**
+**6 个测�?PASS**（任务要�?3 个，�?3 个增量覆盖）：burst+block / 不同 IP 独立 / rate=0.1 burst=2 / HTTP 429 / 并发安全 / 自定�?key�?
+**Commit 3�?1 服务接入 + 优雅停机**
 
 **11 router 改动**（统一挂载顺序）：
 ```go
-r.Use(sharedmw.Metrics())         // 最外层：埋�?r.Use(sharedmw.Recovery())        // panic 恢复
+r.Use(sharedmw.Metrics())         // 最外层：埋�?r.Use(sharedmw.Recovery())        // panic 恢复
 r.Use(sharedmw.RateLimit(...))    // 限流
 r.Use(sharedmw.Auth(...))          // 鉴权
 ```
 
 **11 server 改动**（统一优雅停机 + 资源释放钩子）：
-- `shutdownTimeout` �?10s �?**15s**（DB / Kafka / OTel flush 需要）
+- `shutdownTimeout` �?10s �?**15s**（DB / Kafka / OTel flush 需要）
 - 新增 `RegisterShutdownHook(name string, fn func() error)` 方法
-- 新增 `runShutdownHooks()` 私有方法：HTTP Shutdown 完成后按 **LIFO** 顺序调用所�?hook
-- 每个 hook 独立 `defer recover()`：单�?hook panic 不阻断后续释�?- 日志记录 hook �?+ 错误 / panic �?
-**2 个新单测**：`auth/server_test.go` �?`TestServer_ShutdownHooksRunInLIFO` + `TestServer_ShutdownHookNilSkipped`�?
-**新增 shared/middleware/README.md**�?37 行）：中间件列表、推荐挂载顺序、使用样例�?
-**累计测试**：shared/middleware **20 PASS**�?10�? Recovery + 6 RateLimit + 2 Server ShutdownHook）�?
-**Plan 偏差**�?
-1. **Recovery 业务�?*：任务要�?500 + 业务�?`500001 internal_error`"，但 `errs.CodeInternal = 500000`、`CodeUnavailable = 500001`（语�?服务暂时不可�?）。使�?`errs.CodeInternal (500000)`（语�?服务器内部错�?�?panic 完全匹配�?2. **RateLimit HTTP 429**：任务要�?超限 429"，采�?HTTP 429 + body.code 13001（贴近生�?ingress 识别�?3. **RateLimit 测试数量**：任务要�?3 个，实际交付 6 �?4. **Server hook 抽象**：没抽离�?shared/server，保持各服务独立 Server struct
+- 新增 `runShutdownHooks()` 私有方法：HTTP Shutdown 完成后按 **LIFO** 顺序调用所�?hook
+- 每个 hook 独立 `defer recover()`：单�?hook panic 不阻断后续释�?- 日志记录 hook �?+ 错误 / panic �?
+**2 个新单测**：`auth/server_test.go` �?`TestServer_ShutdownHooksRunInLIFO` + `TestServer_ShutdownHookNilSkipped`�?
+**新增 shared/middleware/README.md**�?37 行）：中间件列表、推荐挂载顺序、使用样例�?
+**累计测试**：shared/middleware **20 PASS**�?10�? Recovery + 6 RateLimit + 2 Server ShutdownHook）�?
+**Plan 偏差**�?
+1. **Recovery 业务�?*：任务要�?500 + 业务�?`500001 internal_error`"，但 `errs.CodeInternal = 500000`、`CodeUnavailable = 500001`（语�?服务暂时不可�?）。使�?`errs.CodeInternal (500000)`（语�?服务器内部错�?�?panic 完全匹配�?2. **RateLimit HTTP 429**：任务要�?超限 429"，采�?HTTP 429 + body.code 13001（贴近生�?ingress 识别�?3. **RateLimit 测试数量**：任务要�?3 个，实际交付 6 �?4. **Server hook 抽象**：没抽离�?shared/server，保持各服务独立 Server struct
 
-**端到�?v1.3 收官（生产级别）**�?
+**端到�?v1.3 收官（生产级别）**�?
 ```
 docker compose -f docker-compose.deploy.yml up -d
-  �?18 容器启动
-  �?业务调用 �?RateLimit 100/s IP + Recovery 兜底 + Metrics 埋点 + OTel trace
-  �?SIGTERM �?Server.Shutdown(15s) �?runShutdownHooks() LIFO 释放
-  ├─ otel-tracer flush（避免丢 span�?  ├─ kafka producer close
+  �?18 容器启动
+  �?业务调用 �?RateLimit 100/s IP + Recovery 兜底 + Metrics 埋点 + OTel trace
+  �?SIGTERM �?Server.Shutdown(15s) �?runShutdownHooks() LIFO 释放
+  ├─ otel-tracer flush（避免丢 span�?  ├─ kafka producer close
   ├─ db pool close
   └─ metrics collector stop
-  �?62 �?0 FAIL + 跨平台测试脚�?+ Prometheus /metrics + Jaeger trace
+  �?62 �?0 FAIL + 跨平台测试脚�?+ Prometheus /metrics + Jaeger trace
 ```
 
 ### 累计交付（v1.3 收官 + 生产化）
 
-| 维度 | 状�?|
+| 维度 | 状�?|
 | :-- | :--: |
-| 后端 11 Go 服务 | �?完整 HTTP + OTel + 采样 + Prometheus /metrics + Recovery + RateLimit + 优雅停机 |
-| 前端 3 �?| �?完整骨架 + 业务�?|
-| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
-| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
-| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 |
-| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) |
-| 测试 | �?62 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
-| 文档 | �?dev.md 30 章节 + README + REVIEW |
+| 后端 11 Go 服务 | �?完整 HTTP + OTel + 采样 + Prometheus /metrics + Recovery + RateLimit + 优雅停机 |
+| 前端 3 �?| �?完整骨架 + 业务�?|
+| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
+| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
+| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 |
+| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) |
+| 测试 | �?62 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
+| 文档 | �?dev.md 30 章节 + README + REVIEW |
 ---
 
 ## 31. §31 11 服务真实 PG 接入（v1.4）
@@ -2093,74 +2093,74 @@ docker compose -f docker-compose.deploy.yml up -d
 | 稳定性 | ✅ Recovery + RateLimit + 优雅停机 (15s + LIFO hooks) |
 | 测试 | ✅ 62 包 0 FAIL + 跨平台一键脚本 + golangci-lint v2 |
 | 文档 | ✅ dev.md 31 章节 + README + REVIEW |---
-## 31. 11 服务真实 PG 接入（v1.3 �?v1.4 核心生产化）
+## 31. 11 服务真实 PG 接入（v1.3 �?v1.4 核心生产化）
 
-**目标**：把 11 个服�?main.go 中占位的 `nilXxxRepo` 全部替换为真�?`shareddb.NewPool` + `repo.New*Repo(pool)`——DSN 缺失时降级为 nilRepo + warn log（保�?v1.0 dev 模式）�?
-**13 �?commit**�? shared + 11 services + 1 docs）：
+**目标**：把 11 个服�?main.go 中占位的 `nilXxxRepo` 全部替换为真�?`shareddb.NewPool` + `repo.New*Repo(pool)`——DSN 缺失时降级为 nilRepo + warn log（保�?v1.0 dev 模式）�?
+**13 �?commit**�? shared + 11 services + 1 docs）：
 
 | commit | 内容 | 关键改动 |
 | :-- | :-- | :-- |
-| `6cb7c6b` | `feat(db)` shared/db.Config 补齐 | ConnectTimeout / HealthCheckPeriod / MaxConnLifetime / MaxConnIdleTime 默认�?+ NewPool 透传 |
+| `6cb7c6b` | `feat(db)` shared/db.Config 补齐 | ConnectTimeout / HealthCheckPeriod / MaxConnLifetime / MaxConnIdleTime 默认�?+ NewPool 透传 |
 | `9440210` | `feat(auth)` auth main | `shareddb.NewPool` + userRepoAdapter + nilUserRepo + 2 shutdown hooks |
 | `e886c8a` | `feat(order)` order main | `repo.NewOrderRepo(pool)` + 4 shutdown hooks（otel-tracer / db-pool / kafka-publisher / redis-locker）|
-| `65238ce` | `feat(match)` match main | �?consumer.New(order.created) + goroutine 消费 + 2 shutdown hooks |
+| `65238ce` | `feat(match)` match main | �?consumer.New(order.created) + goroutine 消费 + 2 shutdown hooks |
 | `8415392` | `feat(message)` message main | in-memory `memoryRepo`（按 orderID 分桶 + atomic ID + 时间正序 + limit/offset）|
-| `cf21549` | `feat(payment)` payment main | `refund.NewRepo(pool)` 签名预留 + MemoryRepo 实现（v1 in-memory�? 新建 `refund/repo.go` |
+| `cf21549` | `feat(payment)` payment main | `refund.NewRepo(pool)` 签名预留 + MemoryRepo 实现（v1 in-memory�? 新建 `refund/repo.go` |
 | `63f656b` | `feat(review)` review main | in-memory memoryRepo（orderID 唯一 + List 过滤 + 时间倒序）|
-| `cb817d9` | `feat(sos)` sos main | in-memory memoryRepo（SOS 自增 + 5min 去重 + List 过滤�? activeLookup 占位 |
-| `4a2732f` | `feat(user)` user main | 5 张表仓储（address / coupon / hospital / pkg / virtualnumber�? DSN 缺失降级 + 5 �?nil 占位 |
-| `20bc67a` | `feat(escort)` escort main | 4 套仓储（profile/qualification/training/availability�? 新建 `service/repo.go`（v1 in-memory）|
+| `cb817d9` | `feat(sos)` sos main | in-memory memoryRepo（SOS 自增 + 5min 去重 + List 过滤�? activeLookup 占位 |
+| `4a2732f` | `feat(user)` user main | 5 张表仓储（address / coupon / hospital / pkg / virtualnumber�? DSN 缺失降级 + 5 �?nil 占位 |
+| `20bc67a` | `feat(escort)` escort main | 4 套仓储（profile/qualification/training/availability�? 新建 `service/repo.go`（v1 in-memory）|
 | `1ec607e` | `feat(wallet)` wallet main | `shareddb.NewPool` 替代 `pgxpool.New` + 优雅停机 hook 替代 defer Close |
 | `b345e6b` | `feat(admin)` admin main | `repo.NewWorkOrderRepo(pool) + repo.NewReportsRepo(pool)` + 3 shutdown hooks |
 | `d5b861f` | `chore(docs)` dev.md §31 11 服务真实 PG 接入记录 | 8 子节 |
 
-**关键设计�? 步公共装配模式）**�?
-1. `buildPool(cfg)` �?`shareddb.NewPool` + DSN 缺失返回 `(nil, nil)` 降级
-2. `repo.New*Repo(pool)`（或 nil 占位�?3. `metrics.InitMetrics(<svc>, cfg.ServiceVersion)` + `metrics.WithDBStatProvider(...)`
+**关键设计�? 步公共装配模式）**�?
+1. `buildPool(cfg)` �?`shareddb.NewPool` + DSN 缺失返回 `(nil, nil)` 降级
+2. `repo.New*Repo(pool)`（或 nil 占位�?3. `metrics.InitMetrics(<svc>, cfg.ServiceVersion)` + `metrics.WithDBStatProvider(...)`
 4. `tracing.InitTracer(<svc>, cfg.Tracing.OTLPEndpoint, ...)`
-5. `srv.RegisterShutdownHook("otel-tracer", ...)` + `("db-pool", ...)` + 服务�?hooks
+5. `srv.RegisterShutdownHook("otel-tracer", ...)` + `("db-pool", ...)` + 服务�?hooks
 6. `srv.RegisterShutdownHook("kafka-producer/consumer", ...)`
-7. 优雅 SIGTERM �?15s 超时 �?LIFO 释放
+7. 优雅 SIGTERM �?15s 超时 �?LIFO 释放
 
-**累计测试**�?1 �?0 FAIL�?1�?1 个新�?cmd 测试包）
+**累计测试**�?1 �?0 FAIL�?1�?1 个新�?cmd 测试包）
 
-**Plan 偏差**�?
-1. **auth.service.UserRepo 接口�?repo.UserRepo 签名不一�?*：在 main.go 内联 `userRepoAdapter` 字段映射
-2. **payment 没有 `refund.NewRepo`**：新�?`payment/internal/refund/repo.go`（v1 in-memory，签�?`NewRepo(pool any)`�?3. **escort 没有 `service.NewProfileRepo`**：新�?`escort/internal/service/repo.go`（v1 in-memory�?4. **wallet 早已�?PG**：本轮仅做对齐（`shareddb.NewPool` + shutdown hook�?5. **message / review / sos 简化为 in-memory**：用同一�?`sync.RWMutex + atomic.ID + map` 模板
-6. **admin.kafka-publisher hook**：用 `func() error` 直接传；`pool.Close()` 包装�?`func() error`
-7. **5 张用户表 nil 占位**：每张表独立 `nil*Repo` 严格匹配各子�?`Repository` 接口
+**Plan 偏差**�?
+1. **auth.service.UserRepo 接口�?repo.UserRepo 签名不一�?*：在 main.go 内联 `userRepoAdapter` 字段映射
+2. **payment 没有 `refund.NewRepo`**：新�?`payment/internal/refund/repo.go`（v1 in-memory，签�?`NewRepo(pool any)`�?3. **escort 没有 `service.NewProfileRepo`**：新�?`escort/internal/service/repo.go`（v1 in-memory�?4. **wallet 早已�?PG**：本轮仅做对齐（`shareddb.NewPool` + shutdown hook�?5. **message / review / sos 简化为 in-memory**：用同一�?`sync.RWMutex + atomic.ID + map` 模板
+6. **admin.kafka-publisher hook**：用 `func() error` 直接传；`pool.Close()` 包装�?`func() error`
+7. **5 张用户表 nil 占位**：每张表独立 `nil*Repo` 严格匹配各子�?`Repository` 接口
 
-**未做**�?
-- docker build / docker compose up（按要求跳过�?- v2 PG 真接入：payment.refund / escort.service 仍是 in-memory；v2 �?PG 时只�?repo 内部实现
-- 集成测试（`//go:build integration`）：需�?docker-compose �?PG
+**未做**�?
+- docker build / docker compose up（按要求跳过�?- v2 PG 真接入：payment.refund / escort.service 仍是 in-memory；v2 �?PG 时只�?repo 内部实现
+- 集成测试（`//go:build integration`）：需�?docker-compose �?PG
 
-**端到�?v1.4 收官**�?
+**端到�?v1.4 收官**�?
 ```
 docker compose -f docker-compose.deploy.yml up -d
-  �?18 容器启动
-  ├─ postgres 接收 shareddb.NewPool �?11 服务连接
-  ├─ kafka 接收 6 个服�?publisher / consumer
-  ├─ redis 接收 2 个服务（order locker + future 缓存�?  └─ jaeger 接收 OTel exporter
-  �?业务调用 �?真实 PG �?�?�?OrderCompletedEvent �?wallet scanner 1 分钟扫到 �?T+7 释放
-  �?SIGTERM �?Server.Shutdown(15s) �?LIFO hooks 释放
+  �?18 容器启动
+  ├─ postgres 接收 shareddb.NewPool �?11 服务连接
+  ├─ kafka 接收 6 个服�?publisher / consumer
+  ├─ redis 接收 2 个服务（order locker + future 缓存�?  └─ jaeger 接收 OTel exporter
+  �?业务调用 �?真实 PG �?�?�?OrderCompletedEvent �?wallet scanner 1 分钟扫到 �?T+7 释放
+  �?SIGTERM �?Server.Shutdown(15s) �?LIFO hooks 释放
   ├─ otel-tracer flush
   ├─ db-pool close
   ├─ kafka-producer close
   └─ kafka-consumer reader close
-  �?71 �?0 FAIL + Prometheus /metrics + Jaeger trace
+  �?71 �?0 FAIL + Prometheus /metrics + Jaeger trace
 ```
 
-### 累计交付（v1.4 收官�?
-| 维度 | 状�?|
+### 累计交付（v1.4 收官�?
+| 维度 | 状�?|
 | :-- | :--: |
-| 后端 11 Go 服务 | �?真实 PG 接入 + 完整 HTTP + OTel + 采样 + 指标 + Recovery + RateLimit + 优雅停机 |
-| 前端 3 �?| �?完整骨架 + 业务�?|
-| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
-| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
-| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 |
-| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
-| 测试 | �?71 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
-| 文档 | �?dev.md 31 章节 + README + REVIEW |
+| 后端 11 Go 服务 | �?真实 PG 接入 + 完整 HTTP + OTel + 采样 + 指标 + Recovery + RateLimit + 优雅停机 |
+| 前端 3 �?| �?完整骨架 + 业务�?|
+| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
+| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
+| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 |
+| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
+| 测试 | �?71 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
+| 文档 | �?dev.md 31 章节 + README + REVIEW |
 
 
 ---
@@ -2296,25 +2296,25 @@ docker compose -f docker-compose.deploy.yml up -d
 ---
 ## 32. 11 服务真实 Kafka producer/consumer 接入（v1.4 事件流闭环）
 
-**目标**：把 11 个服�?main.go 中占位的 `nilPublisher` / `NopPublisher` 全部替换为真�?Kafka publisher——Brokers 缺失时降级为 NopPublisher + warn log（保�?v1.0 dev 模式）�?
-**12 �?commit**�? auth 确认 + 9 publisher 接入 + 1 wallet consumer 改�?+ 1 admin 重构 + 1 docs）：
+**目标**：把 11 个服�?main.go 中占位的 `nilPublisher` / `NopPublisher` 全部替换为真�?Kafka publisher——Brokers 缺失时降级为 NopPublisher + warn log（保�?v1.0 dev 模式）�?
+**12 �?commit**�? auth 确认 + 9 publisher 接入 + 1 wallet consumer 改�?+ 1 admin 重构 + 1 docs）：
 
 | commit | 内容 | 关键改动 |
 | :-- | :-- | :-- |
-| `3b11093` | `feat(auth)` 确认 auth-service 不发 Kafka（纯 JWT�?| 注释 + TestAuth_NoKafkaPublisher |
-| `9789ae4` | `feat(order)` buildPublisher �?2 单测（空 / 非空 Brokers�?| TestBuildPublisher_EmptyBrokersReturnsNop + Kafka |
-| `e781428` | `feat(match)` consumer 装配�?TestMatch_KafkaConsumerConfigGating | cfg 解析契约 + groupID 兜底 |
+| `3b11093` | `feat(auth)` 确认 auth-service 不发 Kafka（纯 JWT�?| 注释 + TestAuth_NoKafkaPublisher |
+| `9789ae4` | `feat(order)` buildPublisher �?2 单测（空 / 非空 Brokers�?| TestBuildPublisher_EmptyBrokersReturnsNop + Kafka |
+| `e781428` | `feat(match)` consumer 装配�?TestMatch_KafkaConsumerConfigGating | cfg 解析契约 + groupID 兜底 |
 | `20ccc0e` | `feat(message)` 接入 kafkapublisher + buildPublisher + shutdown hook | 新建 kafkapublisher 包（TopicMessageSent）|
-| `19a70ca` | `feat(payment)` 接入 kafkapublisher（completed/refunded�? shutdown hook | 新建 kafkapublisher �?|
-| `ada49da` | `feat(review)` 接入 kafkapublisher（TopicOrderReviewed�? shutdown hook | 新建 kafkapublisher �?|
-| `e22177d` | `feat(sos)` 接入 kafkapublisher（TopicSOSRaised�? shutdown hook | 新建 kafkapublisher �?|
-| `b563f34` | `feat(user)` virtualnumber 接入 kafkapublisher + shutdown hook | 新建 kafkapublisher �?+ Service �?Publisher 接口 |
+| `19a70ca` | `feat(payment)` 接入 kafkapublisher（completed/refunded�? shutdown hook | 新建 kafkapublisher �?|
+| `ada49da` | `feat(review)` 接入 kafkapublisher（TopicOrderReviewed�? shutdown hook | 新建 kafkapublisher �?|
+| `e22177d` | `feat(sos)` 接入 kafkapublisher（TopicSOSRaised�? shutdown hook | 新建 kafkapublisher �?|
+| `b563f34` | `feat(user)` virtualnumber 接入 kafkapublisher + shutdown hook | 新建 kafkapublisher �?+ Service �?Publisher 接口 |
 | `f40dc42` | `feat(escort)` 接入 kafkapublisher + buildPublisher + shutdown hook | 新建 kafkapublisher 包（available/unavailable）|
 | `739ae93` | `feat(wallet)` consumer 改用 shared/kafka.NewReader | 统一校验 + TestConsumeKafka |
-| `b92996c` | `feat(admin)` buildPublisher 重构为函�?+ 2 单测 | 函数式封装，Brokers �?�?NopPublisher + nil kafkaPub |
+| `b92996c` | `feat(admin)` buildPublisher 重构为函�?+ 2 单测 | 函数式封装，Brokers �?�?NopPublisher + nil kafkaPub |
 | `de031af` | `chore(docs)` dev.md §32 11 服务真实 Kafka 接入记录 | 7 子节 |
 
-**关键设计（公共模式）**�?
+**关键设计（公共模式）**�?
 ```go
 func buildPublisher(cfg *config.Config) (service.Publisher, *events.KafkaPublisher, error) {
     if len(cfg.Kafka.Brokers) == 0 {
@@ -2333,136 +2333,136 @@ if kafkaPub != nil {
 }
 ```
 
-**7 个新�?kafkapublisher �?*（message / payment / review / sos / user-virtualnumber / escort / 共用 events）：
+**7 个新�?kafkapublisher �?*（message / payment / review / sos / user-virtualnumber / escort / 共用 events）：
 - 构造：`kafkapublisher.New(brokers, topic)` 返回 `Publisher` 接口
 - Close：写 grace shutdown hook
 - 测试：cfg 解析 + nil safety + topic 正确
 
-**累计测试**�?0 �?0 FAIL（基�?71 �?+9 包：6 �?kafkapublisher + 3 个服�?main_test 新增�?
-**Plan 偏差**�?
-1. **order.events.KafkaPublisher 复用现有 events �?*：多 topic �?SetTopic；不引入 shared/kafka.NewWriter
-2. **admin.events.KafkaPublisher 同样复用现有 events �?*：Publish(ctx, topic, ev) 通用接口
-3. **user 虚拟�?publisher �?virtualnumber 子包�?*：贴�?service 接口定义
+**累计测试**�?0 �?0 FAIL（基�?71 �?+9 包：6 �?kafkapublisher + 3 个服�?main_test 新增�?
+**Plan 偏差**�?
+1. **order.events.KafkaPublisher 复用现有 events �?*：多 topic �?SetTopic；不引入 shared/kafka.NewWriter
+2. **admin.events.KafkaPublisher 同样复用现有 events �?*：Publish(ctx, topic, ev) 通用接口
+3. **user 虚拟�?publisher �?virtualnumber 子包�?*：贴�?service 接口定义
 4. **escort.AvailabilityEvent 字段名是 `Available` 而非 `Online`**：按真实字段路由
-5. **escort kafkapublisher 简化构�?*：不广播 UserID（v2 扩展�?6. **wallet consumer 改用 shared/kafka.NewReader**：统一校验
-7. **payment kafkapublisher 借用 TopicPaymentCompleted 占位**：因 shared/kafka.NewWriter 强制 topic 不空，每次覆�?Topic
-8. **auth 不引�?buildPublisher**：纯 JWT，注�?+ TestAuth_NoKafkaPublisher 双重声明
+5. **escort kafkapublisher 简化构�?*：不广播 UserID（v2 扩展�?6. **wallet consumer 改用 shared/kafka.NewReader**：统一校验
+7. **payment kafkapublisher 借用 TopicPaymentCompleted 占位**：因 shared/kafka.NewWriter 强制 topic 不空，每次覆�?Topic
+8. **auth 不引�?buildPublisher**：纯 JWT，注�?+ TestAuth_NoKafkaPublisher 双重声明
 
-**未做**�?
-- docker build / docker compose up（按要求跳过�?- 集成测试（`//go:build integration`）：需 docker-compose �?Kafka；本轮单测覆�?cfg 解析 + nil safety
-- push（按要求跳过�?- 服务间端到端联调：仅�?dev.md §32.6 文档化验证流�?
-**端到�?v1.4 收官**�?
+**未做**�?
+- docker build / docker compose up（按要求跳过�?- 集成测试（`//go:build integration`）：需 docker-compose �?Kafka；本轮单测覆�?cfg 解析 + nil safety
+- push（按要求跳过�?- 服务间端到端联调：仅�?dev.md §32.6 文档化验证流�?
+**端到�?v1.4 收官**�?
 ```
 docker compose -f docker-compose.deploy.yml up -d
-  �?18 容器启动
-  ├─ postgres 接收 shareddb.NewPool �?11 服务连接
-  ├─ kafka 接收 9 �?publisher（order/message/payment/review/sos/user-virtualnumber/escort/admin/wallet�?  └─ jaeger 接收 OTel exporter
-  �?业务调用 �?真实 PG �?�?�?Kafka publisher 发布 event �?下游 service consumer 接收
-  �?  ├─ order: OrderCreated �?match 推邀�?�?escort.confirm �?order.accepted
-  ├─ order: completed �?wallet.OnOrderCompleted �?frozen += amount
-  ├─ payment: completed �?order.escort_pending_acceptance �?order.accepted
-  ├─ order: refund �?payment.OnRefund �?wallet.DeductFrozenForRefund
-  └─ T+7 触发 �?wallet scanner 1 分钟扫到 �?frozen -= amount; balance += amount
-  �?SIGTERM �?Server.Shutdown(15s) �?LIFO hooks 释放
+  �?18 容器启动
+  ├─ postgres 接收 shareddb.NewPool �?11 服务连接
+  ├─ kafka 接收 9 �?publisher（order/message/payment/review/sos/user-virtualnumber/escort/admin/wallet�?  └─ jaeger 接收 OTel exporter
+  �?业务调用 �?真实 PG �?�?�?Kafka publisher 发布 event �?下游 service consumer 接收
+  �?  ├─ order: OrderCreated �?match 推邀�?�?escort.confirm �?order.accepted
+  ├─ order: completed �?wallet.OnOrderCompleted �?frozen += amount
+  ├─ payment: completed �?order.escort_pending_acceptance �?order.accepted
+  ├─ order: refund �?payment.OnRefund �?wallet.DeductFrozenForRefund
+  └─ T+7 触发 �?wallet scanner 1 分钟扫到 �?frozen -= amount; balance += amount
+  �?SIGTERM �?Server.Shutdown(15s) �?LIFO hooks 释放
   ├─ otel-tracer flush
   ├─ db-pool close
   ├─ kafka-producer close
   └─ kafka-consumer reader close
-  �?80 �?0 FAIL + Prometheus /metrics + Jaeger trace
+  �?80 �?0 FAIL + Prometheus /metrics + Jaeger trace
 ```
 
-### 累计交付（v1.4 收官�?
-| 维度 | 状�?|
+### 累计交付（v1.4 收官�?
+| 维度 | 状�?|
 | :-- | :--: |
-| 后端 11 Go 服务 | �?真实 PG + 真实 Kafka + 完整 HTTP + OTel + 采样 + 指标 + Recovery + RateLimit + 优雅停机 |
-| 前端 3 �?| �?完整骨架 + 业务�?|
-| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
-| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
-| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 |
-| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
-| 测试 | �?80 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
-| 文档 | �?dev.md 32 章节 + README + REVIEW |
+| 后端 11 Go 服务 | �?真实 PG + 真实 Kafka + 完整 HTTP + OTel + 采样 + 指标 + Recovery + RateLimit + 优雅停机 |
+| 前端 3 �?| �?完整骨架 + 业务�?|
+| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
+| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
+| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 |
+| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
+| 测试 | �?80 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
+| 文档 | �?dev.md 32 章节 + README + REVIEW |
 ---
-## 33. .env.example + 密钥管理 + Prometheus alert rules + smoke 脚本（v1.4 生产就绪�?
-**目标**：让仓库�?代码完整"�?能上生产"——环境变量模�?+ 密钥管理 SOP + 告警规则 + 一键冒烟�?
-**4 �?commit**�?
+## 33. .env.example + 密钥管理 + Prometheus alert rules + smoke 脚本（v1.4 生产就绪�?
+**目标**：让仓库�?代码完整"�?能上生产"——环境变量模�?+ 密钥管理 SOP + 告警规则 + 一键冒烟�?
+**4 �?commit**�?
 | commit | 内容 |
 | :-- | :-- |
 | `b934135` | `chore(env)` .env.example + .env.dev + .gitignore 扩展 |
-| `182edb5` | `docs(ops)` 密钥管理最佳实践（4 方案 + 轮转 + 应�?+ CI）|
-| `bf722d7` | `feat(deploy)` Prometheus 告警规则�? 文件 / 20 �?alerts）|
+| `182edb5` | `docs(ops)` 密钥管理最佳实践（4 方案 + 轮转 + 应�?+ CI）|
+| `bf722d7` | `feat(deploy)` Prometheus 告警规则�? 文件 / 20 �?alerts）|
 | `af96c93` | `feat(scripts)` 一键全栈端到端冒烟（smoke-e2e.sh + .ps1 + README）|
 
-**Commit 1�?env.example + .env.dev + .gitignore**
+**Commit 1�?env.example + .env.dev + .gitignore**
 
 | 文件 | 内容 |
 | :-- | :-- |
-| `.env.example` (10.5 KB) | 134 变量条目�?1 Go 服务 × 11 env + admin baseURL × 4 + 中间�?× 4）|
-| `.env.dev` (4.1 KB) | 71 �?dev 友好默认值（JWT = `dev-secret-change-me` 等占位符）|
-| `.gitignore` (扩展) | `.env*` 全忽�?+ `!.env.example` + `!.env.dev` 显式允许模板入库 |
+| `.env.example` (10.5 KB) | 134 变量条目�?1 Go 服务 × 11 env + admin baseURL × 4 + 中间�?× 4）|
+| `.env.dev` (4.1 KB) | 71 �?dev 友好默认值（JWT = `dev-secret-change-me` 等占位符）|
+| `.gitignore` (扩展) | `.env*` 全忽�?+ `!.env.example` + `!.env.dev` 显式允许模板入库 |
 
-**11 服务 env �?*严格�?`shared/config/loader.go` �?`DOCTORS_<SVC>_<FIELD>` 命名�?1 字段 / 服务�? admin 额外 4 �?baseURL（order/refund/escort/user）�?
+**11 服务 env �?*严格�?`shared/config/loader.go` �?`DOCTORS_<SVC>_<FIELD>` 命名�?1 字段 / 服务�? admin 额外 4 �?baseURL（order/refund/escort/user）�?
 **Commit 2：docs/ops/secrets.md**
 
 | 维度 | 内容 |
 | :-- | :-- |
-| **4 种密钥管理方�?* | Docker Secrets / K8s Secrets + sealed-secrets / HashiCorp Vault / �?Secret Manager（原�?+ 优缺�?+ 9 维度对比表）|
-| **密钥轮转策略** | JWT 90 �?/ DB 180 �?/ Kafka 365 �?/ TLS 90 �?+ 灰度�?SOP（双密钥并行 7 天）|
-| **Secret 泄漏应�?SOP** | 检�?�?隔离�?5 分钟）→ 重新生成�? 小时内）�?重启 �?复盘�?2 小时）|
+| **4 种密钥管理方�?* | Docker Secrets / K8s Secrets + sealed-secrets / HashiCorp Vault / �?Secret Manager（原�?+ 优缺�?+ 9 维度对比表）|
+| **密钥轮转策略** | JWT 90 �?/ DB 180 �?/ Kafka 365 �?/ TLS 90 �?+ 灰度�?SOP（双密钥并行 7 天）|
+| **Secret 泄漏应�?SOP** | 检�?�?隔离�?5 分钟）→ 重新生成�? 小时内）�?重启 �?复盘�?2 小时）|
 | **CI 注入** | GitHub Actions OIDC + IRSA + SOPS 加密 |
 | **dev/prod 分离矩阵** | 9 维度对比（DB / Redis / Kafka / JWT / OTel / 注入方式 / 日志 / 审计 / 资源）|
 | **11 项反模式** | "代码中硬编码" / ".env 入库" / "日志打印密钥" / ... |
-| **10 项部署前 checklist** | secret 存储 / 轮转 / 加密 / 审计 / 应�?... |
+| **10 项部署前 checklist** | secret 存储 / 轮转 / 加密 / 审计 / 应�?... |
 
 **Commit 3：Prometheus alert rules**
 
-`deploy/prometheus/alerts/` 5 文件 / **20 �?alerts**（全�?`python yaml.safe_load` 验证 PASS）：
+`deploy/prometheus/alerts/` 5 文件 / **20 �?alerts**（全�?`python yaml.safe_load` 验证 PASS）：
 
 | 文件 | alerts | 关键规则 |
 | :-- | :--: | :-- |
-| `general.yaml` | 3 | ServiceDown（up==0, 1m�? HighErrorRate�?xx>5%, 5m�? HighLatencyP99�?s, 5m）|
-| `database.yaml` | 4 | PoolExhausted�?0%, 5m�? PoolHighUsage�?0%, 10m�? NoIdle / SlowAcquire�?100ms P99）|
-| `kafka.yaml` | 4 | ConsumerLag�?1k, 10m�? LagCritical�?10k, 5m�? FailureRate / ConsumerStalled |
-| `http.yaml` | 5 | 5xx>1% / P99>2s / EndpointSilent / TrafficSpike�?x�? 4xxBurst |
+| `general.yaml` | 3 | ServiceDown（up==0, 1m�? HighErrorRate�?xx>5%, 5m�? HighLatencyP99�?s, 5m）|
+| `database.yaml` | 4 | PoolExhausted�?0%, 5m�? PoolHighUsage�?0%, 10m�? NoIdle / SlowAcquire�?100ms P99）|
+| `kafka.yaml` | 4 | ConsumerLag�?1k, 10m�? LagCritical�?10k, 5m�? FailureRate / ConsumerStalled |
+| `http.yaml` | 5 | 5xx>1% / P99>2s / EndpointSilent / TrafficSpike�?x�? 4xxBurst |
 | `panic_recovery.yaml` | 4 | PanicDetected / PanicRepeated / PanicRate>5/min / ProcessFrequentRestart |
 
-每条 alert �?alert/expr/for/labels.severity/annotations.summary/description + runbook_url�?
+每条 alert �?alert/expr/for/labels.severity/annotations.summary/description + runbook_url�?
 **Commit 4：smoke 脚本**
 
 | 文件 | 内容 |
 | :-- | :-- |
-| `scripts/smoke-e2e.sh` (10.2 KB / 272 �? | bash / Git Bash / WSL / macOS |
-| `scripts/smoke-e2e.ps1` (10.3 KB / 249 �? | PowerShell 5.1+ / Core 7+（双平台输出格式对齐）|
+| `scripts/smoke-e2e.sh` (10.2 KB / 272 �? | bash / Git Bash / WSL / macOS |
+| `scripts/smoke-e2e.ps1` (10.3 KB / 249 �? | PowerShell 5.1+ / Core 7+（双平台输出格式对齐）|
 | `scripts/README.md` (修改) | 增补 smoke-e2e 章节 |
 
-**核心流程**�?1. 启动 `docker-compose.deploy.yml up -d`（可�?`--skip-start`�?2. 等待 BootWait�?0s）→ 11 服务 `/healthz` 循环（单服务 WaitTimeout 120s�?3. `/metrics` 端点 200 + Prometheus exposition 格式（含 `# HELP`�?4. admin `/api/v1/admin/escorts/pending-audit` �?期望 401 + 业务�?11001（验�?RoleAuth�?5. 彩色 �?/ �?/ ! 汇总（total/passed/failed/skipped + FAILED 列表�?
-**验证**�?- YAML 5 文件语法 valid
+**核心流程**�?1. 启动 `docker-compose.deploy.yml up -d`（可�?`--skip-start`�?2. 等待 BootWait�?0s）→ 11 服务 `/healthz` 循环（单服务 WaitTimeout 120s�?3. `/metrics` 端点 200 + Prometheus exposition 格式（含 `# HELP`�?4. admin `/api/v1/admin/escorts/pending-audit` �?期望 401 + 业务�?11001（验�?RoleAuth�?5. 彩色 �?/ �?/ ! 汇总（total/passed/failed/skipped + FAILED 列表�?
+**验证**�?- YAML 5 文件语法 valid
 - `bash -n smoke-e2e.sh` exit 0
 - PowerShell 解析 0 errors
-- `.gitignore` 行为正确�?env ignore / .env.example allow�?
-**Plan 偏差**�?
-1. **中间�?env 数量**：题目说"3 中间�?env"但列�?4 个名字；写全 4 个（Jaeger 是栈内实际组件）
-2. **alert 数量**�? 文件 �?3/4 条示例下限；实际�?20 条覆盖更多场�?3. **panic_recovery 依赖未就绪指�?*：`recovery_metrics_total` �?shared/middleware 未埋点；alert rule 已定义好，v1.5 middleware 埋点后即生效
-4. **smoke 脚本 API 选择**：admin `/api/v1/admin/escorts/pending-audit` �?token 时被 RoleAuth 拦截返回 401 + 11001，确保测出来的是 RBAC 通路
+- `.gitignore` 行为正确�?env ignore / .env.example allow�?
+**Plan 偏差**�?
+1. **中间�?env 数量**：题目说"3 中间�?env"但列�?4 个名字；写全 4 个（Jaeger 是栈内实际组件）
+2. **alert 数量**�? 文件 �?3/4 条示例下限；实际�?20 条覆盖更多场�?3. **panic_recovery 依赖未就绪指�?*：`recovery_metrics_total` �?shared/middleware 未埋点；alert rule 已定义好，v1.5 middleware 埋点后即生效
+4. **smoke 脚本 API 选择**：admin `/api/v1/admin/escorts/pending-audit` �?token 时被 RoleAuth 拦截返回 401 + 11001，确保测出来的是 RBAC 通路
 
-**未做**�?- promtool 严格校验（本地未安装�?- 实际 smoke 跑通（题目禁止�?- 真实密钥部署 / K8s sealed-secret controller
+**未做**�?- promtool 严格校验（本地未安装�?- 实际 smoke 跑通（题目禁止�?- 真实密钥部署 / K8s sealed-secret controller
 
-**端到�?v1.4 上线流程**�?
+**端到�?v1.4 上线流程**�?
 ```bash
 # 1. 准备环境变量
 cp .env.example .env
-# 编辑 .env：填入真�?PG / Kafka / Redis / JWT_SECRET（不要用 dev-secret-change-me�?
+# 编辑 .env：填入真�?PG / Kafka / Redis / JWT_SECRET（不要用 dev-secret-change-me�?
 # 2. 启动全栈
 docker compose -f docker-compose.deploy.yml up -d
 
-# 3. 一键冒�?bash scripts/smoke-e2e.sh
-# �?PowerShell�?pwsh scripts/smoke-e2e.ps1
+# 3. 一键冒�?bash scripts/smoke-e2e.sh
+# �?PowerShell�?pwsh scripts/smoke-e2e.ps1
 
 # 4. Prometheus 拉取
-# deploy/prometheus.yml �?scrape_configs �?11 �?:8080/metrics
+# deploy/prometheus.yml �?scrape_configs �?11 �?:8080/metrics
 
 # 5. Alertmanager 加载告警
-# deploy/alertmanager.yml �?rules:
+# deploy/alertmanager.yml �?rules:
 #   - deploy/prometheus/alerts/general.yaml
 #   - deploy/prometheus/alerts/database.yaml
 #   - deploy/prometheus/alerts/kafka.yaml
@@ -2470,23 +2470,244 @@ docker compose -f docker-compose.deploy.yml up -d
 #   - deploy/prometheus/alerts/panic_recovery.yaml
 
 # 6. 密钥轮转
-# �?docs/ops/secrets.md §2 90/180/365 �?SOP
+# �?docs/ops/secrets.md §2 90/180/365 �?SOP
 
 # 7. SIGTERM 优雅停机
 docker compose -f docker-compose.deploy.yml down
-# 15s �?Server.Shutdown(ctx) �?LIFO 释放（otel-tracer / db-pool / kafka-producer / kafka-consumer�?```
+# 15s �?Server.Shutdown(ctx) �?LIFO 释放（otel-tracer / db-pool / kafka-producer / kafka-consumer�?```
 
-### 累计交付（v1.4 上线就绪�?
-| 维度 | 状�?|
+### 累计交付（v1.4 上线就绪�?
+| 维度 | 状�?|
 | :-- | :--: |
-| 后端 11 Go 服务 | �?真实 PG + 真实 Kafka + 完整 HTTP + OTel + 采样 + 指标 + Recovery + RateLimit + 优雅停机 |
-| 前端 3 �?| �?完整骨架 + 业务�?|
-| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
-| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
-| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 + 20 �?alert |
-| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
-| 安全�?| �?.env.example 模板 + 密钥管理 SOP + 4 方案对比 |
-| 测试 | �?80 �?0 FAIL + 跨平台一键脚�?+ smoke 端到�?+ golangci-lint v2 |
-| 文档 | �?dev.md 33 章节 + README + REVIEW + docs/ops/secrets.md |
+| 后端 11 Go 服务 | �?真实 PG + 真实 Kafka + 完整 HTTP + OTel + 采样 + 指标 + Recovery + RateLimit + 优雅停机 |
+| 前端 3 �?| �?完整骨架 + 业务�?|
+| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
+| CI | �?4 job + Pages + 仓库维护 + 0.1 采样 |
+| 可观测�?| �?OTel + Jaeger + Prometheus + zap 日志关联 + 20 �?alert |
+| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
+| 安全�?| �?.env.example 模板 + 密钥管理 SOP + 4 方案对比 |
+| 测试 | �?80 �?0 FAIL + 跨平台一键脚�?+ smoke 端到�?+ golangci-lint v2 |
+| 文档 | �?dev.md 33 章节 + README + REVIEW + docs/ops/secrets.md |
 
-**v1.4 已具备生产上线全部要�?*�?
+**v1.4 已具备生产上线全部要�?*�?
+
+
+## 34. 4 项生产稳定性优化（v1.5）
+
+**目标**：在 v1.4 已具备真实 PG + Kafka + OTel + Prometheus 的基础上，
+补齐 4 项最常见的生产稳定性短板——RateLimit flaky 测试、panic 埋点、
+/readyz 依赖探活、OTel auto-instrumentation。
+
+**4 个 commit**：
+
+| commit | 类型 | 内容 |
+| :-- | :-- | :-- |
+| `5650730` | `fix` | RateLimit flaky 测试 + recovery 埋点（recovery_panics_total） |
+| `1e30b4f` | `feat(health)` | shared/health 包 + 11 服务 /readyz 端点 |
+| `0fed212` | `feat(otel)` | gin / pgx / kafka-go auto-instrumentation |
+| (本 commit) | `chore(docs)` | dev.md §34 |
+
+### Commit 1：RateLimit 修复 + recovery 埋点
+
+**问题背景**：`TestRateLimit_DifferentIPsHaveIndependentBuckets` 在 Windows + Git Bash
+上偶发失败——原测试用 `rate=100/s burst=1`，期望"A 第 2 个 429 → B 第 1 个仍 200"；
+但调度抖动会让 A 桶在两次 Allow 之间被回填 1 个 token（100/s = 10ms/token），
+导致 A 第 2 个 200，断言失败。
+
+同时 §33 panic_recovery alert 已定义 4 条规则，但 `recovery_metrics_total`
+指标未埋点——alert 永远不触发。
+
+**改动**：
+
+1. `shared/middleware/ratelimit.go`：暴露 `*LimiterRegistry`（之前 unexported）
+   + `Snapshot()` 方法，让测试直接读 `*rate.Limiter.Tokens()` 校验桶状态，
+   无需依赖真实 clock 推进。
+2. `shared/middleware/ratelimit_test.go`：
+   - `TestRateLimit_DifferentIPsHaveIndependentBuckets` 改用 `rate=0.001 burst=1`
+     （1 token / 1000s）+ `Snapshot()/Tokens()` 直接断言。
+   - `TestRateLimit_HTTPStatus429` 同步加固（rate=0.001 让 50ms 内 token 几乎不可能回填）。
+   - `TestRateLimit_ConcurrentRequests` 改用 `rate=0.001 burst=20`，放行数严格等于 burst。
+3. `shared/metrics/metrics.go`：新增 `RecoveryPanicsTotal = promauto.NewCounterVec`
+   （label=path=路由模板，避免 id=42/124 高基数）。
+4. `shared/middleware/recovery.go`：捕获 panic 后 `Inc(label)`；
+   label 取 `c.FullPath()`（路由模板），404 路由退化为 `URL.Path`。
+5. `shared/middleware/recovery_test.go`：新增 `TestRecovery_IncrementsPanicCounter`——
+   4 个分支（路由模板 +1 / 同一模板累计 / 不同路由 / 404 退化为 URL.Path）。
+6. `deploy/prometheus/alerts/panic_recovery.yaml`：4 条规则改用 `recovery_panics_total`
+   + 注释改为"指标源：shared/middleware.Recovery → shared/metrics.RecoveryPanicsTotal"。
+7. 顺手把 log 噪音（panic 触发时 zap 输出 stack trace）压到 `observedLogger`，
+   测试报告不再被淹没。
+
+### Commit 2：shared/health + 11 服务 /readyz
+
+**设计动机**：K8s readinessProbe 需要区分
+- liveness（`/healthz`：进程存活）
+- readiness（`/readyz`：依赖就绪才能下发流量）
+
+之前 11 个服务只有 `/healthz`，依赖 DB / Kafka 宕机时 readinessProbe 仍返回 200
+→ 流量继续打挂服务，pod 不断重启。
+
+**新增 `shared/health/` 包**（4 文件 + 17 个单测）：
+
+| 文件 | 内容 |
+| :-- | :-- |
+| `health.go` | `Checker` 接口（`Name()` + `Check(ctx) error`）+ `Manager`（`Register/RunAll/Status`）+ `Status/Report` struct + `CheckFunc` 函数式适配器 |
+| `adapters.go` | `NewPGPoolChecker` / `NewRedisChecker` / `NewKafkaBrokerChecker` + `IsResourceNil` 辅助；用 interface（pgPoolPinger / redisClientPinger / kafkaDialer）抽象，便于测试和未来替换 |
+| `readyz_handler.go` | `ReadyzHandler(m)` 返回 gin.HandlerFunc——全部 OK → 200；任一失败 → 503 + Report JSON；`nil manager` → fail-closed（永远 503，避免"忘装配"误判） |
+| `health_test.go` | 17 个单测：Manager / RunAll / ReadyzHandler / 3 个适配器（PG / Redis / Kafka，含 fake dialer 模拟 broker 不可达）|
+
+**Manager.RunAll 关键设计**：
+- 并发执行所有 checker（goroutine + sync.WaitGroup），wall time ≪ 串行求和
+- 单 checker 超时不拖垮其他 checker
+- 同名 checker 第二次 Register 被拒绝（防"误配两 DB 实例"覆盖式隐藏）
+
+**11 服务接入**：
+- `services/*/internal/router/router.go`：增加 `r.GET("/readyz", health.ReadyzHandler(readyzM))`
+- `services/*/cmd/main.go`：构造 `health.NewManager(WithTimeout(1*time.Second))`，
+  按可用资源注册 checker：
+  - `pool != nil` → `NewPGPoolChecker("postgres-main", pool, 1s)`（7 个 DB 服务）
+  - `redisClient != nil` → `NewRedisChecker("redis-main", redisClient, 1s)`（仅 order-service 启用）
+  - `len(cfg.Kafka.Brokers) > 0` → `NewKafkaBrokerChecker("kafka-brokers", brokers, 1s)`（10 个服务）
+- nil / 空资源时 skip + warn；manager 仍创建（fail-closed 路由保留）
+- 路由签名变化：`New(h, secret, readyzM)` / `NewWithPublic(...)`；测试 pass `nil`
+- Dockerfile HEALTHCHECK 不变（继续走 `-healthz` flag 探活）
+
+### Commit 3：OTel auto-instrumentation
+
+**目标**：让 SQL / HTTP / Kafka 自动写 span，运维不再需要在 11 个服务 × N 个 repo
+里手动 `StartSpan`（v1.4 已部分实现但仅 gin + kafka）。
+
+**3 个 instrumentation**：
+
+| 库 | 包 | API |
+| :-- | :-- | :-- |
+| gin | `go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin@v0.59.0` | `otelgin.Middleware(svcName)` |
+| pgx | `github.com/exaring/otelpgx@v0.10.0` | `otelpgx.NewTracer(WithTracerProvider(otel.GetTracerProvider()))` |
+| kafka-go | 自实现 wrapper（goproxy.cn 无 otelkafkago 镜像） | `tracing.WrapWriter / WrapReader` |
+
+**11 服务接入**：
+
+1. **`shared/middleware/otel.go`**：`OTelGinMiddleware(service)` 一行接入；
+   推荐挂载顺序 `Metrics → Recovery → OTelGin → RateLimit`
+   （Recovery 之前确保 panic 也被 OTel 记录，status=500）。
+2. **11 服务 router.go**：每服务挂自己的 `OTelGinMiddleware("<svc>-service")`。
+3. **7 服务 buildPool**（admin / auth / wallet / user / payment / order / escort）：
+   注入 otelpgx tracer：
+
+   ```go
+   pcfg, err := pgxpool.ParseConfig(poolCfg.DSN)
+   if err == nil {
+       tracing.WithPgxPool(pcfg)             // 注册 otelpgx.NewTracer
+       poolCfg.Tracer = pcfg.ConnConfig.Tracer // 传给 shared/db.NewPool
+   }
+   pool := shareddb.NewPool(ctx, poolCfg)
+   ```
+
+4. **kafka-go wrapper**（`shared/tracing/kafkago.go`）：
+   - `WrapWriter` → `WriteMessages` 启动 "publish <topic>" span，kind=Producer
+   - `WrapReader` → `FetchMessage/ReadMessage` 启动 "consume <topic>" span，kind=Consumer
+   - 含 `messaging.system=kafka` / `destination.name` / `operation.name` 属性 +
+     offset / partition（消费成功时）
+   - 错误路径：span status=Error + recordError
+   - nil writer / reader 不 panic
+   - **未来 otelkafkago 上线后可一行替换**（业务代码不变）
+
+5. **dev 模式（cfg.Tracing.OTLPEndpoint 空）**：
+   - InitTracer 退化为 NoopTracerProvider，zero-cost
+   - otelgin / otelpgx / kafka wrapper 在 Noop 场景下不创建 span，零开销
+   - 生产配 OTLP endpoint 即生效
+
+**OTel 升级的副作用**（go.mod 同步）：
+- `go.opentelemetry.io/otel` 1.32.0 → 1.34.0
+- `go.opentelemetry.io/otel/sdk` 1.32.0 → 1.34.0
+- `github.com/jackc/pgx/v5` 5.7.1 → 5.7.4
+- 新增 `go.opentelemetry.io/auto/sdk` v1.1.0
+
+### Commit 4：dev.md §34（本节）
+
+记录上面 3 个 commit 的目标 / 改动 / 测试 / Plan 偏差。
+
+### 累计测试
+
+| 包 | 单测数 | 说明 |
+| :-- | :--: | :-- |
+| `shared/health` | 17 | 新增：Manager / ReadyzHandler / 3 个适配器 |
+| `shared/middleware` | 19 | 修复 ratelimit 5 个 + recovery 新增 1 个 + OTelGin 新增 4 个 = 原 14 + 5 改动 = 19 |
+| `shared/tracing` | 16 | 新增：kafka wrapper 6 个；原有 10 个 |
+| `shared/metrics` | 8 | 新增 `recovery_panics_total` 接入 + 1 个新单测 |
+| `shared/db` | 2 | 不变 |
+| 其他 11 shared 包 | — | 不变 |
+| 服务包 | — | 不变 |
+
+**全量 80+ 包 0 FAIL**。
+
+### Plan 偏差
+
+1. **kafka-go OTel 自实现 wrapper**：goproxy.cn 无 `otelkafkago` 与 otel contrib 的
+   `instrumentation/github.com/segmentio/kafka-go/otelkafkago`（试过 `latest` / `v0.59.0`
+   / 直接的 import path 都报 404）。改用 OTel 标准 trace API 实现轻量 wrapper，
+   满足"producer / consumer span"基本需求；未来官方包上线后 1 行替换。
+2. **router.New 签名扩展加 readyzM / OTelGin**：同步更新所有 router_test.go
+   （pass `nil`），保持现有 6 类路由断言不变；测试构建零侵入。
+3. **/readyz 路由与 /healthz 共存**：不替换——前者读 readinessProbe（K8s 流量调度），
+   后者读 livenessProbe（Docker HEALTHCHECK + K8s 进程存活），两者职责不同。
+4. **panic metric label = 路由模板而非 URL.Path**：避免 `id=42 / id=124` 等高基数；
+   404 路由（c.FullPath 为空）退化为 URL.Path，保证仍被埋点。
+5. **OTel 升级到 1.34.0**：与 contrib v0.59 配套（1.32 兼容性未验证）；副作用是若干
+   transitive deps 升级（bytedance/sonic、validator 等），已通过 `go build ./...` 验证。
+6. **buildPool 双 trace 注入**：pgxpool.ParseConfig → tracing.WithPgxPool → 用回填的
+   `pcfg.ConnConfig.Tracer` 写入 `shared/db.Config.Tracer`；这是最简洁的接入点，
+   避免改 `shared/db.NewPool` 内部对 OTel 的依赖。
+
+### 未做
+
+- **kafka-go wrapper 未实际替换业务代码**：wallet / order / message / payment / sos /
+  review / user-virtualnumber / escort / admin 的 kafkapublisher 目前未切到
+  `tracing.WrapWriter`（避免一次性 9 个服务改动 + 单元测试改造）。commit 4 之后
+  再起一轮"OTel auto 业务接入"，每个 publisher 一行 `Wrap` 即可。
+- **/readyz handler 写 Prometheus counter**（如 `readyz_check_total{check, status}`）：
+  当前只暴露在 HTTP body（JSON）；如需 Prometheus 也想监控，v1.5 增量再加 counter。
+- **OTel kafka metrics**：otelpgx 同时输出 metrics（SQL 计数 / 延迟）；当前只启用了
+  tracing。metrics exporter 需要起 Prometheus + OTel collector，超出本期。
+- **真实 e2e 联调**：依赖外部 broker / OTel collector / Jaeger，dev 环境下无法验证；
+  `cfg.Tracing.OTLPEndpoint=jaeger:4318` 生产部署即可生效。
+
+### 端到端 v1.5 验证
+
+```bash
+# 1. 启动依赖
+docker compose -f docker-compose.deploy.yml up -d postgres kafka jaeger prometheus
+# 2. 启动所有服务（cfg.Tracing.OTLPEndpoint=http://jaeger:4318）
+docker compose -f docker-compose.deploy.yml up -d auth-service user-service ... wallet-service
+# 3. K8s readinessProbe 验证
+curl -i http://<svc>:8080/readyz   # 200 + {"healthy":true,...}
+# 4. 杀 postgres
+docker stop postgres
+curl -i http://<svc>:8080/readyz   # 503 + {"healthy":false,"checks":[{"name":"postgres-main","ok":false,...}]}
+# K8s 自动摘流 30s 后恢复
+docker start postgres
+# 5. Prometheus 验证 panic 埋点
+curl http://<svc>:8080/metrics | grep recovery_panics_total
+# 6. Jaeger 验证 OTel auto-span
+# 浏览器 http://localhost:16686 → service <svc> → trace 树形结构：
+#   GET /api/v1/users/123
+#     ├─ db.query: SELECT * FROM users WHERE id=$1
+#     └─ kafka.publish
+```
+
+### 累计交付（v1.5）
+
+| 维度 | 状态 |
+| :-- | :--: |
+| 后端 11 Go 服务 | ✅ 真实 PG + 真实 Kafka + 完整 HTTP + OTel auto + 采样 + Recovery 埋点 + RateLimit 修复 + 优雅停机 |
+| 前端 3 端 | ✅ 完整脚手架 + 业务页 |
+| 部署 | ✅ 14 Dockerfile + docker-compose + Jaeger + Prometheus + alert |
+| CI | ✅ 4 job + Pages + 仓库维护 + 0.1 采样 |
+| 可观测性 | ✅ OTel 自动 span + Jaeger + Prometheus + zap 日志关联 + 20 alert |
+| 稳定性 | ✅ Recovery 埋点 + RateLimit 修复 + /readyz 依赖探活 + 优雅停机 + LIFO hooks |
+| 安全性 | ✅ .env.example 模板 + 密钥管理 SOP |
+| 测试 | ✅ 80+ 包 0 FAIL + 跨平台脚本 + smoke + golangci-lint v2 |
+| 文档 | ✅ dev.md 34 章节 + README + REVIEW + docs/ops/secrets.md |
+
+**v1.5 补齐 §33 提到的 panic_recovery 埋点依赖 + 增加 /readyz 探活 + 减少业务手动埋 span 成本，
+同时修掉 ratelimit flaky 测试。**

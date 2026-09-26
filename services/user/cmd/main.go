@@ -175,17 +175,25 @@ func main() {
 }
 
 // buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil)。
+//
+// §34 OTel auto-instrumentation：cfg.Tracing.OTLPEndpoint 非空 → 注入 otelpgx tracer。
 func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	if cfg.DB.DSN == "" {
 		return nil, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return shareddb.NewPool(ctx, shareddb.Config{
+	poolCfg := shareddb.Config{
 		DSN:      cfg.DB.DSN,
 		MaxConns: cfg.DB.MaxConns,
 		MinConns: cfg.DB.MinConns,
-	})
+	}
+	pcfg, err := pgxpool.ParseConfig(poolCfg.DSN)
+	if err == nil {
+		tracing.WithPgxPool(pcfg)
+		poolCfg.Tracer = pcfg.ConnConfig.Tracer
+	}
+	return shareddb.NewPool(ctx, poolCfg)
 }
 
 // buildVNPublisher 根据 cfg.Kafka 构造 virtualnumber publisher 与可选 closer。

@@ -150,11 +150,18 @@ func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return shareddb.NewPool(ctx, shareddb.Config{
+	poolCfg := shareddb.Config{
 		DSN:      cfg.DB.DSN,
 		MaxConns: cfg.DB.MaxConns,
 		MinConns: cfg.DB.MinConns,
-	})
+	}
+	// §34 OTel auto-instrumentation：注入 otelpgx tracer。
+	pcfg, err := pgxpool.ParseConfig(poolCfg.DSN)
+	if err == nil {
+		tracing.WithPgxPool(pcfg)
+		poolCfg.Tracer = pcfg.ConnConfig.Tracer
+	}
+	return shareddb.NewPool(ctx, poolCfg)
 }
 
 // walletScannerParams 从 cfg 解析 scanner 间隔。v1 dev 默认 1 分钟；生产用 7*24h + daily tick。

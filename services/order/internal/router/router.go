@@ -30,9 +30,10 @@ import (
 // readyzM 用于 /readyz 端点（K8s readinessProbe）；传 nil 时 /readyz 永远 503（fail-closed）。
 func New(h *handler.Handler, jwtSecret string, readyzM *health.Manager) *gin.Engine {
 	r := gin.New()
-	// 中间件顺序：Metrics → Recovery → RateLimit（全局）
+	// 中间件顺序：Metrics → Recovery → OTelGin → RateLimit（全局）
 	r.Use(sharedmw.Metrics())
 	r.Use(sharedmw.Recovery())
+	r.Use(sharedmw.OTelGinMiddleware("order-service"))
 	r.Use(sharedmw.RateLimit())
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK[any](c, gin.H{"status": "ok"})

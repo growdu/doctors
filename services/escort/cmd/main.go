@@ -168,17 +168,25 @@ func main() {
 }
 
 // buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil)。
+//
+// §34 OTel auto-instrumentation：注入 otelpgx tracer。
 func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	if cfg.DB.DSN == "" {
 		return nil, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return shareddb.NewPool(ctx, shareddb.Config{
+	poolCfg := shareddb.Config{
 		DSN:      cfg.DB.DSN,
 		MaxConns: cfg.DB.MaxConns,
 		MinConns: cfg.DB.MinConns,
-	})
+	}
+	pcfg, err := pgxpool.ParseConfig(poolCfg.DSN)
+	if err == nil {
+		tracing.WithPgxPool(pcfg)
+		poolCfg.Tracer = pcfg.ConnConfig.Tracer
+	}
+	return shareddb.NewPool(ctx, poolCfg)
 }
 
 // ---------- nil 占位（业务接口 fallback；调用即返回 errNil） ----------

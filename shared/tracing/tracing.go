@@ -1,4 +1,4 @@
-// Package tracing 提供全链路追踪（OpenTelemetry）初始化、Span 创建、W3C TraceContext 透传。
+﻿// Package tracing 提供全链路追踪（OpenTelemetry）初始化、Span 创建、W3C TraceContext 透传。
 //
 // 设计要点：
 //   - 单一全局 TracerProvider：避免每个服务重复初始化；通过 otel.Tracer(name) 取 tracer。
@@ -7,6 +7,8 @@
 //   - 资源属性：service.name = <serviceName>，service.version = 配置注入（默认 "dev"）。
 //   - 生产采样：默认 AlwaysSample；通过 WithSamplingRatio(0.1) + ParentBased 启用跨服务 10% 采样。
 //   - 优雅停机：返回 Shutdown(ctx) 闭包由 main 退出时调用。
+//   - 与 shared/db 集成（WithPgxPool option）：
+//     自动注册 otelpgx tracer 到 pgxpool.Config，让所有 SQL 自动写 span。
 package tracing
 
 import (
@@ -16,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/exaring/otelpgx"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -71,6 +75,26 @@ func WithServiceVersion(version string) Option {
 			c.serviceVersion = v
 		}
 	}
+}
+
+// WithPgxPool 把 otelpgx tracer 注册到给定的 pgxpool.Config。
+//
+// 11 个服务的 cmd/main.go 在 InitTracer 后调用：
+//
+//	tracing.InitTracer("wallet-service", cfg.Tracing.OTLPEndpoint, ...)
+//	pcfg, _ := pgxpool.ParseConfig(cfg.DB.DSN)
+//	tracing.WithPgxPool(pcfg)   // 注入 otelpgx tracer
+//	pool := pgxpool.NewWithConfig(ctx, pcfg)
+//
+// 让所有 SQL 自动开 span（无需业务代码手动 StartSpan）。
+// nil 入参时 noop（避免 dev 环境 cfg.DB.DSN 空时 panic）。
+func WithPgxPool(pcfg *pgxpool.Config) {
+	if pcfg == nil {
+		return
+	}
+	pcfg.ConnConfig.Tracer = otelpgx.NewTracer(
+		otelpgx.WithTracerProvider(otel.GetTracerProvider()),
+	)
 }
 
 // InitTracer 初始化全局 TracerProvider + W3C TraceContext propagator。

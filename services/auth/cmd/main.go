@@ -154,17 +154,28 @@ func main() {
 // buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil) —— 调用方按"降级"
 //
 //	模式装配 nilUserRepo，路由仍能注册（业务 endpoint 调用时才报错）。
+//
+// cfg.Tracing.OTLPEndpoint 非空 → 把 otelpgx tracer 注入 pcfg，让 SQL 自动写 span。
 func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	if cfg.DB.DSN == "" {
 		return nil, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return shareddb.NewPool(ctx, shareddb.Config{
+	poolCfg := shareddb.Config{
 		DSN:      cfg.DB.DSN,
 		MaxConns: cfg.DB.MaxConns,
 		MinConns: cfg.DB.MinConns,
-	})
+	}
+	// §34 OTel auto-instrumentation：endpoint 非空 → 注入 pgx tracer。
+	// 注意：buildPool 早于 InitTracer 完成时（dev 模式 otlpEndpoint 空），
+	// 此时全局 TracerProvider 是 Noop，OTel 零开销。
+	pcfg, err := pgxpool.ParseConfig(poolCfg.DSN)
+	if err == nil {
+		tracing.WithPgxPool(pcfg)
+		poolCfg.Tracer = pcfg.ConnConfig.Tracer
+	}
+	return shareddb.NewPool(ctx, poolCfg)
 }
 
 // userRepoAdapter 把 repo.UserRepo（返回 *repo.User）适配成 service.UserRepo（返回 *service.User）。
