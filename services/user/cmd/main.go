@@ -1,6 +1,13 @@
 // user-service 入口。
 //
-// 阶段：装配 server + 假 repo；接 DB 后替换 nilRepo。
+// 装配 5 张表仓储：address / coupon / hospital / pkg / virtualnumber。
+// DSN 缺失 → 各模块 nil 占位 + warn log（路由仍生效，业务 endpoint 调用时报错）。
+//
+// 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool。
+//
+// 注意：用户 profile（users 表）由 auth-service 持有；user-service 通过 auth / gRPC 获取，
+//
+//	不在本服务装配 PG。
 package main
 
 import (
@@ -12,7 +19,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -25,6 +34,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/service"
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
 	"github.com/growdu/doctors/shared/config"
+	shareddb "github.com/growdu/doctors/shared/db"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -45,7 +55,6 @@ func main() {
 	}
 
 	// OTel 全链路追踪（§26 tracing plan）：endpoint 留空 → Noop，零开销。
-	// 生产通过 cfg.Tracing.SamplingRatio（默认 1.0）和 cfg.ServiceVersion（默认 "dev"）注入采样 + 版本。
 	traceShutdown, err := tracing.InitTracer("user-service", cfg.Tracing.OTLPEndpoint,
 		tracing.WithSamplingRatio(cfg.Tracing.SamplingRatio),
 		tracing.WithServiceVersion(cfg.ServiceVersion),
@@ -53,25 +62,82 @@ func main() {
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}
-	defer func() { _ = traceShutdown(context.Background()) }()
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
-	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
-	metrics.InitMetrics("user-service", cfg.ServiceVersion)
+	// 构造 pgxpool；DSN 缺失时降级为 nil。
+	pool, err := buildPool(cfg)
+	if err != nil {
+		log.Fatalf("build pool: %v", err)
+	}
+	if pool != nil {
+		defer pool.Close()
+	}
 
-	profileSvc := service.New(nilProfileRepo{})
-	addrSvc := address.NewService(nilAddrRepo{})
-	couponSvc := coupon.NewService(nilCouponRepo{})
-	hospitalSvc := hospital.NewService(nilHospitalRepo{})
-	pkgSvc := pkgpkg.NewService(nilPackageRepo{})
-	vnSvc := virtualnumber.NewService(nilVNRepo{})
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	// pool != nil 时注入 StatProvider；nil 时跳过。
+	metrics.InitMetrics("user-service", cfg.ServiceVersion,
+		metrics.WithDBStatProvider(func() []metrics.DBPoolStat {
+			if pool == nil {
+				return nil
+			}
+			s := pool.Stat()
+			return []metrics.DBPoolStat{{
+				Name:       "main",
+				Acquired:   s.AcquiredConns(),
+				Idle:       s.IdleConns(),
+				TotalConns: s.TotalConns(),
+			}}
+		}),
+	)
+
+	// 5 张表仓储：pool != nil → 各 NewRepo(pool)；否则 nil 占位。
+	var (
+		addrRepo     address.Repository
+		couponRepo   coupon.Repository
+		hospitalRepo hospital.Repository
+		pkgRepo      pkgpkg.Repository
+		vnRepo       virtualnumber.Repository
+	)
+	if pool != nil {
+		addrRepo = address.NewRepo(pool)
+		couponRepo = coupon.NewRepo(pool)
+		hospitalRepo = hospital.NewRepo(pool)
+		pkgRepo = pkgpkg.NewRepo(pool)
+		vnRepo = virtualnumber.NewRepo(pool)
+		logger.L().Info("user-service: 5 repos wired (address/coupon/hospital/pkg/virtualnumber)")
+	} else {
+		addrRepo = nilAddrRepo{}
+		couponRepo = nilCouponRepo{}
+		hospitalRepo = nilHospitalRepo{}
+		pkgRepo = nilPackageRepo{}
+		vnRepo = nilVNRepo{}
+		logger.L().Warn("user-service: cfg.db.dsn empty; 5 repos not wired (fallback to nil)")
+	}
+
+	// profile（users 表）暂用 nil 占位：auth-service 持有 users 表，本服务走 auth/gRPC。
+	var profileRepo service.ProfileRepo = nilProfileRepo{}
+
+	profileSvc := service.New(profileRepo)
+	addrSvc := address.NewService(addrRepo)
+	couponSvc := coupon.NewService(couponRepo)
+	hospitalSvc := hospital.NewService(hospitalRepo)
+	pkgSvc := pkgpkg.NewService(pkgRepo)
+	vnSvc := virtualnumber.NewService(vnRepo)
+
 	h := handler.New(profileSvc)
 	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc, pkgSvc, vnSvc)
 
+	// 优雅停机：先关 OTel tracer，再关 DB pool（LIFO）。
+	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if pool != nil {
+		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
 	logger.FromContext(ctx).Info("user-service starting", zap.String("addr", cfg.HTTP.Addr))
 	if err := srv.Run(ctx); err != nil {
 		logger.FromContext(ctx).Error("user-service exited", zap.Error(err))
@@ -80,20 +146,22 @@ func main() {
 	logger.FromContext(ctx).Info("user-service stopped")
 }
 
-func parseLevel(s string) zapcore.Level {
-	switch s {
-	case "debug":
-		return zapcore.DebugLevel
-	case "warn":
-		return zapcore.WarnLevel
-	case "error":
-		return zapcore.ErrorLevel
-	default:
-		return zapcore.InfoLevel
+// buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil)。
+func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
+	if cfg.DB.DSN == "" {
+		return nil, nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return shareddb.NewPool(ctx, shareddb.Config{
+		DSN:      cfg.DB.DSN,
+		MaxConns: cfg.DB.MaxConns,
+		MinConns: cfg.DB.MinConns,
+	})
 }
 
-// nilProfileRepo 占位实现：任何调用都返回错误，便于 dev 期间发现。
+// ---------- nil 占位（业务接口 fallback；调用即返回 errNil） ----------
+
 type nilProfileRepo struct{}
 
 func (nilProfileRepo) GetByID(ctx context.Context, id int64) (*service.Profile, error) {
@@ -102,21 +170,21 @@ func (nilProfileRepo) GetByID(ctx context.Context, id int64) (*service.Profile, 
 func (nilProfileRepo) UpdateNickname(ctx context.Context, id int64, n string) error { return errNil }
 func (nilProfileRepo) UpdateAvatar(ctx context.Context, id int64, u string) error  { return errNil }
 
-// nilAddrRepo 占位实现：address 模块的假 repo。
 type nilAddrRepo struct{}
 
-func (nilAddrRepo) Create(ctx context.Context, a *address.Record) error             { return errNil }
-func (nilAddrRepo) CreateDefault(ctx context.Context, a *address.Record) error       { return errNil }
-func (nilAddrRepo) ListByUser(ctx context.Context, userID int64) ([]*address.Record, error) { return nil, errNil }
-func (nilAddrRepo) CountByUser(ctx context.Context, userID int64) (int, error)      { return 0, errNil }
+func (nilAddrRepo) Create(ctx context.Context, a *address.Record) error { return errNil }
+func (nilAddrRepo) CreateDefault(ctx context.Context, a *address.Record) error { return errNil }
+func (nilAddrRepo) ListByUser(ctx context.Context, userID int64) ([]*address.Record, error) {
+	return nil, errNil
+}
+func (nilAddrRepo) CountByUser(ctx context.Context, userID int64) (int, error) { return 0, errNil }
 func (nilAddrRepo) GetByID(ctx context.Context, id, userID int64) (*address.Record, error) {
 	return nil, errNil
 }
-func (nilAddrRepo) Update(ctx context.Context, a *address.Record) error             { return errNil }
-func (nilAddrRepo) SetDefault(ctx context.Context, id, userID int64) error          { return errNil }
-func (nilAddrRepo) Delete(ctx context.Context, id, userID int64) error              { return errNil }
+func (nilAddrRepo) Update(ctx context.Context, a *address.Record) error { return errNil }
+func (nilAddrRepo) SetDefault(ctx context.Context, id, userID int64) error { return errNil }
+func (nilAddrRepo) Delete(ctx context.Context, id, userID int64) error  { return errNil }
 
-// nilCouponRepo 占位实现：coupon 模块的假 repo。
 type nilCouponRepo struct{}
 
 func (nilCouponRepo) ListActive(ctx context.Context, limit, offset int) ([]*coupon.Record, error) {
@@ -133,34 +201,50 @@ func (nilCouponRepo) ListByUser(ctx context.Context, userID int64) ([]*coupon.Us
 }
 func (nilCouponRepo) MarkUsed(ctx context.Context, id, userID int64) error { return errNil }
 
-// nilHospitalRepo 占位实现：hospital 模块的假 repo。
 type nilHospitalRepo struct{}
 
 func (nilHospitalRepo) List(ctx context.Context, f hospital.ListFilter) ([]*hospital.Record, int, error) {
 	return nil, 0, errNil
 }
-func (nilHospitalRepo) GetByID(ctx context.Context, id int64) (*hospital.Record, error) { return nil, errNil }
+func (nilHospitalRepo) GetByID(ctx context.Context, id int64) (*hospital.Record, error) {
+	return nil, errNil
+}
 
-// nilPackageRepo 占位实现：pkg 模块的假 repo。
 type nilPackageRepo struct{}
 
 func (nilPackageRepo) ListByHospital(ctx context.Context, hospitalID int64) ([]*pkgpkg.Record, error) {
 	return nil, errNil
 }
-func (nilPackageRepo) GetByID(ctx context.Context, id int64) (*pkgpkg.Record, error) { return nil, errNil }
+func (nilPackageRepo) GetByID(ctx context.Context, id int64) (*pkgpkg.Record, error) {
+	return nil, errNil
+}
 
-// nilVNRepo 占位实现：virtualnumber 模块的假 repo。
 type nilVNRepo struct{}
 
 func (nilVNRepo) Allocate(ctx context.Context, in virtualnumber.AllocateInput) (*virtualnumber.Record, error) {
 	return nil, errNil
 }
-func (nilVNRepo) GetByID(ctx context.Context, id int64) (*virtualnumber.Record, error) { return nil, errNil }
+func (nilVNRepo) GetByID(ctx context.Context, id int64) (*virtualnumber.Record, error) {
+	return nil, errNil
+}
 func (nilVNRepo) Release(ctx context.Context, id int64, reason string) (*virtualnumber.Record, error) {
 	return nil, errNil
 }
 
-var errNil = errors.New("user: repo not wired (接 pgxpool 后替换)")
+var errNil = errors.New("user: repo not wired (cfg.db.dsn empty; configure postgres dsn to enable)")
+
+func parseLevel(s string) zapcore.Level {
+	switch s {
+	case "debug":
+		return zapcore.DebugLevel
+	case "warn":
+		return zapcore.WarnLevel
+	case "error":
+		return zapcore.ErrorLevel
+	default:
+		return zapcore.InfoLevel
+	}
+}
 
 // runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。
 // 用于 distroless 镜像的 Docker HEALTHCHECK：进程存活 → 200 OK。
