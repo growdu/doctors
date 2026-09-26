@@ -97,6 +97,38 @@ services:
       retries: 10
 
   # ============================================================
+  # 全链路追踪：Jaeger all-in-one（OTel collector + UI + memory store）
+  # ============================================================
+  #   - UI:           http://localhost:16686
+  #   - OTLP HTTP:    http://localhost:4318  (Go 服务用此端口导出 span)
+  #   - OTLP gRPC:    localhost:4317
+  #   - Collector:    localhost:14268 (Jaeger native thrift/HTTP, v1 兼容)
+  #   - Agent UDP:    6831 (thrift compact) / 6832 (thrift binary)
+  #   - COLLECTOR_OTLP_ENABLED=true 接收 OTel OTLP HTTP/gRPC（默认已开）
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: doctors-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver（Go 服务 OTEL_EXPORTER_OTLP_ENDPOINT）
+      - "14268:14268"  # Jaeger collector HTTP
+      - "14250:14250"  # Jaeger collector gRPC
+      - "6831:6831/udp"  # Jaeger agent thrift compact
+      - "6832:6832/udp"  # Jaeger agent thrift binary
+    networks:
+      - doctors-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:16686/api/services >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # ============================================================
   # 11 个 Go 服务（按启动顺序排列；depends_on 严格 healthcheck）
   # ============================================================
   auth-service:
@@ -115,6 +147,10 @@ services:
       DOCTORS_AUTH_KAFKA_GROUP_ID: auth-service
       DOCTORS_AUTH_JWT_SECRET: dev-secret-change-me
       DOCTORS_AUTH_LOGGING_LEVEL: info
+      # OTel 全链路追踪：导出到 Jaeger all-in-one（OTLP HTTP 4318）
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: auth-service
     ports:
       - "8081:8080"
     volumes:
@@ -135,6 +171,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   order-service:
     image: doctors/order:latest
@@ -152,6 +190,9 @@ services:
       DOCTORS_ORDER_KAFKA_GROUP_ID: order-service
       DOCTORS_ORDER_JWT_SECRET: dev-secret-change-me
       DOCTORS_ORDER_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: order-service
     ports:
       - "8082:8080"
     volumes:
@@ -172,6 +213,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   match-service:
     image: doctors/match:latest
@@ -189,6 +232,9 @@ services:
       DOCTORS_MATCH_KAFKA_GROUP_ID: match-service
       DOCTORS_MATCH_JWT_SECRET: dev-secret-change-me
       DOCTORS_MATCH_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: match-service
     ports:
       - "8083:8080"
     volumes:
@@ -209,6 +255,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   message-service:
     image: doctors/message:latest
@@ -226,6 +274,9 @@ services:
       DOCTORS_MESSAGE_KAFKA_GROUP_ID: message-service
       DOCTORS_MESSAGE_JWT_SECRET: dev-secret-change-me
       DOCTORS_MESSAGE_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: message-service
     ports:
       - "8084:8080"
     volumes:
@@ -246,6 +297,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   payment-service:
     image: doctors/payment:latest
@@ -263,6 +316,9 @@ services:
       DOCTORS_PAYMENT_KAFKA_GROUP_ID: payment-service
       DOCTORS_PAYMENT_JWT_SECRET: dev-secret-change-me
       DOCTORS_PAYMENT_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: payment-service
     ports:
       - "8085:8080"
     volumes:
@@ -283,6 +339,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   review-service:
     image: doctors/review:latest
@@ -300,6 +358,9 @@ services:
       DOCTORS_REVIEW_KAFKA_GROUP_ID: review-service
       DOCTORS_REVIEW_JWT_SECRET: dev-secret-change-me
       DOCTORS_REVIEW_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: review-service
     ports:
       - "8086:8080"
     volumes:
@@ -320,6 +381,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   sos-service:
     image: doctors/sos:latest
@@ -337,6 +400,9 @@ services:
       DOCTORS_SOS_KAFKA_GROUP_ID: sos-service
       DOCTORS_SOS_JWT_SECRET: dev-secret-change-me
       DOCTORS_SOS_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: sos-service
     ports:
       - "8087:8080"
     volumes:
@@ -357,6 +423,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   user-service:
     image: doctors/user:latest
@@ -374,6 +442,9 @@ services:
       DOCTORS_USER_KAFKA_GROUP_ID: user-service
       DOCTORS_USER_JWT_SECRET: dev-secret-change-me
       DOCTORS_USER_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: user-service
     ports:
       - "8088:8080"
     volumes:
@@ -394,6 +465,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   escort-service:
     image: doctors/escort:latest
@@ -411,6 +484,9 @@ services:
       DOCTORS_ESCORT_KAFKA_GROUP_ID: escort-service
       DOCTORS_ESCORT_JWT_SECRET: dev-secret-change-me
       DOCTORS_ESCORT_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: escort-service
     ports:
       - "8089:8080"
     volumes:
@@ -431,6 +507,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   wallet-service:
     image: doctors/wallet:latest
@@ -448,6 +526,9 @@ services:
       DOCTORS_WALLET_KAFKA_GROUP_ID: wallet-service
       DOCTORS_WALLET_JWT_SECRET: dev-secret-change-me
       DOCTORS_WALLET_LOGGING_LEVEL: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: wallet-service
     ports:
       - "8090:8080"
     volumes:
@@ -468,6 +549,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   admin-service:
     image: doctors/admin:latest
@@ -491,6 +574,10 @@ services:
       DOCTORS_ADMIN_REFUND_BASE_URL: http://review-service:8080
       DOCTORS_ADMIN_ESCORT_BASE_URL: http://escort-service:8080
       DOCTORS_ADMIN_USER_BASE_URL: http://user-service:8080
+      # OTel 全链路追踪：导出到 Jaeger all-in-one
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: admin-service
     ports:
       - "8091:8080"
     volumes:
@@ -511,6 +598,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
       order-service:
         condition: service_started
       review-service:

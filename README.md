@@ -364,12 +364,13 @@ docker compose -f docker-compose.deploy.yml down -v
 | 5432  | PostgreSQL              | 8084  | message-service       |
 | 6379  | Redis                   | 8085  | payment-service       |
 | 9092  | Kafka                   | 8086  | review-service        |
-| 4318  | OTel Collector (OTLP)   | 8087  | sos-service           |
-| 80    | patient-miniapp H5      | 8088  | user-service          |
-| 8080  | escort-app (Flutter web)| 8089  | escort-service        |
-| 8081  | auth-service            | 8090  | wallet-service        |
-| 8082  | order-service           | 8091  | admin-service         |
-| 8083  | match-service           | 8092  | admin-web             |
+| 4318  | OTel → Jaeger (OTLP HTTP) | 8087  | sos-service           |
+| 16686 | **Jaeger UI**           | 8088  | user-service          |
+| 80    | patient-miniapp H5      | 8089  | escort-service        |
+| 8080  | escort-app (Flutter web)| 8090  | wallet-service        |
+| 8081  | auth-service            | 8091  | admin-service         |
+| 8082  | order-service           | 8092  | admin-web             |
+| 8083  | match-service           |       |                       |
 
 ### 7.3 配置注入
 
@@ -408,6 +409,9 @@ docker compose -f docker-compose.deploy.yml down -v
 - Propagator：W3C `TraceContext` + `Baggage`（HTTP header `traceparent` 透传）。
 - endpoint 留空 → 退化 `NoopTracerProvider`，零开销、不导出。
 - 接入：11 个服务 `cmd/main.go` 已在 `logger.SetLevel` 之前调 `tracing.InitTracer(<svc>, cfg.Tracing.OTLPEndpoint)`。
+- 日志关联：`logger.FromContext(ctx)` 自动读 `trace.SpanContextFromContext`，注入 `otel_trace_id` / `otel_span_id` 字段（Jaeger UI 可按 traceId 检索）。
+- Collector：`docker-compose.deploy.yml` 内置 `jaeger` 服务（jaegertracing/all-in-one）；Go 服务通过 `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318` 导出 span。
+- **Jaeger UI 访问**：[http://localhost:16686](http://localhost:16686) — 选 service（如 `auth-service`）→ Search → 点 trace 看瀑布图。
 - 详细用法：[shared/tracing/README.md](./shared/tracing/README.md)
 
 ### 8.3 健康检查
