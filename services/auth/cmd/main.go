@@ -7,6 +7,14 @@
 //  4. 构造 sms / wxlogin / realname（默认 mock 实现）
 //  5. 构造 service.Service + handler.Handler
 //  6. 启动 server.Run(ctx)；注册 shutdown hook：db-pool、otel-tracer。
+//
+// §32 Kafka 接入策略：
+//   - auth-service 是纯 JWT 签发 / 校验服务，不向任何 Kafka topic 发事件；
+//   - 用户注册成功 / 实名完成事件由调用方（mobile / wxlogin / realname handler）
+//     走 notification-service 直发；auth 不引入 Kafka 依赖；
+//   - 因此本服务不实现 buildPublisher / 不注册 kafka-publisher shutdown hook。
+//   - 若未来需要广播 UserRegisteredEvent 等事件，新增 kafkapublisher 包并按
+//     §32 公共模式装配即可。
 package main
 
 import (
