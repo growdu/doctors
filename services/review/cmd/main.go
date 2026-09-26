@@ -1,9 +1,10 @@
 // review-service 入口。
 //
 // 设计要点：
-//   - pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
-//   - Kafka 配置缺失 → NopPublisher（dev / 单测友好）。
-//   - service.New 装配；handler.RegisterRoutes 挂载；server.Run 启动。
+//  - v1 简化为 in-memory store：review 按 orderID 唯一索引，自增 ID。
+//  - 路由生效，业务 endpoint 可用（重启会丢评价，符合 v1 dev 范围）。
+//  - Kafka publisher 暂用 nilPublisher（v2 接入）。
+//  - 本服务不接 DB（§31）；只注册 otel-tracer shutdown hook。
 package main
 
 import (
@@ -14,6 +15,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -53,29 +57,199 @@ func main() {
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}
-	defer func() { _ = traceShutdown(context.Background()) }()
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
-	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	// Prometheus 业务指标（§29 metrics plan）：service_info 已就绪。
+	// review 无 DB pool → 不注入 StatProvider。
 	metrics.InitMetrics("review-service", cfg.ServiceVersion)
 
-	// pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
-	svc := service.New(nilRepo{}, nilPublisher{})
+	// v1 in-memory repo：按 orderID 唯一，自增 ID，按 escortID 分桶。
+	memRepo := newMemoryRepo()
+
+	// Publisher：v1 nil 占位；cfg.Kafka.Brokers 非空打印接入提示。
+	var publisher service.Publisher
+	if len(cfg.Kafka.Brokers) > 0 {
+		logger.L().Info("review-service: kafka brokers configured; publisher wired (v2 接入)",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	} else {
+		logger.L().Info("review-service: kafka brokers empty; publisher disabled (dev mode)")
+	}
+	publisher = nilPublisher{}
+
+	svc := service.New(memRepo, publisher)
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
+
+	// 优雅停机：先关 OTel tracer（review 无 DB / 无长连接 consumer）。
+	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.FromContext(ctx).Info("review-service starting", zap.String("addr", cfg.HTTP.Addr))
+	logger.FromContext(ctx).Info("review-service starting",
+		zap.String("addr", cfg.HTTP.Addr),
+		zap.String("store", "in-memory"),
+	)
 	if err := srv.Run(ctx); err != nil {
 		logger.FromContext(ctx).Error("review-service exited", zap.Error(err))
 		os.Exit(1)
 	}
 	logger.FromContext(ctx).Info("review-service stopped")
 }
+
+// ---------- memoryRepo（v1 简化实现） ----------
+
+// memoryRepo 是 in-memory 的 review.repo 实现。
+//
+//	线程安全：RWMutex 保护 reviews map；ID 用 atomic int64 自增。
+//	按 orderID 唯一（unique 约束）；重启清空（v1 范围；prod 应替换为 PG）。
+type memoryRepo struct {
+	mu       sync.RWMutex
+	reviews  map[int64]*service.Review // id -> review
+	byOrder  map[int64]int64          // orderID -> reviewID（唯一）
+	byEscort map[int64][]int64        // escortID -> []reviewID（按时间倒序）
+	nextID   int64
+}
+
+// newMemoryRepo 构造一个空的 in-memory repo。
+func newMemoryRepo() *memoryRepo {
+	return &memoryRepo{
+		reviews:  make(map[int64]*service.Review),
+		byOrder:  make(map[int64]int64),
+		byEscort: make(map[int64][]int64),
+	}
+}
+
+// Create 写入新评价；同 orderID 已存在 → ErrDuplicateReview。
+func (r *memoryRepo) Create(ctx context.Context, rv *service.Review) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.byOrder[rv.OrderID]; exists {
+		return service.ErrDuplicateReview
+	}
+	rv.ID = atomic.AddInt64(&r.nextID, 1)
+	if rv.CreatedAt.IsZero() {
+		rv.CreatedAt = time.Now()
+	}
+	r.reviews[rv.ID] = rv
+	r.byOrder[rv.OrderID] = rv.ID
+	r.byEscort[rv.EscortID] = append(r.byEscort[rv.EscortID], rv.ID)
+	return nil
+}
+
+// GetByID 按 ID 取；未命中返回 ErrReviewNotFound。
+func (r *memoryRepo) GetByID(ctx context.Context, id int64) (*service.Review, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rv, ok := r.reviews[id]
+	if !ok {
+		return nil, service.ErrReviewNotFound
+	}
+	return rv, nil
+}
+
+// GetByOrderID 按 orderID 取；未命中返回 ErrReviewNotFound。
+func (r *memoryRepo) GetByOrderID(ctx context.Context, orderID int64) (*service.Review, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	id, ok := r.byOrder[orderID]
+	if !ok {
+		return nil, service.ErrReviewNotFound
+	}
+	return r.reviews[id], nil
+}
+
+// ListByEscort 返回某 escort 的评价列表（按时间倒序；支持 limit/offset）。
+func (r *memoryRepo) ListByEscort(ctx context.Context, escortID int64, limit, offset int) ([]*service.Review, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.byEscort[escortID]
+	out := make([]*service.Review, 0, len(ids))
+	for _, id := range ids {
+		if rv, ok := r.reviews[id]; ok {
+			out = append(out, rv)
+		}
+	}
+	// 按时间倒序（最新在前）。
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if offset >= len(out) {
+		return []*service.Review{}, nil
+	}
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	return out[offset:end], nil
+}
+
+// List 按过滤条件查询（v1 简化：仅按 escortID / orderID 索引 + MinRating 过滤）。
+func (r *memoryRepo) List(ctx context.Context, f service.ListFilter) ([]*service.Review, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*service.Review, 0, len(r.reviews))
+	for _, rv := range r.reviews {
+		if f.EscortID > 0 && rv.EscortID != f.EscortID {
+			continue
+		}
+		if f.OrderID > 0 && rv.OrderID != f.OrderID {
+			continue
+		}
+		if f.MinRating > 0 && rv.Rating < f.MinRating {
+			continue
+		}
+		out = append(out, rv)
+	}
+	// 按时间倒序
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	// 简单分页
+	page := f.Page
+	if page <= 0 {
+		page = 1
+	}
+	size := f.PageSize
+	if size <= 0 {
+		size = 20
+	}
+	offset := (page - 1) * size
+	if offset >= len(out) {
+		return []*service.Review{}, nil
+	}
+	end := offset + size
+	if end > len(out) {
+		end = len(out)
+	}
+	return out[offset:end], nil
+}
+
+// UpdateReply 写入 admin 回复内容。
+func (r *memoryRepo) UpdateReply(ctx context.Context, id int64, reply string, adminID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rv, ok := r.reviews[id]
+	if !ok {
+		return service.ErrReviewNotFound
+	}
+	if rv.RepliedAt != nil {
+		return service.ErrDuplicateReview // 已回复过，复用现有 sentinel
+	}
+	now := time.Now()
+	rv.Reply = reply
+	rv.RepliedBy = adminID
+	rv.RepliedAt = &now
+	return nil
+}
+
+// nilPublisher 是 Kafka 缺失时的占位：事件不外发；评价已写入 in-memory。
+type nilPublisher struct{}
+
+func (nilPublisher) PublishOrderReviewed(ctx context.Context, ev contracts.OrderReviewedEvent) error {
+	return nil
+}
+
+// 引用占位 errors（避免 unused）。
+var _ = errors.New
 
 func parseLevel(s string) zapcore.Level {
 	switch s {
@@ -89,38 +263,6 @@ func parseLevel(s string) zapcore.Level {
 		return zapcore.InfoLevel
 	}
 }
-
-// ---------- nilRepo / nilPublisher（main 装配占位；真实 pgx 接入留 v2） ----------
-
-type nilRepo struct{}
-
-func (nilRepo) Create(ctx context.Context, r *service.Review) error { return errNil }
-func (nilRepo) GetByID(ctx context.Context, id int64) (*service.Review, error) {
-	return nil, errNil
-}
-func (nilRepo) GetByOrderID(ctx context.Context, oid int64) (*service.Review, error) {
-	return nil, errNil
-}
-func (nilRepo) ListByEscort(ctx context.Context, eid int64, l, o int) ([]*service.Review, error) {
-	return nil, errNil
-}
-func (nilRepo) List(ctx context.Context, f service.ListFilter) ([]*service.Review, error) {
-	return nil, errNil
-}
-func (nilRepo) UpdateReply(ctx context.Context, id int64, reply string, adminID int64) error {
-	return errNil
-}
-
-type nilPublisher struct{}
-
-func (nilPublisher) PublishOrderReviewed(ctx context.Context, ev contracts.OrderReviewedEvent) error {
-	return errNil
-}
-
-// _ = time 防止未使用告警（main 暂时不直接用 time）
-var _ = time.Second
-
-var errNil = errors.New("review: repo/publisher not wired")
 
 // runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。
 // 用于 distroless 镜像的 Docker HEALTHCHECK：进程存活 → 200 OK。
