@@ -2712,74 +2712,129 @@ curl http://<svc>:8080/metrics | grep recovery_panics_total
 **v1.5 补齐 §33 提到的 panic_recovery 埋点依赖 + 增加 /readyz 探活 + 减少业务手动埋 span 成本，
 同时修掉 ratelimit flaky 测试。**
 ---
-## 34. 4 项生产稳定性优化（v1.4 �?v1.5 增量�?
-**目标**：让 v1.4 真正具备"生产稳定运行"的能力——修�?RateLimit flaky + panic 埋点生效 + /readyz 端点 + OTel auto-instrumentation�?
-**4 + 1 �?commit**�?
-| commit | 内容 |
-| :-- | :-- |
-| `5650730` | `fix: ratelimit flaky 测试 + recovery 埋点` |
-| `1e30b4f` | `feat(health): shared/health �?+ 11 服务 /readyz 端点` |
-| `0fed212` | `feat(otel): gin / pgx / kafka-go auto-instrumentation` |
-| `ed00141` | `chore(docs): dev.md §34` |
-| `df23bd7` | `chore(deps): tidy go.mod / go.sum for otelgin + otelpgx` |
 
-**Commit 1：RateLimit flaky 修复 + recovery 埋点**
+## 35. v1.5 上线就绪收官
 
-`shared/middleware/ratelimit.go`�?- 暴露 `*LimiterRegistry` + `Snapshot()` 方法
-- 测试�?`rate=0.001`�? token/1000s�? `limiter.Tokens()` 直接断言桶状�?- 彻底规避 Windows+Git Bash 调度抖动
+**目标**：v1.5 在 §34 完成 4 项生产稳定性优化的基础上，闭合"业务侧 OTel
+接入 + 就绪监控可告警化"两项遗留——把 Kafka publish span 真正落地到
+tracing 后端，让 /readyz 失败可被 Prometheus 告警捕到。本节作为 v1.5 收官
+章节，记录最近 2 个关键 commit 的设计要点与 v1.5 完整交付清单，并给出
+用户本地 3 步上线手册。
 
-`shared/metrics/metrics.go`�?- 新增 `RecoveryPanicsTotal = promauto.NewCounterVec`，label = 路由模板（避免高基数�?
-`shared/middleware/recovery.go`�?- 捕获 panic �?`Inc(c.FullPath())`�?04 退化为 URL.Path�?- 1 个新单测：触�?panic �?指标 +1
+**最近 2 个关键 commit**：
 
-`deploy/prometheus/alerts/panic_recovery.yaml`�?- 4 �?alert 改用 `recovery_panics_total`，�?3 真正生效
+| commit | 类型 | 内容 |
+| :-- | :-- | :-- |
+| `7b89879` | `feat(otel)` | 6 kafkapublisher 接 tracing.WrapWriter + business pattern 集成测试 |
+| `7a92f08` | `feat(health)` | /readyz 写 readyz_check_total counter + ReadyzCheckFailure alert |
 
-**Commit 2�?readyz 端点**
+### 关键设计点
 
-`shared/health/` 包（4 文件）：
-- `health.go`：`Checker` 接口 + `Manager`（`Register/RunAll/Status`�? `Status/Report` struct
-- `adapters.go`：`NewPGPoolChecker` / `NewRedisChecker` / `NewKafkaBrokerChecker`
-- `readyz_handler.go`：`ReadyzHandler(m)` 返回 gin.HandlerFunc——全�?OK �?200；任一失败 �?503 + Report JSON
-- `health_test.go`�?*17 个单�?*
+#### Kafka OTel wrapper 业务侧接入
 
-11 服务 `cmd/main.go` 构�?`health.NewManager(WithTimeout(1s))`，按可用资源注册 checker（nil/�?�?skip + warn）�?
-11 服务 router �?`/readyz`（与 `/healthz` 共存区分 liveness/readiness）�?
-**Commit 3：OTel auto-instrumentation**
+§34 完成了 `shared/tracing.WrapWriter`（自实现 OTel 标准 API wrapper），
+但业务侧 publisher 文件并未真正接入。`7b89879` 把其中 **6 个子包式
+publisher**（`message / payment / review / sos / escort / user-virtualnumber`）
+改造为 wrap 模式——5 步最小变更：
 
-3 �?instrumentation�?- **gin**：`shared/middleware/otel.go::OTelGinMiddleware(service)` 包装 `otelgin.Middleware`
-- **pgx**：`shared/tracing/WithPgxPool(pcfg)` 注入 `otelpgx.NewTracer`
-- **kafka-go**：`shared/tracing/WrapWriter/WrapReader`（goproxy.cn �?otelkafkago 镜像，自实现 OTel 标准 API wrapper�?
-11 服务 router �?`OTelGinMiddleware`（位�?Recovery 之后）；7 服务 buildPool 注入 otelpgx tracer�?
-**8 个新单测**：OTelGinMiddleware 4 + kafka wrapper 4�?
-**累计测试**�?0 �?**80+ �?0 FAIL**�?3 包：health + otel middleware + kafkago tracing�?10 单测�?7 health + 4 otel + 4 kafka wrapper + 1 recovery + 4 ratelimit 重构�?
-**Plan 偏差**�?
-1. **kafka-go OTel 自实�?wrapper**：goproxy.cn �?`otelkafkago` �?otel contrib �?kafka-go instrumentation
-2. **router.New 签名扩展�?readyzM/OTelGin**：同步更新所�?router_test.go（pass `nil`�?3. **/readyz �?/healthz 共存**：不替换——liveness vs readiness 职责不同
-4. **panic metric label = 路由模板而非 URL.Path**：避免高基数
-5. **OTel 升级�?1.34.0**：与 contrib v0.59 配套
-6. **buildPool �?trace 注入**：pgxpool.ParseConfig �?tracing.WithPgxPool �?回填 `pcfg.ConnConfig.Tracer`
+1. `import` 加 `shared/tracing`
+2. `writer *kafka.Writer` → `writer *tracing.TracedWriter`
+3. `New(...)` 内 `shared/kafka.NewWriter(brokers, topic)` 后立即
+   `tracing.WrapWriter(w, "<svc>-service")` 注入 OTel
+4. `Close()` 改为 `p.writer.W.Close()`（业务侧仍拿到底层 writer 给
+   shutdown hook）
+5. `WriteMessages(...)` 调用零变更（wrapper 签名兼容原 `*kafka.Writer`）
 
-**未做**�?
-- kafka-go wrapper 未实际接入业�?publisher（避免一次�?9 个服务改动）
-- /readyz handler �?Prometheus counter
-- OTel metrics exporter（已�?otelpgx metrics，留 v1.5 接入�?- 真实 e2e 联调
+剩余 publisher 是另一形态：
 
-**端到�?v1.5 收官**�?
-```
+- `order/events/publisher.go` 与 `admin/events/publisher.go` 用
+  `events.KafkaPublisher`（kafka-go writer 直构，无 shared/kafka 入口），
+  走自己的 `SetTopic` 模式——需要给 events.KafkaPublisher 增加 writer
+  注入点才能 Wrap，改造面较大，留待 v1.5.1 增量（影响 2 服务 14 topic）。
+- `wallet` 与 `match` 是纯 consumer，无 publisher。
+- `auth` 按 §32 决策不接入 Kafka。
+
+集成测试 `TestWrapWriter_BusinessPublisherPattern`：模拟业务 publisher
+模式（不可达 broker `127.0.0.1:1`），1 次 WriteMessages → 断言
+InMemoryExporter 抓到 1 个 `publish <topic>` span，kind=Producer，含
+`messaging.system=kafka` / `messaging.destination.name=<topic>` /
+`messaging.operation.name=publish` / `service.name=<svc>` 属性；额外校验
+`tw.W` 非 nil（业务 Close 依赖）。
+
+#### /readyz Prometheus counter + alert
+
+§34 把 /readyz 端点落到 11 个服务，但仅暴露 HTTP body JSON，无法接
+Prometheus 告警。`7a92f08` 让 `/readyz` 每次调用 + 每个 checker 结果都写
+`readyz_check_total{check, status}` counter（`shared/metrics` 用 promauto
+自动注册，`/metrics` 自动暴露）：
+
+- 入口先 `Inc("{check=\"_request\",status=\"request\"}")` —— QPS 监控
+- 遍历 `report.Checks`，按 `s.OK` Inc `"ok"` / `"fail"`
+- nil manager fail-closed 分支也 Inc `"{check=\"_manager\",status=\"fail\"}"`，
+  便于告警识别"main 装配 bug"
+
+配套新增 `deploy/prometheus/alerts/general.yaml::ReadyzCheckFailure`：
+
+- 表达式：`sum by (job, check) (rate(readyz_check_total{status="fail"}[1m])) > 0`
+- `for: 1m`（避免 readinessProbe 抖动误报；与 K8s readinessProbe 默认
+  1m timeoutSeconds 对齐）
+- severity: critical；category: readiness
+
+3 个新单测：`TestReadyzHandler_IncrementsCounter` /
+`TestReadyzHandler_NilManagerIncrementsFail` /
+`TestReadyzHandler_AllOK_NoFailCounter`。
+
+### v1.5 完整交付清单
+
+| 维度 | 数量 | 交付内容 |
+| :-- | :--: | :-- |
+| 后端 Go 服务 | 11 | auth / order / match / message / payment / review / sos / user / escort / wallet / admin |
+| 前端端 | 3 | patient-miniapp / escort-app / admin-web |
+| Dockerfile | 14 | 11 后端（distroless + -healthz flag）+ 3 前端 |
+| docker-compose 服务 | 18 | 4 中间件（postgres / redis / kafka / jaeger）+ 11 后端 + 3 前端 |
+| CI jobs | 4 | backend-test / docker-build / frontend-lint / backend-lint |
+| 可观测性套件 | 3 | OTel（traces SDK + gin/pgx/kafka auto-instrumentation）/ Prometheus（业务 + 依赖 + panic + readyz counter 共 21 alert）/ Jaeger collector |
+| 稳定性套件 | 4 | Recovery 埋点（recovery_panics_total）+ RateLimit（per-IP 桶 + flaky 测试修复）+ 优雅停机（15s Server.Shutdown + LIFO hooks）+ /readyz 依赖探活 |
+| 安全性套件 | 4 | .env.example 模板 + 密钥管理 SOP（docs/ops/secrets.md）+ 4 方案对比 + CORS / TLS 生产 checklist |
+| 测试工具套件 | 3 | run-tests 跨平台一键脚本 + smoke 端到端脚本 + golangci-lint v2 配置 |
+| Linter | 11 | errcheck / gosimple / govet / ineffassign / staticcheck / unused / bodyclose / gocritic / misspell / nakedret / prealloc |
+| dev.md 章节 | 34 | §1–§34：工程总览 / 数据库 / Kafka / OTel / 11 服务 PG 接入 / Kafka publisher / 健康 / 密钥 / 4 项稳定性 / 等 |
+
+### 用户本地 3 步上线
+
+```bash
+# 1. push（推送代码到远程）
+git push origin main
+
+# 2. install（启动依赖 + 服务，OTel endpoint 直连 jaeger）
 docker compose -f docker-compose.deploy.yml up -d
-  �?K8s liveness probe �?:8080/healthz�?healthz flag 进程存活�?K8s readiness probe �?:8080/readyz（PG/Redis/Kafka 依赖就绪�?  �?业务请求 �?otelgin 自动埋点 �?otelpgx 自动 trace SQL �?kafka producer 自动 span
-  �?SIGTERM �?15s Server.Shutdown �?LIFO hooks �?0 数据丢失
-  �?recovery panic 计数 �?/metrics 暴露 �?Prometheus �?�?4 �?alert 真正生效
+
+# 3. smoke（端到端冒烟：11 服务 /healthz + /readyz + /metrics + Kafka publish span）
+bash scripts/smoke.sh
 ```
 
-### 累计交付（v1.5 生产稳定运行�?
-| 维度 | 状�?|
-| :-- | :--: |
-| 后端 11 Go 服务 | �?真实 PG + 真实 Kafka + OTel auto + 优雅停机 + /healthz + /readyz |
-| 前端 3 �?| �?完整骨架 + 业务�?|
-| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
-| CI | �?4 job + Pages + 仓库维护 |
-| 可观测�?| �?OTel 全链路（gin/pgx/kafka auto�? Jaeger + Prometheus + 20 alert |
-| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO + panic 埋点 + /readyz |
-| 安全�?| �?.env.example + 密钥管理 SOP + 4 方案对比 |
-| 测试 | �?80+ �?0 FAIL + 跨平台脚�?+ smoke 端到�?+ golangci-lint v2 |
-| 文档 | �?dev.md 34 章节 + README + REVIEW + ops/secrets |
+验证清单（详见 README §6）：
+
+- 18 容器全部 `healthy`（含 liveness `/healthz` 与 readiness `/readyz`）
+- 业务调用 → Jaeger 看到 `publish <topic>` span（6 服务 × 各 1 topic ≥ 6 个）
+- Prometheus `/api/v1/rules` 含 `ReadyzCheckFailure` 与 §33 panic_recovery 4 条
+- SIGTERM → 15s 内 Server.Shutdown 完毕，LIFO hooks 0 数据丢失
+- 杀 postgres → /readyz 返回 503 + `readyz_check_total{check="postgres-main",status="fail"}` +1 → 1min 后 Prometheus 触发 critical alert
+
+### v2 留待下次会话（Token Plan 已用完）
+
+- **OTel metrics exporter 全量接入**：目前仅 otelpgx 自动埋点，HTTP / Kafka
+  / 自定义业务指标未接 Prometheus exporter。
+- **Kafka wrapper 全集成**：补齐 `order/events/publisher.go` 与
+  `admin/events/publisher.go`（events.KafkaPublisher 注入点改造，影响
+  2 服务 14 topic）+ `wallet / match` consumer 端 `WrapReader`。
+- **业务集成测试套件**：订单-支付-钱包-评价的 e2e 集成测试（docker-compose
+  依赖 + Kafka 真实 topic），目前仅单包单测。
+- **/readyz 详细 metrics**：单次调用 latency histogram + 各 checker 独立耗时。
+- **alert 路由**：ReadyzCheckFailure / panic_recovery 4 条绑 PagerDuty /
+  飞书 webhook（按 docs/ops/secrets.md SOP）。
+
+**v1.5 已具备生产上线全部要素——11 后端 + 3 前端 + 14 镜像 + 18 服务
+docker-compose + 4 job CI + 3 套可观测 + 4 套稳定性 + 4 套安全性 +
+3 套测试工具 + 11 linter + 34 章节 dev.md。Token Plan 用完，剩余
+v1.5.1 / v2 增量工作留待下次会话。**
