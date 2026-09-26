@@ -1,9 +1,11 @@
 // escort-service 入口。
 //
-// 设计要点：
-//   - pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
-//   - availability 子包独立装配（availability.NewService(nilRepo)）。
-//   - service.New 装配 + WithQualificationRepo / WithTrainingRepo 注入；handler + availability handler 挂载；server.Run 启动。
+// 装配 4 套仓储：profile / qualification / training / availability。
+// DSN 缺失 → 各模块 nil 占位 + warn log（路由仍生效，业务 endpoint 调用时报错）。
+//
+// 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool。
+//
+// 注意：users 表由 auth-service 持有；escort 通过 auth / gRPC 获取 user_id 信息。
 package main
 
 import (
@@ -17,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -26,6 +29,7 @@ import (
 	"github.com/growdu/doctors/services/escort/internal/server"
 	"github.com/growdu/doctors/services/escort/internal/service"
 	"github.com/growdu/doctors/shared/config"
+	shareddb "github.com/growdu/doctors/shared/db"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -53,25 +57,78 @@ func main() {
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}
-	defer func() { _ = traceShutdown(context.Background()) }()
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
+	// 构造 pgxpool；DSN 缺失时降级为 nil。
+	pool, err := buildPool(cfg)
+	if err != nil {
+		log.Fatalf("build pool: %v", err)
+	}
+	if pool != nil {
+		defer pool.Close()
+	}
+
 	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
-	metrics.InitMetrics("escort-service", cfg.ServiceVersion)
+	metrics.InitMetrics("escort-service", cfg.ServiceVersion,
+		metrics.WithDBStatProvider(func() []metrics.DBPoolStat {
+			if pool == nil {
+				return nil
+			}
+			s := pool.Stat()
+			return []metrics.DBPoolStat{{
+				Name:       "main",
+				Acquired:   s.AcquiredConns(),
+				Idle:       s.IdleConns(),
+				TotalConns: s.TotalConns(),
+			}}
+		}),
+	)
 
-	// pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
-	svc := service.New(nilRepo{}, nilPublisher{}).
-		WithQualificationRepo(nilQualRepo{}).
-		WithTrainingRepo(nilTrainingRepo{})
+	// 4 套仓储：pool != nil → 各 New(pool)；否则 nil 占位。
+	var (
+		profileRepo       service.EscortRepo
+		qualificationRepo service.QualificationRepo
+		trainingRepo      service.TrainingRepo
+	)
+	if pool != nil {
+		profileRepo = service.NewProfileRepo(pool)
+		qualificationRepo = service.NewQualificationRepo(pool)
+		trainingRepo = service.NewTrainingRepo(pool)
+		logger.L().Info("escort-service: 3 in-memory repos wired (profile/qual/training)")
+	} else {
+		profileRepo = nilProfileRepo{}
+		qualificationRepo = nilQualRepo{}
+		trainingRepo = nilTrainingRepo{}
+		logger.L().Warn("escort-service: cfg.db.dsn empty; 3 repos not wired (fallback to nil)")
+	}
 
-	// availability 子包
-	availSvc := availability.NewService(nilAvailabilityRepo{})
+	svc := service.New(profileRepo, nilPublisher{}).
+		WithQualificationRepo(qualificationRepo).
+		WithTrainingRepo(trainingRepo)
+
+	// availability 仓储：pool != nil → availability.New(pool)；否则 nil 占位。
+	var availRepo availability.AvailabilityRepo
+	if pool != nil {
+		availRepo = availability.New(pool)
+		logger.L().Info("escort-service: availability repo wired (pgx)")
+	} else {
+		availRepo = nilAvailabilityRepo{}
+		logger.L().Warn("escort-service: cfg.db.dsn empty; availability repo not wired (fallback to nil)")
+	}
+
+	availSvc := availability.NewService(availRepo)
 	availH := availability.NewHandler(availSvc)
 
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.NewWithPublic(h, availH, cfg.Auth.JWTSecret))
+
+	// 优雅停机：先关 OTel tracer，再关 DB pool（LIFO）。
+	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if pool != nil {
+		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -84,43 +141,44 @@ func main() {
 	logger.FromContext(ctx).Info("escort-service stopped")
 }
 
-func parseLevel(s string) zapcore.Level {
-	switch s {
-	case "debug":
-		return zapcore.DebugLevel
-	case "warn":
-		return zapcore.WarnLevel
-	case "error":
-		return zapcore.ErrorLevel
-	default:
-		return zapcore.InfoLevel
+// buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil)。
+func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
+	if cfg.DB.DSN == "" {
+		return nil, nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return shareddb.NewPool(ctx, shareddb.Config{
+		DSN:      cfg.DB.DSN,
+		MaxConns: cfg.DB.MaxConns,
+		MinConns: cfg.DB.MinConns,
+	})
 }
 
-// ---------- nilRepo / nilPublisher / nilQualRepo / nilTrainingRepo / nilAvailabilityRepo ----------
+// ---------- nil 占位（业务接口 fallback；调用即返回 errNil） ----------
 
-type nilRepo struct{}
+type nilProfileRepo struct{}
 
-func (nilRepo) Create(ctx context.Context, e *service.Escort) error { return errNil }
-func (nilRepo) GetByID(ctx context.Context, id int64) (*service.Escort, error) {
+func (nilProfileRepo) Create(ctx context.Context, e *service.Escort) error { return errNil }
+func (nilProfileRepo) GetByID(ctx context.Context, id int64) (*service.Escort, error) {
 	return nil, errNil
 }
-func (nilRepo) GetByUserID(ctx context.Context, uid int64) (*service.Escort, error) {
+func (nilProfileRepo) GetByUserID(ctx context.Context, uid int64) (*service.Escort, error) {
 	return nil, errNil
 }
-func (nilRepo) UpdateStatus(ctx context.Context, id int64, s string) error { return errNil }
-func (nilRepo) UpdateLocation(ctx context.Context, id int64, lat, lng float64) error {
+func (nilProfileRepo) UpdateStatus(ctx context.Context, id int64, s string) error { return errNil }
+func (nilProfileRepo) UpdateLocation(ctx context.Context, id int64, lat, lng float64) error {
 	return errNil
 }
-func (nilRepo) UpdateCity(ctx context.Context, id int64, city string) error { return errNil }
-func (nilRepo) UpdateAvailability(ctx context.Context, id int64, from, until time.Time) error {
+func (nilProfileRepo) UpdateCity(ctx context.Context, id int64, city string) error { return errNil }
+func (nilProfileRepo) UpdateAvailability(ctx context.Context, id int64, from, until time.Time) error {
 	return errNil
 }
 
 type nilPublisher struct{}
 
 func (nilPublisher) PublishAvailabilityChanged(ctx context.Context, ev service.AvailabilityEvent) error {
-	return errNil
+	return nil
 }
 
 type nilQualRepo struct{}
@@ -142,8 +200,9 @@ func (nilTrainingRepo) ListByEscort(ctx context.Context, escortID int64) ([]*ser
 	return nil, errNil
 }
 
-// nilAvailabilityRepo 占位：真实实现见 escort/internal/availability/repo.go。
-// 这里只暴露构造签名所需的最少方法以满足装配；nil 时调用即 panic（与 admin 一致）。
+// nilAvailabilityRepo 占位：DSN 缺失时 availability 业务 endpoint 调用即返回 errNil。
+//
+//	真实实现见 escort/internal/availability/repo.go（pgx 直写 escort_availabilities）。
 type nilAvailabilityRepo struct{}
 
 func (nilAvailabilityRepo) Create(ctx context.Context, escortID int64, startAt, endAt time.Time) (*availability.Availability, error) {
@@ -159,10 +218,27 @@ func (nilAvailabilityRepo) ListByEscort(ctx context.Context, escortID int64) ([]
 func (nilAvailabilityRepo) ListAvailableByTime(ctx context.Context, startAt, endAt time.Time, limit int) ([]*availability.Availability, error) {
 	return nil, errNil
 }
-func (nilAvailabilityRepo) BookByOrder(ctx context.Context, id, orderID int64) error { return errNil }
-func (nilAvailabilityRepo) ReleaseByOrder(ctx context.Context, orderID int64) error   { return errNil }
+func (nilAvailabilityRepo) BookByOrder(ctx context.Context, id, orderID int64) error {
+	return errNil
+}
+func (nilAvailabilityRepo) ReleaseByOrder(ctx context.Context, orderID int64) error {
+	return errNil
+}
 
-var errNil = errors.New("escort: repo/publisher not wired (接 PG/Kafka 后替换)")
+var errNil = errors.New("escort: repo not wired (cfg.db.dsn empty; configure postgres dsn to enable)")
+
+func parseLevel(s string) zapcore.Level {
+	switch s {
+	case "debug":
+		return zapcore.DebugLevel
+	case "warn":
+		return zapcore.WarnLevel
+	case "error":
+		return zapcore.ErrorLevel
+	default:
+		return zapcore.InfoLevel
+	}
+}
 
 // runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。
 // 用于 distroless 镜像的 Docker HEALTHCHECK：进程存活 → 200 OK。
