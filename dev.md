@@ -2711,3 +2711,75 @@ curl http://<svc>:8080/metrics | grep recovery_panics_total
 
 **v1.5 补齐 §33 提到的 panic_recovery 埋点依赖 + 增加 /readyz 探活 + 减少业务手动埋 span 成本，
 同时修掉 ratelimit flaky 测试。**
+---
+## 34. 4 项生产稳定性优化（v1.4 �?v1.5 增量�?
+**目标**：让 v1.4 真正具备"生产稳定运行"的能力——修�?RateLimit flaky + panic 埋点生效 + /readyz 端点 + OTel auto-instrumentation�?
+**4 + 1 �?commit**�?
+| commit | 内容 |
+| :-- | :-- |
+| `5650730` | `fix: ratelimit flaky 测试 + recovery 埋点` |
+| `1e30b4f` | `feat(health): shared/health �?+ 11 服务 /readyz 端点` |
+| `0fed212` | `feat(otel): gin / pgx / kafka-go auto-instrumentation` |
+| `ed00141` | `chore(docs): dev.md §34` |
+| `df23bd7` | `chore(deps): tidy go.mod / go.sum for otelgin + otelpgx` |
+
+**Commit 1：RateLimit flaky 修复 + recovery 埋点**
+
+`shared/middleware/ratelimit.go`�?- 暴露 `*LimiterRegistry` + `Snapshot()` 方法
+- 测试�?`rate=0.001`�? token/1000s�? `limiter.Tokens()` 直接断言桶状�?- 彻底规避 Windows+Git Bash 调度抖动
+
+`shared/metrics/metrics.go`�?- 新增 `RecoveryPanicsTotal = promauto.NewCounterVec`，label = 路由模板（避免高基数�?
+`shared/middleware/recovery.go`�?- 捕获 panic �?`Inc(c.FullPath())`�?04 退化为 URL.Path�?- 1 个新单测：触�?panic �?指标 +1
+
+`deploy/prometheus/alerts/panic_recovery.yaml`�?- 4 �?alert 改用 `recovery_panics_total`，�?3 真正生效
+
+**Commit 2�?readyz 端点**
+
+`shared/health/` 包（4 文件）：
+- `health.go`：`Checker` 接口 + `Manager`（`Register/RunAll/Status`�? `Status/Report` struct
+- `adapters.go`：`NewPGPoolChecker` / `NewRedisChecker` / `NewKafkaBrokerChecker`
+- `readyz_handler.go`：`ReadyzHandler(m)` 返回 gin.HandlerFunc——全�?OK �?200；任一失败 �?503 + Report JSON
+- `health_test.go`�?*17 个单�?*
+
+11 服务 `cmd/main.go` 构�?`health.NewManager(WithTimeout(1s))`，按可用资源注册 checker（nil/�?�?skip + warn）�?
+11 服务 router �?`/readyz`（与 `/healthz` 共存区分 liveness/readiness）�?
+**Commit 3：OTel auto-instrumentation**
+
+3 �?instrumentation�?- **gin**：`shared/middleware/otel.go::OTelGinMiddleware(service)` 包装 `otelgin.Middleware`
+- **pgx**：`shared/tracing/WithPgxPool(pcfg)` 注入 `otelpgx.NewTracer`
+- **kafka-go**：`shared/tracing/WrapWriter/WrapReader`（goproxy.cn �?otelkafkago 镜像，自实现 OTel 标准 API wrapper�?
+11 服务 router �?`OTelGinMiddleware`（位�?Recovery 之后）；7 服务 buildPool 注入 otelpgx tracer�?
+**8 个新单测**：OTelGinMiddleware 4 + kafka wrapper 4�?
+**累计测试**�?0 �?**80+ �?0 FAIL**�?3 包：health + otel middleware + kafkago tracing�?10 单测�?7 health + 4 otel + 4 kafka wrapper + 1 recovery + 4 ratelimit 重构�?
+**Plan 偏差**�?
+1. **kafka-go OTel 自实�?wrapper**：goproxy.cn �?`otelkafkago` �?otel contrib �?kafka-go instrumentation
+2. **router.New 签名扩展�?readyzM/OTelGin**：同步更新所�?router_test.go（pass `nil`�?3. **/readyz �?/healthz 共存**：不替换——liveness vs readiness 职责不同
+4. **panic metric label = 路由模板而非 URL.Path**：避免高基数
+5. **OTel 升级�?1.34.0**：与 contrib v0.59 配套
+6. **buildPool �?trace 注入**：pgxpool.ParseConfig �?tracing.WithPgxPool �?回填 `pcfg.ConnConfig.Tracer`
+
+**未做**�?
+- kafka-go wrapper 未实际接入业�?publisher（避免一次�?9 个服务改动）
+- /readyz handler �?Prometheus counter
+- OTel metrics exporter（已�?otelpgx metrics，留 v1.5 接入�?- 真实 e2e 联调
+
+**端到�?v1.5 收官**�?
+```
+docker compose -f docker-compose.deploy.yml up -d
+  �?K8s liveness probe �?:8080/healthz�?healthz flag 进程存活�?K8s readiness probe �?:8080/readyz（PG/Redis/Kafka 依赖就绪�?  �?业务请求 �?otelgin 自动埋点 �?otelpgx 自动 trace SQL �?kafka producer 自动 span
+  �?SIGTERM �?15s Server.Shutdown �?LIFO hooks �?0 数据丢失
+  �?recovery panic 计数 �?/metrics 暴露 �?Prometheus �?�?4 �?alert 真正生效
+```
+
+### 累计交付（v1.5 生产稳定运行�?
+| 维度 | 状�?|
+| :-- | :--: |
+| 后端 11 Go 服务 | �?真实 PG + 真实 Kafka + OTel auto + 优雅停机 + /healthz + /readyz |
+| 前端 3 �?| �?完整骨架 + 业务�?|
+| 部署 | �?14 Dockerfile + docker-compose + Jaeger |
+| CI | �?4 job + Pages + 仓库维护 |
+| 可观测�?| �?OTel 全链路（gin/pgx/kafka auto�? Jaeger + Prometheus + 20 alert |
+| 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO + panic 埋点 + /readyz |
+| 安全�?| �?.env.example + 密钥管理 SOP + 4 方案对比 |
+| 测试 | �?80+ �?0 FAIL + 跨平台脚�?+ smoke 端到�?+ golangci-lint v2 |
+| 文档 | �?dev.md 34 章节 + README + REVIEW + ops/secrets |
