@@ -2,13 +2,11 @@
 //
 // 装配流程：
 //  1. 读 config（service / http / db / auth 等）
-//  2. 构造 user repo（pgx pool）
-//  3. 构造 sms / wxlogin / realname（默认 mock 实现）
-//  4. 构造 service.Service + handler.Handler
-//  5. 启动 server.Run(ctx)
-//
-// 本期没有真实 DB 连接（业务层用 fake 不合适），所以 main 不直连 pgxpool：
-// pgxpool 仍需要等到业务层真正接入 repo（阶段 2.9 smoke）。
+//  2. 构造 pgxpool（cfg.db.dsn 空 → 降级 nil + warn log，路由仍生效但业务 endpoint 不可用）
+//  3. 构造 user repo（pool == nil → 用 nilUserRepo 占位；否则走 PG + adapter）
+//  4. 构造 sms / wxlogin / realname（默认 mock 实现）
+//  5. 构造 service.Service + handler.Handler
+//  6. 启动 server.Run(ctx)；注册 shutdown hook：db-pool、otel-tracer。
 package main
 
 import (
@@ -21,16 +19,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/auth/internal/handler"
 	"github.com/growdu/doctors/services/auth/internal/realname"
+	"github.com/growdu/doctors/services/auth/internal/repo"
 	"github.com/growdu/doctors/services/auth/internal/server"
 	"github.com/growdu/doctors/services/auth/internal/service"
 	"github.com/growdu/doctors/services/auth/internal/sms"
 	"github.com/growdu/doctors/services/auth/internal/wxlogin"
 	"github.com/growdu/doctors/shared/config"
+	shareddb "github.com/growdu/doctors/shared/db"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -59,26 +60,60 @@ func main() {
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}
-	defer func() { _ = traceShutdown(context.Background()) }()
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
-	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
-	metrics.InitMetrics("auth-service", cfg.ServiceVersion)
+	// 构造 pgxpool；DSN 缺失时降级为 nil（业务 endpoint 调用时由 nilUserRepo 返回 error）。
+	pool, err := buildPool(cfg)
+	if err != nil {
+		log.Fatalf("build pool: %v", err)
+	}
+	if pool != nil {
+		defer pool.Close()
+	}
 
-	// 装配 service 依赖（本期均为 mock 实现）
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	// pool != nil 时注入 StatProvider；nil 时跳过（不写 DB 指标）。
+	metrics.InitMetrics("auth-service", cfg.ServiceVersion,
+		metrics.WithDBStatProvider(func() []metrics.DBPoolStat {
+			if pool == nil {
+				return nil
+			}
+			s := pool.Stat()
+			return []metrics.DBPoolStat{{
+				Name:       "main",
+				Acquired:   s.AcquiredConns(),
+				Idle:       s.IdleConns(),
+				TotalConns: s.TotalConns(),
+			}}
+		}),
+	)
+
+	// 装配 service 依赖（本期均为 mock 实现）。
 	smsSender := sms.NewLogSender()
 	wxClient := wxlogin.NewMockClient()
 	rnVerifier := realname.NewMockVerifier(cfg.Auth.JWTSecret) // salt 与 secret 共用，便于 dev
 
-	// user repo 需要 pgxpool；当前阶段未接真 DB，业务层走 fake 路径。
-	// 这里把 repo 设为 nil，业务层若尝试调用会 panic；smoke 阶段会替换为真 repo。
-	// 为让 main 启动不至于 panic，这里组装一个 nil 哨兵：
-	svc := service.New(nilRepo{}, smsSender, wxClient, rnVerifier, cfg.Auth.JWTSecret, cfg.Auth.JWTTTL)
+	// user repo：pool != nil 走真实 PG（adapter 把 repo.User 映射成 service.User）；
+	// 否则 nil 占位（路由仍生效，业务 endpoint 会返回 5xx）。
+	var userRepo service.UserRepo
+	if pool != nil {
+		userRepo = newUserRepoAdapter(repo.NewUserRepo(pool))
+	} else {
+		logger.L().Warn("auth-service: cfg.db.dsn empty; user repo not wired (fallback to nil)")
+		userRepo = nilUserRepo{}
+	}
+
+	svc := service.New(userRepo, smsSender, wxClient, rnVerifier, cfg.Auth.JWTSecret, cfg.Auth.JWTTTL)
 	h := handler.New(svc)
 
 	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret)
+	// 优雅停机：先关 OTel tracer，再关 DB pool（按注册逆序 LIFO 执行）。
+	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if pool != nil {
+		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -91,31 +126,104 @@ func main() {
 	logger.FromContext(ctx).Info("auth-service stopped")
 }
 
-// nilRepo 是为了让 main 能编译 / 启动；接入 pgxpool 后会替换。
-// 任何方法被调用都返回错误，便于 dev 期间快速发现。
-type nilRepo struct{}
-
-func (nilRepo) Create(ctx context.Context, phone, role string, unionid *string) (int64, error) {
-	return 0, errNilRepo
-}
-func (nilRepo) FindByPhone(ctx context.Context, phone string) (*service.User, error) {
-	return nil, errNilRepo
-}
-func (nilRepo) FindByUnionID(ctx context.Context, unionid string) (*service.User, error) {
-	return nil, errNilRepo
-}
-func (nilRepo) FindByID(ctx context.Context, id int64) (*service.User, error) {
-	return nil, errNilRepo
-}
-func (nilRepo) UpdateRealName(ctx context.Context, id int64, hash, tail string) error {
-	return errNilRepo
+// buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil) —— 调用方按"降级"
+//
+//	模式装配 nilUserRepo，路由仍能注册（业务 endpoint 调用时才报错）。
+func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
+	if cfg.DB.DSN == "" {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return shareddb.NewPool(ctx, shareddb.Config{
+		DSN:      cfg.DB.DSN,
+		MaxConns: cfg.DB.MaxConns,
+		MinConns: cfg.DB.MinConns,
+	})
 }
 
-var errNilRepo = &errsSentinel{}
+// userRepoAdapter 把 repo.UserRepo（返回 *repo.User）适配成 service.UserRepo（返回 *service.User）。
+//
+//	职责单一：仅做字段映射；不引入业务逻辑。auth.repo 不依赖 auth.service，避免循环导入。
+type userRepoAdapter struct{ r *repo.UserRepo }
 
-type errsSentinel struct{}
+func newUserRepoAdapter(r *repo.UserRepo) *userRepoAdapter { return &userRepoAdapter{r: r} }
 
-func (e *errsSentinel) Error() string { return "auth: user repo not wired (阶段 2.9 后接通)" }
+func (a *userRepoAdapter) Create(ctx context.Context, phone, role string, unionid *string) (int64, error) {
+	u := &repo.User{Phone: phone, Role: repo.Role(role), WxUnionID: unionid}
+	if err := a.r.Create(ctx, u); err != nil {
+		return 0, err
+	}
+	return u.ID, nil
+}
+
+func (a *userRepoAdapter) FindByPhone(ctx context.Context, phone string) (*service.User, error) {
+	u, err := a.r.FindByPhone(ctx, phone)
+	if err != nil {
+		return nil, err
+	}
+	return toServiceUser(u), nil
+}
+
+func (a *userRepoAdapter) FindByUnionID(ctx context.Context, unionid string) (*service.User, error) {
+	u, err := a.r.FindByUnionID(ctx, unionid)
+	if err != nil {
+		return nil, err
+	}
+	return toServiceUser(u), nil
+}
+
+func (a *userRepoAdapter) FindByID(ctx context.Context, id int64) (*service.User, error) {
+	u, err := a.r.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return toServiceUser(u), nil
+}
+
+func (a *userRepoAdapter) UpdateRealName(ctx context.Context, id int64, hash, tail string) error {
+	return a.r.UpdateRealName(ctx, id, hash, tail)
+}
+
+// toServiceUser 把 repo.User 收敛成 service.User（只保留业务层需要的字段）。
+func toServiceUser(u *repo.User) *service.User {
+	return &service.User{
+		ID:               u.ID,
+		Phone:            u.Phone,
+		Role:             string(u.Role),
+		UnionID:          u.WxUnionID,
+		RealNameVerified: u.RealNameVerified,
+	}
+}
+
+// nilUserRepo 是为了让 main 在 DSN 缺失时仍能编译 / 启动；任何方法被调用
+//
+//	都返回 error，便于 dev 期间快速发现。
+type nilUserRepo struct{}
+
+func (nilUserRepo) Create(ctx context.Context, phone, role string, unionid *string) (int64, error) {
+	return 0, errNilUserRepo
+}
+func (nilUserRepo) FindByPhone(ctx context.Context, phone string) (*service.User, error) {
+	return nil, errNilUserRepo
+}
+func (nilUserRepo) FindByUnionID(ctx context.Context, unionid string) (*service.User, error) {
+	return nil, errNilUserRepo
+}
+func (nilUserRepo) FindByID(ctx context.Context, id int64) (*service.User, error) {
+	return nil, errNilUserRepo
+}
+func (nilUserRepo) UpdateRealName(ctx context.Context, id int64, hash, tail string) error {
+	return errNilUserRepo
+}
+
+var errNilUserRepo = &errNilSentinel{}
+
+type errNilSentinel struct{}
+
+func (e *errNilSentinel) Error() string {
+	return "auth: user repo not wired (cfg.db.dsn empty; configure postgres dsn to enable)"
+}
 
 // parseLevel 把 yaml 字符串映射为 zapcore.Level，未知值默认 info。
 func parseLevel(s string) zapcore.Level {
@@ -142,6 +250,3 @@ func runHealthzServer() {
 	log.Printf("auth-service healthz server listening on :9090")
 	log.Fatal(http.ListenAndServe(":9090", mux))
 }
-
-// 显式保留 time 引用避免 lint
-var _ = time.Second
