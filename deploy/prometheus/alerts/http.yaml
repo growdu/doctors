@@ -1,0 +1,133 @@
+# =============================================================================
+# alerts/http.yaml
+# -----------------------------------------------------------------------------
+# HTTP 维度告警：5xx 错误率 / 慢请求 / 端点异常
+# 适用范围：所有 Go 服务（指标：shared/metrics.GinMiddleware 注入）
+# 与 general.yaml 的差异：本文件聚焦**端点级**SLO 与**单端点异常**；
+#   general.yaml 是服务整体维度（整体 up / 总错误率 / 总延迟）。
+# =============================================================================
+groups:
+  - name: doctors.http
+    interval: 30s
+    rules:
+
+      # ---------------------------------------------------------------------
+      # 端点级 5xx 比率 > 1% 持续 5 分钟（比通用阈值更严格）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHTTP5xxRateHigh
+        expr: |
+          (
+            sum by (job, path) (
+              rate(http_requests_total{status="5xx"}[5m])
+            )
+          )
+          /
+          (
+            sum by (job, path) (
+              rate(http_requests_total[5m])
+            )
+          ) > 0.01
+          and
+          sum by (job, path) (rate(http_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: http
+        annotations:
+          summary: "{{ $labels.job }} 端点 {{ $labels.path }} 5xx > 1%"
+          description: |
+            端点 {{ $labels.job }}{{ $labels.path }} 5xx 比率
+            {{ $value | humanizePercentage }}，超过 1% 持续 5 分钟。
+            优先查 panic 日志、503/502 比例、依赖超时。
+
+      # ---------------------------------------------------------------------
+      # 端点级慢请求：P99 > 2 秒持续 5 分钟
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHTTPSlowRequest
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, job, path) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: http
+        annotations:
+          summary: "{{ $labels.job }} 端点 {{ $labels.path }} P99 > 2s"
+          description: |
+            端点 {{ $labels.job }}{{ $labels.path }} P99 延迟
+            {{ $value | humanizeDuration }}，超过 2 秒。
+            排查：DB 慢查询 / 外部依赖 RPC 时延 / 缓存命中率下降。
+
+      # ---------------------------------------------------------------------
+      # 端点完全失活：5 分钟内完全无请求（业务可能已停摆）
+      #   排除 /healthz / /metrics 探针类端点。
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHTTPEndpointSilent
+        expr: |
+          sum by (job, path) (rate(http_requests_total[5m])) == 0
+          and
+          sum by (job, path) (http_requests_total) > 0
+        for: 10m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: http
+        annotations:
+          summary: "{{ $labels.job }} 端点 {{ $labels.path }} 已 10 分钟无请求"
+          description: |
+            端点 {{ $labels.job }}{{ $labels.path }} 历史上有流量，但
+            过去 10 分钟突然没有任何请求。可能：
+              1) 上游链路故障（前端 / 网关 / 路由）
+              2) 业务低峰（请结合业务时间判断）
+              3) 端点被内部下线（限流 / 切流）
+
+      # ---------------------------------------------------------------------
+      # 端点流量异常上涨（3 倍于日常基线）：可能是被刷或 bug 重试
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHTTPTrafficSpike
+        expr: |
+          (
+            sum by (job, path) (rate(http_requests_total[5m]))
+            /
+            sum by (job, path) (rate(http_requests_total[1h] offset 1h))
+          ) > 3
+          and
+          sum by (job, path) (rate(http_requests_total[1h] offset 1h)) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: http
+        annotations:
+          summary: "{{ $labels.job }} 端点 {{ $labels.path }} 流量 3x 上涨"
+          description: |
+            端点 {{ $labels.job }}{{ $labels.path }} 当前 5m QPS 是 1 小时前
+            的 {{ $value }} 倍。可能为恶意刷接口 / 客户端 bug 重试风暴 /
+            业务异常触发循环请求。请立即排查上游来源。
+
+      # ---------------------------------------------------------------------
+      # 4xx 暴增（用户鉴权失败 / 参数错误集中）：可能是 dev 联调 / 攻击
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHTTP4xxBurst
+        expr: |
+          sum by (job, path) (
+            rate(http_requests_total{status="4xx"}[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: info
+          team: doctors-sre
+          category: http
+        annotations:
+          summary: "{{ $labels.job }} 端点 {{ $labels.path }} 4xx > 10 QPS"
+          description: |
+            端点 {{ $labels.job }}{{ $labels.path }} 4xx QPS 已超过 10
+            持续 5 分钟。注意：1) auth 鉴权失败 → 401 风暴
+                              2) 参数校验失败 → 400 风暴
+                              3) 限流触发 → 429 增长

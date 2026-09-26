@@ -1,0 +1,98 @@
+# =============================================================================
+# alerts/kafka.yaml
+# -----------------------------------------------------------------------------
+# Kafka 消费者健康告警：消费者滞后 / 消费失败率
+# 适用范围：所有订阅 Kafka 的服务（11 个 Go 服务均接入 v1.4 事件流）
+# 指标源：shared/metrics.KafkaConsumerLag + 消费者侧自行埋点
+# =============================================================================
+groups:
+  - name: doctors.kafka
+    interval: 30s
+    rules:
+
+      # ---------------------------------------------------------------------
+      # 消费者积压：单个 (topic, group) 滞后 > 1000 持续 10 分钟
+      #   kafka_consumer_lag{topic="...", group="..."} > 1000
+      # ---------------------------------------------------------------------
+      - alert: DoctorsKafkaConsumerLag
+        expr: kafka_consumer_lag > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: kafka
+        annotations:
+          summary: "Kafka 消费积压 topic={{ $labels.topic }} group={{ $labels.group }}"
+          description: |
+            消费者组 {{ $labels.group }} 在 topic {{ $labels.topic }} 上
+            滞后 {{ $value }} 条消息并持续 10 分钟未消化。
+            排查：
+              1) 看消费者实例是否健康（runtime 健康检查 / pid）
+              2) 看下游处理是否变慢（DB / 外部 RPC）
+              3) 看 partition rebalance 是否频繁（kafka-consumer-groups.sh）
+            临时缓解：扩 partition 数 / 增加消费者实例。
+
+      # ---------------------------------------------------------------------
+      # 消费积压严重：滞后 > 10000 持续 5 分钟（破 SLA 风险）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsKafkaConsumerLagCritical
+        expr: kafka_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: kafka
+        annotations:
+          summary: "Kafka 严重积压 topic={{ $labels.topic }} group={{ $labels.group }}"
+          description: |
+            消费者组 {{ $labels.group }} 在 topic {{ $labels.topic }} 上
+            已积压 {{ $value }} 条消息持续 5 分钟。
+            这通常意味着消费端已实质停摆或处理速率 < 生产速率，需要立即
+            介入（重启 / 扩容 / 跳过积压）。
+
+      # ---------------------------------------------------------------------
+      # 消费失败率高：失败处理次数 / 总处理次数 > 5%（须要业务埋点
+      #   kafka_consumer_process_total{result="fail"}）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsKafkaConsumerFailureRate
+        expr: |
+          sum by (topic, group) (
+            rate(kafka_consumer_process_total{result="fail"}[5m])
+          )
+          /
+          sum by (topic, group) (
+            rate(kafka_consumer_process_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: kafka
+        annotations:
+          summary: "Kafka 消费失败率高 topic={{ $labels.topic }} group={{ $labels.group }}"
+          description: |
+            消费者组 {{ $labels.group }} 在 topic {{ $labels.topic }} 上
+            处理失败率 {{ $value | humanizePercentage }} 已超过 5%。
+            通常：1) 反序列化失败（schema 不兼容）
+                   2) 下游业务处理异常（DB / 外部 RPC）
+                   3) poison message（需 dead-letter）
+
+      # ---------------------------------------------------------------------
+      # 消费者下线：consumer poll 流量完全消失 5 分钟
+      # ---------------------------------------------------------------------
+      - alert: DoctorsKafkaConsumerStalled
+        expr: |
+          rate(kafka_consumer_messages_total[5m]) == 0
+          and
+          kafka_consumer_lag > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: kafka
+        annotations:
+          summary: "Kafka 消费卡死 group={{ $labels.group }}"
+          description: |
+            消费者组 {{ $labels.group }} 已 5 分钟无任何消息消费记录，
+            但仍有积压（lag > 0）。consumer 可能已卡死或被 GC pause 阻塞；
+            立即排查进程状态 / GC 日志 / heap dump。

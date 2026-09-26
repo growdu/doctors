@@ -1,0 +1,95 @@
+# =============================================================================
+# alerts/database.yaml
+# -----------------------------------------------------------------------------
+# 数据库健康告警：连接池 / 获取连接时延
+# 适用范围：所有接入 PostgreSQL 的服务（11 个 Go 服务均接入）
+# 指标源：shared/metrics.DBPool* 系列（main 启动时注入 pool name）
+# =============================================================================
+groups:
+  - name: doctors.database
+    interval: 30s
+    rules:
+
+      # ---------------------------------------------------------------------
+      # 连接池耗尽：已占用 / 总数 > 90% 持续 5 分钟
+      #   db_pool_acquired_connections / db_pool_total_connections > 0.9
+      # ---------------------------------------------------------------------
+      - alert: DoctorsDBPoolExhausted
+        expr: |
+          db_pool_acquired_connections
+            / db_pool_total_connections > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: database
+        annotations:
+          summary: "DB 连接池 {{ $labels.pool }} 占用率 {{ $value | humanizePercentage }}"
+          description: |
+            数据库池 {{ $labels.pool }} 占用率已超过 90% 持续 5 分钟
+            （当前 {{ $value | humanizePercentage }}）。可能原因：
+            1) 慢查询持有连接（看 pg_stat_activity）
+            2) 突发流量超过 max_conns 设定
+            3) 连接泄漏（acquired 不回归）
+            紧急处置：
+              - 查 SELECT * FROM pg_stat_activity WHERE state = 'active';
+              - 必要时调大 shared/db.max_conns
+              - 触发服务扩容 HPA
+          runbook_url: "https://wiki.doctors.local/runbooks/db-pool-exhausted"
+
+      # ---------------------------------------------------------------------
+      # 连接池用量逼近配置上限（acquired ≥ 80%，提前预警）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsDBPoolHighUsage
+        expr: db_pool_acquired_connections / db_pool_total_connections > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: database
+        annotations:
+          summary: "DB 连接池 {{ $labels.pool }} 占用率告警（80%+）"
+          description: |
+            数据库池 {{ $labels.pool }} 占用率已超过 80% 持续 10 分钟。
+            建议立即扩容 HPA 或调大 db.max_conns 配置。
+
+      # ---------------------------------------------------------------------
+      # 空闲连接耗尽（idle < 1）— 池无法回收，新请求拿不到连接
+      # ---------------------------------------------------------------------
+      - alert: DoctorsDBPoolNoIdle
+        expr: db_pool_idle_connections < 1
+        for: 5m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: database
+        annotations:
+          summary: "DB 池 {{ $labels.pool }} 已无空闲连接"
+          description: |
+            数据库池 {{ $labels.pool }} 中空闲连接数已持续 5 分钟低于 1。
+            服务即将因为拿不到连接而阻塞；建议立刻排查慢查询与连接泄漏。
+
+      # ---------------------------------------------------------------------
+      # 连接获取时延过长（应用层观测：超过 100ms P99 持续 5 分钟）
+      #   此告警依赖 shared/db.WithPoolAcquireTiming 注入的
+      #   db_pool_acquire_duration_seconds_bucket 直方图。
+      # ---------------------------------------------------------------------
+      - alert: DoctorsDBSlowAcquire
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, pool) (
+              rate(db_pool_acquire_duration_seconds_bucket[5m])
+            )
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: database
+        annotations:
+          summary: "DB 池 {{ $labels.pool }} 连接获取 P99 {{ $value }}s"
+          description: |
+            从池 {{ $labels.pool }} 获取连接 P99 时延
+            {{ $value | humanizeDuration }} 已超过 100ms。
+            通常为：连接被长时间业务占用 / 网络抖动 / PG 实例慢。

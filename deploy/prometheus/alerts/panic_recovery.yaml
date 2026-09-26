@@ -1,0 +1,103 @@
+# =============================================================================
+# alerts/panic_recovery.yaml
+# -----------------------------------------------------------------------------
+# panic 恢复告警：服务内任何 goroutine panic 必须被 middleware.Recovery 捕获，
+#   但只要出现 1 次 panic，就应当报警 + 抓 stack + 复盘。
+# 指标源：需要 shared/middleware.Recovery 注入 recovery_metrics_total 计数器
+#   （v1.4+ 计划字段：{service, path, method}）
+#   - 当前 v1.4 的 middleware/recovery.go 已实现日志记录，prometheus 计数器
+#     将在下个版本接入（与 logging 字段对齐）：emit MetricsHook 由
+#     metrics.PanicRecoveredCounter 提供。
+# =============================================================================
+groups:
+  - name: doctors.panic_recovery
+    interval: 30s
+    rules:
+
+      # ---------------------------------------------------------------------
+      # 任意服务出现过 1 次 panic → critical（哪怕只 1 次）
+      #   recovery_metrics_total > 0
+      # ---------------------------------------------------------------------
+      - alert: DoctorsPanicDetected
+        expr: increase(recovery_metrics_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: panic
+          page: pagerduty
+        annotations:
+          summary: "服务 {{ $labels.service }} 在 {{ $labels.path }} 触发 panic"
+          description: |
+            {{ $labels.service }} 在 {{ $labels.method }} {{ $labels.path }}
+            触发了 panic（已被 middleware.Recovery 捕获，未造成进程崩溃）。
+            5 分钟内共发生 {{ $value }} 次。
+            panic 仍属严重事件：即使被捕获，请求已被中断、客户端拿到 500。
+            立即：
+              1) 抓 stack：grep "panic recovered" <service> 日志
+              2) 查 commit 是否引入了 nil 解引用 / map 并发写 / ctx 误用
+              3) 必要时回滚
+          runbook_url: "https://wiki.doctors.local/runbooks/panic-recovery"
+
+      # ---------------------------------------------------------------------
+      # 同端点反复 panic：同一 path 5 分钟内 ≥ 3 次 panic（很可能持续故障）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsPanicRepeated
+        expr: |
+          sum by (service, path) (
+            increase(recovery_metrics_total[5m])
+          ) >= 3
+        for: 0m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: panic
+          page: pagerduty
+        annotations:
+          summary: "{{ $labels.service }} 端点 {{ $labels.path }} 反复 panic"
+          description: |
+            {{ $labels.service }} 端点 {{ $labels.path }} 在 5 分钟内
+            至少触发 3 次 panic。这通常意味着新的 release 引入了系统性 bug，
+            应立刻考虑回滚 / 灰度拦截。
+
+      # ---------------------------------------------------------------------
+      # 全局 panic 速率异常（> 5 次/分钟）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsPanicRateHigh
+        expr: |
+          sum by (service) (
+            increase(recovery_metrics_total[1m])
+          ) > 5
+        for: 1m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: panic
+          page: pagerduty
+        annotations:
+          summary: "{{ $labels.service }} panic 速率 > 5/min"
+          description: |
+            {{ $labels.service }} 在过去 1 分钟内累计出现
+            {{ $value }} 次 panic 恢复。视为系统性故障，必须立刻介入
+            （灰度拦截 / 回滚 / 切流）。
+
+      # ---------------------------------------------------------------------
+      # 进程级异常行为：process_start_time_seconds 近 5 分钟重置
+      #   提示进程刚被重启过，可能是 panic 未被 recover 接住直接打挂。
+      # ---------------------------------------------------------------------
+      - alert: DoctorsProcessFrequentRestart
+        expr: |
+          changes(process_start_time_seconds{job=~".*-service"}[15m]) > 2
+        for: 0m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: panic
+          page: pagerduty
+        annotations:
+          summary: "{{ $labels.job }} 15 分钟内重启 ≥ 3 次"
+          description: |
+            {{ $labels.job }} 在 15 分钟内已被重启超过 2 次。
+            这通常意味着 K8s / 容器 runtime 在反复 kill 该进程——
+            panic 可能未被 recovery 接住，或存在 OOM、deadlock 等
+            重大问题，必须立即排查。

@@ -1,0 +1,89 @@
+# =============================================================================
+# alerts/general.yaml
+# -----------------------------------------------------------------------------
+# 通用告警：进程探活 / 错误率 / 延迟
+# 适用范围：所有 11 个 Go 服务（auth / order / match / message / payment /
+#   review / sos / user / escort / wallet / admin）
+# 指标源：shared/metrics（GinMiddleware 注入）
+# =============================================================================
+groups:
+  - name: doctors.general
+    interval: 30s
+    rules:
+
+      # ---------------------------------------------------------------------
+      # 服务整体不可达（Prometheus up == 0 持续 1 分钟）
+      #   up{job="auth-service"} == 0  → scrape 完全失败（容器已停 / 网络断）
+      # ---------------------------------------------------------------------
+      - alert: DoctorsServiceDown
+        expr: up{job=~"doctors-.*|auth-service|order-service|match-service|message-service|payment-service|review-service|sos-service|user-service|escort-service|wallet-service|admin-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: availability
+        annotations:
+          summary: "服务 {{ $labels.job }} 已下线"
+          description: |
+            Prometheus 在过去 1 分钟内已无法 scrape 到 {{ $labels.instance }}
+            （up == 0）。该服务整体不可用。
+            立即排查：1) 容器是否崩溃（docker ps / kubectl get pod）
+                    2) 端口是否暴露（port forward / service spec）
+                    3) 最近一次发布是否有错误（CI / k8s events）
+          runbook_url: "https://wiki.doctors.local/runbooks/service-down"
+
+      # ---------------------------------------------------------------------
+      # 高错误率：5xx 比率 > 5% 持续 5 分钟
+      #   rate(http_requests_total{status="5xx"}[5m])
+      #     / rate(http_requests_total[5m]) > 0.05
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHighErrorRate
+        expr: |
+          sum by (job, path) (
+            rate(http_requests_total{status="5xx"}[5m])
+          )
+          /
+          sum by (job, path) (
+            rate(http_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: doctors-sre
+          category: error-rate
+        annotations:
+          summary: "{{ $labels.job }} 5xx 比率 {{ $value | humanizePercentage }}（>5%）"
+          description: |
+            {{ $labels.job }} 在端点 {{ $labels.path }} 上的 5xx 比率已
+            超过 5% 持续 5 分钟。当前值 {{ $value | humanizePercentage }}。
+            排查：1) 看 panic recovered 日志
+                  2) 查 DB / Kafka 依赖是否正常
+                  3) 看 Sentry / OTel 异常 trace
+          runbook_url: "https://wiki.doctors.local/runbooks/high-error-rate"
+
+      # ---------------------------------------------------------------------
+      # 高延迟：P99 > 1 秒 持续 5 分钟
+      #   histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, path)) > 1
+      # ---------------------------------------------------------------------
+      - alert: DoctorsHighLatencyP99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, job, path) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: doctors-sre
+          category: latency
+        annotations:
+          summary: "{{ $labels.job }} P99 延迟 {{ $value }}s（>1s）"
+          description: |
+            {{ $labels.job }} 端点 {{ $labels.path }} 的 P99 延迟
+            {{ $value | humanizeDuration }} 已超过 1 秒并持续 5 分钟。
+            排查：1) DB 慢查询（pg_stat_statements）
+                  2) Redis 命中率 / Kafka 消费滞后
+                  3) 资源水位（CPU / 内存 / conntrack）
+          runbook_url: "https://wiki.doctors.local/runbooks/high-latency"
