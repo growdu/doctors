@@ -98,3 +98,24 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+// TestBuildPublisher_EmptyBrokersReturnsNil 验证 brokers 空时降级为 nilPublisher + nil closer。
+func TestBuildPublisher_EmptyBrokersReturnsNil(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Kafka.Brokers = nil
+	pub, closer := buildPublisher(cfg)
+	assert.NotNil(t, pub)
+	assert.Nil(t, closer, "空 brokers 不应返回非 nil closer")
+	_, ok := pub.(nilPublisher)
+	assert.True(t, ok, "空 brokers 应返回 nilPublisher")
+}
+
+// TestBuildPublisher_NonEmptyBrokersReturnsKafka 验证 brokers 非空时构造 kafkapublisher + 同对象 closer。
+func TestBuildPublisher_NonEmptyBrokersReturnsKafka(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Kafka.Brokers = []string{"localhost:9092"}
+	pub, closer := buildPublisher(cfg)
+	assert.NotNil(t, pub)
+	assert.NotNil(t, closer, "Kafka 模式下 closer 必须非 nil")
+	assert.NotPanics(t, func() { _ = closer() }, "closer 不应 panic")
+}

@@ -3,7 +3,11 @@
 // 装配 4 套仓储：profile / qualification / training / availability。
 // DSN 缺失 → 各模块 nil 占位 + warn log（路由仍生效，业务 endpoint 调用时报错）。
 //
-// 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool。
+// §32 Kafka 接入：cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；
+//
+//	非空 → kafkapublisher.Publisher 真实 Kafka，订阅 TopicEscortAvailable/Unavailable。
+//
+// 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool + kafka-publisher。
 //
 // 注意：users 表由 auth-service 持有；escort 通过 auth / gRPC 获取 user_id 信息。
 package main
@@ -25,6 +29,7 @@ import (
 
 	"github.com/growdu/doctors/services/escort/internal/availability"
 	"github.com/growdu/doctors/services/escort/internal/handler"
+	"github.com/growdu/doctors/services/escort/internal/kafkapublisher"
 	"github.com/growdu/doctors/services/escort/internal/router"
 	"github.com/growdu/doctors/services/escort/internal/server"
 	"github.com/growdu/doctors/services/escort/internal/service"
@@ -104,7 +109,9 @@ func main() {
 		logger.L().Warn("escort-service: cfg.db.dsn empty; 3 repos not wired (fallback to nil)")
 	}
 
-	svc := service.New(profileRepo, nilPublisher{}).
+	// Publisher：cfg.Kafka.Brokers 空 → nilPublisher；非空 → 真实 Kafka publisher。
+	publisher, kafkaCloser := buildPublisher(cfg)
+	svc := service.New(profileRepo, publisher).
 		WithQualificationRepo(qualificationRepo).
 		WithTrainingRepo(trainingRepo)
 
@@ -124,10 +131,13 @@ func main() {
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.NewWithPublic(h, availH, cfg.Auth.JWTSecret))
 
-	// 优雅停机：先关 OTel tracer，再关 DB pool（LIFO）。
+	// 优雅停机：先关 OTel tracer，再关 DB pool，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
 	if pool != nil {
 		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
+	if kafkaCloser != nil {
+		srv.RegisterShutdownHook("kafka-publisher", kafkaCloser)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -179,6 +189,24 @@ type nilPublisher struct{}
 
 func (nilPublisher) PublishAvailabilityChanged(ctx context.Context, ev service.AvailabilityEvent) error {
 	return nil
+}
+
+// buildPublisher 根据 cfg.Kafka 构造 publisher 与可选 closer。
+//
+// §32 公共模式：Brokers 空 → *nilPublisher + nil closer；非空 → *kafkapublisher.Publisher + 同对象 closer。
+func buildPublisher(cfg *config.Config) (service.Publisher, func() error) {
+	if len(cfg.Kafka.Brokers) == 0 {
+		logger.L().Warn("escort-service: kafka.brokers empty; publisher disabled (fallback to nilPublisher)")
+		return nilPublisher{}, nil
+	}
+	kp, err := kafkapublisher.New(cfg.Kafka.Brokers)
+	if err != nil {
+		log.Fatalf("escort-service: build kafka publisher: %v", err)
+	}
+	logger.L().Info("escort-service: kafka publisher wired",
+		zap.Strings("brokers", cfg.Kafka.Brokers),
+		zap.Strings("topics", []string{"escort.available", "escort.unavailable"}))
+	return kp, kp.Close
 }
 
 type nilQualRepo struct{}
