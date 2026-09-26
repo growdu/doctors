@@ -23,3 +23,7 @@ auth:
 
 logging:
   level: info
+
+# OTel 全链路追踪（§26 tracing plan）：endpoint 留空 → Noop，不导出 span。
+tracing:
+  otlp_endpoint: ""

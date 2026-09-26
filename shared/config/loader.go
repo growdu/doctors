@@ -26,6 +26,7 @@ type Config struct {
 	Auth    Auth      `mapstructure:"auth"`
 	Logging Logging   `mapstructure:"logging"`
 	Admin   Admin     `mapstructure:"admin"`
+	Tracing Tracing   `mapstructure:"tracing"`
 }
 
 // HTTP 是 HTTP 服务配置。
@@ -74,6 +75,14 @@ type Admin struct {
 	RefundBaseURL string `mapstructure:"refund_base_url"`
 	EscortBaseURL string `mapstructure:"escort_base_url"`
 	UserBaseURL   string `mapstructure:"user_base_url"`
+}
+
+// Tracing 是 OpenTelemetry 全链路追踪配置（v1.0 §26 增量，2026-09-26）。
+//
+// OTLPEndpoint 留空 → NoopTracerProvider（dev / 单测友好）。
+// 生产配置示例："otel-collector:4318" 或 "http://otel-collector.observability:4318"。
+type Tracing struct {
+	OTLPEndpoint string `mapstructure:"otlp_endpoint"`
 }
 
 // Load 读取 config/<service>.yaml + 环境变量，解析为 *Config。

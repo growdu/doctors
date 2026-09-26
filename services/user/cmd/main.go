@@ -26,6 +26,7 @@ import (
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/logger"
+	"github.com/growdu/doctors/shared/tracing"
 )
 
 func main() {
@@ -41,6 +42,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+
+	// OTel 全链路追踪（§26 tracing plan）：endpoint 留空 → Noop，零开销。
+	traceShutdown, err := tracing.InitTracer("user-service", cfg.Tracing.OTLPEndpoint)
+	if err != nil {
+		log.Fatalf("init tracer: %v", err)
+	}
+	defer func() { _ = traceShutdown(context.Background()) }()
+
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 

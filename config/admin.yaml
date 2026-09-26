@@ -27,6 +27,10 @@ auth:
 logging:
   level: info
 
+# OTel 全链路追踪（§26 tracing plan）：endpoint 留空 → Noop，不导出 span。
+tracing:
+  otlp_endpoint: ""
+
 # admin 调其他服务的内部接口 baseURL
 admin:
   order_base_url: http://127.0.0.1:8082
