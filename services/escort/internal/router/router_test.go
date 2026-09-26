@@ -103,7 +103,7 @@ func newRouter() *gin.Engine {
 	svc := service.New(repo, fakePub{})
 	availSvc := availability.NewService(fakeAvailRepo{})
 	availH := availability.NewHandler(availSvc)
-	return NewWithPublic(handler.New(svc), availH, testSecret)
+	return NewWithPublic(handler.New(svc), availH, testSecret, nil)
 }
 
 func signToken(t *testing.T, uid int64, role string) string {

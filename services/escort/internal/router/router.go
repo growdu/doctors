@@ -20,6 +20,7 @@ import (
 	"github.com/growdu/doctors/services/escort/internal/availability"
 	"github.com/growdu/doctors/services/escort/internal/handler"
 	mw "github.com/growdu/doctors/services/escort/internal/middleware"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/httpx"
 	"github.com/growdu/doctors/shared/metrics"
 	sharedmw "github.com/growdu/doctors/shared/middleware"
@@ -27,8 +28,9 @@ import (
 
 // New 返回挂好路由的 gin engine。
 //
-// h 是业务 escort handler；availH 是 availability 子包 handler；jwtSecret 用于鉴权中间件。
-func New(h *handler.Handler, availH *availability.Handler, jwtSecret string) *gin.Engine {
+// h 是业务 escort handler；availH 是 availability 子包 handler；jwtSecret 用于鉴权中间件；
+// readyzM 用于 /readyz 端点（K8s readinessProbe）；传 nil 时 /readyz 永远 503（fail-closed）。
+func New(h *handler.Handler, availH *availability.Handler, jwtSecret string, readyzM *health.Manager) *gin.Engine {
 	r := gin.New()
 	// 中间件顺序：Metrics → Recovery → RateLimit（全局）
 	r.Use(sharedmw.Metrics())
@@ -37,6 +39,8 @@ func New(h *handler.Handler, availH *availability.Handler, jwtSecret string) *gi
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK(c, gin.H{"status": "ok"})
 	})
+	// readiness 探活：所有依赖（DB / Kafka）都 OK 才 200
+	r.GET("/readyz", health.ReadyzHandler(readyzM))
 	// Prometheus 抓取端
 	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
@@ -48,8 +52,8 @@ func New(h *handler.Handler, availH *availability.Handler, jwtSecret string) *gi
 }
 
 // NewWithPublic 在 New 之上额外挂一个无 auth 的 group（用于 availability 公开接口）。
-func NewWithPublic(h *handler.Handler, availH *availability.Handler, jwtSecret string) *gin.Engine {
-	r := New(h, availH, jwtSecret)
+func NewWithPublic(h *handler.Handler, availH *availability.Handler, jwtSecret string, readyzM *health.Manager) *gin.Engine {
+	r := New(h, availH, jwtSecret, readyzM)
 	public := r.Group("/api/v1")
 	availH.RegisterPublicRoutes(public)
 	return r

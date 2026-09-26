@@ -32,6 +32,7 @@ import (
 	"github.com/growdu/doctors/services/review/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -75,7 +76,18 @@ func main() {
 
 	svc := service.New(memRepo, publisher)
 	h := handler.New(svc)
-	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
+
+	// 依赖健康检查（/readyz）。review 无 DB；kafka brokers 非空时注册 checker。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("review-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	} else {
+		logger.L().Warn("review-service: kafka.brokers empty; /readyz will fail-closed (no dependencies registered)")
+	}
+
+	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret, healthM))
 
 	// 优雅停机：先关 OTel tracer，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })

@@ -18,13 +18,15 @@ import (
 
 	"github.com/growdu/doctors/services/match/internal/handler"
 	mw "github.com/growdu/doctors/services/match/internal/middleware"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/httpx"
 	"github.com/growdu/doctors/shared/metrics"
 	sharedmw "github.com/growdu/doctors/shared/middleware"
 )
 
 // New 返回一个挂好路由的 *gin.Engine。
-func New(h *handler.Handler, jwtSecret string) *gin.Engine {
+// readyzM 用于 /readyz 端点（K8s readinessProbe）；传 nil 时 /readyz 永远 503（fail-closed）。
+func New(h *handler.Handler, jwtSecret string, readyzM *health.Manager) *gin.Engine {
 	r := gin.New()
 	// 中间件顺序：Metrics → Recovery → RateLimit（全局）
 	r.Use(sharedmw.Metrics())
@@ -33,6 +35,8 @@ func New(h *handler.Handler, jwtSecret string) *gin.Engine {
 	r.GET("/healthz", func(c *gin.Context) {
 		httpx.OK[any](c, gin.H{"status": "ok"})
 	})
+	// readiness 探活：所有依赖（Kafka）都 OK 才 200
+	r.GET("/readyz", health.ReadyzHandler(readyzM))
 	// Prometheus 抓取端
 	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 

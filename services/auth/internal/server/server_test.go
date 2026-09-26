@@ -1,4 +1,4 @@
-package server
+﻿package server
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func (r *stubRN) Verify(ctx context.Context, name, idCard string) (bool, string,
 func TestServer_EngineExposesRouter(t *testing.T) {
 	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", time.Minute)
 	h := handler.New(svc)
-	s := New(":0", h, "secret")
+	s := New(":0", h, "secret", nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -63,7 +63,7 @@ func TestServer_EngineExposesRouter(t *testing.T) {
 func TestServer_RunShutdownGracefully(t *testing.T) {
 	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", time.Minute)
 	h := handler.New(svc)
-	s := New("127.0.0.1:0", h, "secret")
+	s := New("127.0.0.1:0", h, "secret", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -85,7 +85,7 @@ func TestServer_RunShutdownGracefully(t *testing.T) {
 func TestServer_ShutdownHooksRunInLIFO(t *testing.T) {
 	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", time.Minute)
 	h := handler.New(svc)
-	s := New("127.0.0.1:0", h, "secret")
+	s := New("127.0.0.1:0", h, "secret", nil)
 
 	var calls []string
 	s.RegisterShutdownHook("first", func() error {
@@ -113,18 +113,18 @@ func TestServer_ShutdownHooksRunInLIFO(t *testing.T) {
 	cancel()
 	require.NoError(t, <-done)
 
-	// LIFO：fourth → third-panic → second → first
+	// LIFO: fourth -> third-panic -> second -> first
 	assert.Equal(t, []string{"fourth", "third-panic", "second", "first"}, calls,
-		"hook 应按 LIFO 顺序调用；panic 不阻断后续")
+		"hook should be invoked in LIFO order; panic does not interrupt later hooks")
 }
 
 // TestServer_ShutdownHookNilSkipped 验证 RegisterShutdownHook 对 nil/空名直接忽略。
 func TestServer_ShutdownHookNilSkipped(t *testing.T) {
 	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", time.Minute)
 	h := handler.New(svc)
-	s := New("127.0.0.1:0", h, "secret")
+	s := New("127.0.0.1:0", h, "secret", nil)
 
-	// 全部 nil/空注册 → 不应 panic
+	// 全部 nil/空注册 -> 不应 panic
 	s.RegisterShutdownHook("", func() error { return nil })
 	s.RegisterShutdownHook("a", nil)
 

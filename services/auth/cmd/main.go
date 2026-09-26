@@ -40,6 +40,7 @@ import (
 	"github.com/growdu/doctors/services/auth/internal/wxlogin"
 	"github.com/growdu/doctors/shared/config"
 	shareddb "github.com/growdu/doctors/shared/db"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -116,7 +117,23 @@ func main() {
 	svc := service.New(userRepo, smsSender, wxClient, rnVerifier, cfg.Auth.JWTSecret, cfg.Auth.JWTTTL)
 	h := handler.New(svc)
 
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret)
+	// 依赖健康检查（/readyz）。pool != nil → 注册 PG checker；nil → skip + warn；
+	// cfg.Kafka.Brokers 非空 → 注册 Kafka broker checker；空 → skip + warn。
+	// 注：auth-service §32 不接入 Kafka publisher/consumer，所以这里只跑 pool 一个 checker。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if pool != nil {
+		healthM.MustRegister(health.NewPGPoolChecker("postgres-main", pool, time.Second))
+		logger.L().Info("auth-service: readyz registered checker: postgres-main")
+	} else {
+		logger.L().Warn("auth-service: cfg.db.dsn empty; /readyz will fail-closed (postgres not configured)")
+	}
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("auth-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	}
+
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, healthM)
 	// 优雅停机：先关 OTel tracer，再关 DB pool（按注册逆序 LIFO 执行）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
 	if pool != nil {

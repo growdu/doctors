@@ -18,6 +18,7 @@ import (
 
 	"github.com/growdu/doctors/services/match/internal/handler"
 	"github.com/growdu/doctors/services/match/internal/router"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 )
 
@@ -36,8 +37,10 @@ type Server struct {
 }
 
 // New 创建 Server。
-func New(addr string, h *handler.Handler, jwtSecret string) *Server {
-	engine := router.New(h, jwtSecret)
+//
+// readyzM 用于 /readyz 端点（K8s readinessProbe）。nil 时 /readyz 永远 503（fail-closed）。
+func New(addr string, h *handler.Handler, jwtSecret string, readyzM *health.Manager) *Server {
+	engine := router.New(h, jwtSecret, readyzM)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,

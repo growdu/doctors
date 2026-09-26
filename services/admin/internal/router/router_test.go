@@ -72,7 +72,7 @@ func signToken(t *testing.T, uid int64, role string) string {
 func TestHealthz(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	assert.Equal(t, 200, w.Code, w.Body.String())
@@ -87,7 +87,7 @@ func TestHealthz(t *testing.T) {
 func TestUsers_NoToken_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil))
 	var env httpx.Resp[map[string]any]
@@ -100,7 +100,7 @@ func TestUsers_NoToken_401(t *testing.T) {
 func TestUsers_Viewer_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "viewer")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -115,7 +115,7 @@ func TestUsers_Viewer_OK(t *testing.T) {
 func TestForceCancel_Viewer_Forbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "viewer")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/7/force-cancel", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -130,7 +130,7 @@ func TestForceCancel_Viewer_Forbidden(t *testing.T) {
 func TestForceCancel_OrderAdmin_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "order_admin")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/7/force-cancel", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -145,7 +145,7 @@ func TestForceCancel_OrderAdmin_OK(t *testing.T) {
 func TestEscorts_AuditAdmin_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "audit_admin")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/escorts/5/approve", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -160,7 +160,7 @@ func TestEscorts_AuditAdmin_OK(t *testing.T) {
 func TestRefunds_CS_Forbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "cs")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/refunds/3/approve", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -175,7 +175,7 @@ func TestRefunds_CS_Forbidden(t *testing.T) {
 func TestRefunds_RefundAdmin_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "refund_admin")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/refunds/3/approve", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -190,7 +190,7 @@ func TestRefunds_RefundAdmin_OK(t *testing.T) {
 func TestWorkOrders_ViewerForbiddenCreate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(stubAdminSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "viewer")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/work-orders", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)

@@ -55,7 +55,7 @@ func signToken(t *testing.T, uid int64, role string) string {
 // TestHealthz_NoAuth 验证 /healthz 不挂 auth。
 func TestHealthz_NoAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := New(handler.New(stubSvc{}), testSecret)
+	r := New(handler.New(stubSvc{}), testSecret, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	assert.Equal(t, 200, w.Code, w.Body.String())
@@ -67,7 +67,7 @@ func TestHealthz_NoAuth(t *testing.T) {
 // TestReviews_NoToken_401 验证 /api/v1/reviews 无 token → 11001。
 func TestReviews_NoToken_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := New(handler.New(stubSvc{}), testSecret)
+	r := New(handler.New(stubSvc{}), testSecret, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil))
 	var resp httpx.Resp[map[string]any]
@@ -78,7 +78,7 @@ func TestReviews_NoToken_401(t *testing.T) {
 // TestReviews_InvalidToken_401 验证非法 token → 11001。
 func TestReviews_InvalidToken_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := New(handler.New(stubSvc{}), testSecret)
+	r := New(handler.New(stubSvc{}), testSecret, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	w := httptest.NewRecorder()
@@ -91,7 +91,7 @@ func TestReviews_InvalidToken_401(t *testing.T) {
 // TestCreate_WithToken_OK 验证 POST /api/v1/reviews 带 token 走通。
 func TestCreate_WithToken_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := New(handler.New(stubSvc{}), testSecret)
+	r := New(handler.New(stubSvc{}), testSecret, nil)
 	tok := signToken(t, 1, "patient")
 	body := `{"order_id":100,"escort_id":7,"rating":5,"comment":"好"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews", strings.NewReader(body))
@@ -107,7 +107,7 @@ func TestCreate_WithToken_OK(t *testing.T) {
 // TestDetail_WithToken_OK 验证 GET /api/v1/reviews/:id。
 func TestDetail_WithToken_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := New(handler.New(stubSvc{}), testSecret)
+	r := New(handler.New(stubSvc{}), testSecret, nil)
 	tok := signToken(t, 1, "patient")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews/7", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -121,7 +121,7 @@ func TestDetail_WithToken_OK(t *testing.T) {
 // TestReply_WithToken_OK 验证 POST /api/v1/reviews/:id/reply。
 func TestReply_WithToken_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := New(handler.New(stubSvc{}), testSecret)
+	r := New(handler.New(stubSvc{}), testSecret, nil)
 	tok := signToken(t, 1, "super_admin")
 	body := `{"body":"感谢反馈"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/7/reply", strings.NewReader(body))

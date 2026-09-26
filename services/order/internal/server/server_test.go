@@ -55,7 +55,7 @@ func (stubUserLookup) FindByID(ctx context.Context, id int64) (*service.UserSnap
 
 // TestServer_EngineExposesRouter 验证 Engine() 返回的 handler 可以处理 /healthz。
 func TestServer_EngineExposesRouter(t *testing.T) {
-	s := New(":0", handler.New(service.New(stubOrderRepo{}, stubUserLookup{})), "secret")
+	s := New(":0", handler.New(service.New(stubOrderRepo{}, stubUserLookup{})), "secret", nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -65,7 +65,7 @@ func TestServer_EngineExposesRouter(t *testing.T) {
 
 // TestServer_RunShutdownGracefully 启动后立刻取消 ctx，应在超时内返回 nil。
 func TestServer_RunShutdownGracefully(t *testing.T) {
-	s := New("127.0.0.1:0", handler.New(service.New(stubOrderRepo{}, stubUserLookup{})), "secret")
+	s := New("127.0.0.1:0", handler.New(service.New(stubOrderRepo{}, stubUserLookup{})), "secret", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()

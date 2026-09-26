@@ -34,6 +34,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 	shareddb "github.com/growdu/doctors/shared/db"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -107,7 +108,22 @@ func main() {
 	publisher, kafkaCloser := buildPublisher(cfg)
 	svc := service.New(nilRepo{}, publisher, nilChannel{})
 	h := handler.New(svc)
-	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
+
+	// 依赖健康检查（/readyz）。pool/kafka brokers 各自可选——nil/空 → skip + warn。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if pool != nil {
+		healthM.MustRegister(health.NewPGPoolChecker("postgres-main", pool, time.Second))
+		logger.L().Info("payment-service: readyz registered checker: postgres-main")
+	} else {
+		logger.L().Warn("payment-service: cfg.db.dsn empty; /readyz will fail-closed (postgres not configured)")
+	}
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("payment-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	}
+
+	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret, healthM))
 
 	// 优雅停机：先关 OTel tracer，再关 DB pool，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })

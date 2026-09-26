@@ -23,6 +23,7 @@ import (
 	pkgpkg "github.com/growdu/doctors/services/user/internal/pkg"
 	"github.com/growdu/doctors/services/user/internal/router"
 	"github.com/growdu/doctors/services/user/internal/virtualnumber"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 )
 
@@ -39,14 +40,14 @@ type Server struct {
 	hooks   []shutdownHook
 }
 
-func New(addr string, h *handler.Handler, jwtSecret string, addressSvc *address.Service, couponSvc *coupon.Service, hospitalSvc *hospital.Service, packageSvc *pkgpkg.Service, virtualNumberSvc *virtualnumber.Service) *Server {
+func New(addr string, h *handler.Handler, jwtSecret string, readyzM *health.Manager, addressSvc *address.Service, couponSvc *coupon.Service, hospitalSvc *hospital.Service, packageSvc *pkgpkg.Service, virtualNumberSvc *virtualnumber.Service) *Server {
 	engine := router.New(router.Deps{
 		AddressSvc:       addressSvc,
 		CouponSvc:        couponSvc,
 		HospitalSvc:      hospitalSvc,
 		PackageSvc:       packageSvc,
 		VirtualNumberSvc: virtualNumberSvc,
-	}, h, jwtSecret)
+	}, h, jwtSecret, readyzM)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,

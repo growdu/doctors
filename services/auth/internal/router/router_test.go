@@ -56,7 +56,8 @@ func (r *stubRN) Verify(ctx context.Context, name, idCard string) (bool, string,
 func newRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := service.New(&stubRepo{}, &stubSMS{}, &stubWX{}, &stubRN{}, "secret", 60_000_000_000)
-	return New(handler.New(svc), "secret")
+	// 测试不关心 /readyz，传 nil 让其 fail-closed（503）。
+	return New(handler.New(svc), "secret", nil)
 }
 
 // TestHealthz_ReturnsOK /healthz 直返 200 + code=0。

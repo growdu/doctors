@@ -42,6 +42,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 	shareddb "github.com/growdu/doctors/shared/db"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -136,7 +137,22 @@ func main() {
 	vnSvc := virtualnumber.NewService(vnRepo).WithPublisher(vnPublisher)
 
 	h := handler.New(profileSvc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, addrSvc, couponSvc, hospitalSvc, pkgSvc, vnSvc)
+
+	// 依赖健康检查（/readyz）。user 既有 DB 又有 Kafka publisher。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if pool != nil {
+		healthM.MustRegister(health.NewPGPoolChecker("postgres-main", pool, time.Second))
+		logger.L().Info("user-service: readyz registered checker: postgres-main")
+	} else {
+		logger.L().Warn("user-service: cfg.db.dsn empty; /readyz will fail-closed (postgres not configured)")
+	}
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("user-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	}
+
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, healthM, addrSvc, couponSvc, hospitalSvc, pkgSvc, vnSvc)
 
 	// 优雅停机：先关 OTel tracer，再关 DB pool，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })

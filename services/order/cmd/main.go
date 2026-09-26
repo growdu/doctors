@@ -30,6 +30,7 @@ import (
 	"github.com/growdu/doctors/services/order/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	shareddb "github.com/growdu/doctors/shared/db"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/lock"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
@@ -99,7 +100,7 @@ func main() {
 	}
 
 	// §4.2 可选装配：Redis 锁单 + Kafka 事件 + Scheduler
-	locker, lockerCloser := buildLocker(cfg)
+	locker, lockerCloser, redisClient := buildLocker(cfg)
 	if closer, ok := lockerCloser.(interface{ Close() error }); ok && closer != nil {
 		defer func() { _ = closer.Close() }()
 	}
@@ -112,7 +113,26 @@ func main() {
 		WithLocker(locker).
 		WithPublisher(publisher)
 	h := handler.New(svc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret)
+
+	// 依赖健康检查（/readyz）。order 有 DB + Redis（locker）+ Kafka publisher 三依赖。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if pool != nil {
+		healthM.MustRegister(health.NewPGPoolChecker("postgres-main", pool, time.Second))
+		logger.L().Info("order-service: readyz registered checker: postgres-main")
+	} else {
+		logger.L().Warn("order-service: cfg.db.dsn empty; /readyz will fail-closed (postgres not configured)")
+	}
+	if redisClient != nil {
+		healthM.MustRegister(health.NewRedisChecker("redis-main", redisClient, time.Second))
+		logger.L().Info("order-service: readyz registered checker: redis-main")
+	}
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("order-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	}
+
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, healthM)
 	// 优雅停机：先关 OTel tracer，再关 DB pool，最后关 Kafka/Redis（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
 	if pool != nil {
@@ -158,17 +178,20 @@ func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 }
 
 // buildLocker 根据 cfg.Redis 配置构造 Locker；配置缺失 → NopLocker。
-func buildLocker(cfg *config.Config) (lock.Locker, any) {
+//
+// 返回 (locker, closer, redisClient)：redisClient 用于 /readyz 的 redis checker；
+// 配置缺失时 redisClient 为 nil（health checker 自动 skip）。
+func buildLocker(cfg *config.Config) (lock.Locker, any, *redis.Client) {
 	if cfg.Redis.Addr == "" {
 		logger.L().Info("locker disabled (redis.addr empty); falling back to NopLocker")
-		return lock.NopLocker{}, nil
+		return lock.NopLocker{}, nil, nil
 	}
 	rdb := redis.NewClient(&redis.Options{
 		Addr: cfg.Redis.Addr,
 		DB:   cfg.Redis.DB,
 	})
 	logger.L().Info("locker enabled (redis SETNX)", zap.String("addr", cfg.Redis.Addr))
-	return lock.NewRedisLocker(rdb), rdb
+	return lock.NewRedisLocker(rdb), rdb, rdb
 }
 
 // buildPublisher 根据 cfg.Kafka 配置构造 Publisher；配置缺失 → NopPublisher。

@@ -20,6 +20,7 @@ import (
 
 	"github.com/growdu/doctors/services/auth/internal/handler"
 	"github.com/growdu/doctors/services/auth/internal/router"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 )
 
@@ -42,9 +43,10 @@ type Server struct {
 	hooks   []shutdownHook
 }
 
-// New 创建 Server；addr 监听地址，h 是业务 handler，jwtSecret 用于鉴权中间件。
-func New(addr string, h *handler.Handler, jwtSecret string) *Server {
-	engine := router.New(h, jwtSecret)
+// New 创建 Server；addr 监听地址，h 是业务 handler，jwtSecret 用于鉴权中间件，
+// readyzM 用于 /readyz 端点（K8s readinessProbe）。readyzM 为 nil 时 /readyz 永远 503。
+func New(addr string, h *handler.Handler, jwtSecret string, readyzM *health.Manager) *Server {
+	engine := router.New(h, jwtSecret, readyzM)
 	return &Server{
 		httpSrv: &http.Server{
 			Addr:              addr,

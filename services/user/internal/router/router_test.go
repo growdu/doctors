@@ -46,7 +46,7 @@ func newRouter(r service.ProfileRepo, asvc *address.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := service.New(r)
 	h := handler.New(svc)
-	return New(Deps{ProfileSvc: svc, AddressSvc: asvc}, h, "secret")
+	return New(Deps{ProfileSvc: svc, AddressSvc: asvc}, h, "secret", nil)
 }
 
 // TestHealthz_ReturnsOK 验证 /healthz 直返 200。

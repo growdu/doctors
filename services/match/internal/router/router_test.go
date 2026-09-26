@@ -28,7 +28,7 @@ func (stubLoader) ListAvailable(ctx context.Context, city string) ([]contracts.E
 func newRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := service.New(pool.NewNopPool(), stubLoader{}, 0)
-	return New(handler.New(svc), "secret")
+	return New(handler.New(svc), "secret", nil)
 }
 
 // TestHealthz_ReturnsOK /healthz 直返 200。

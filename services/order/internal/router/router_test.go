@@ -60,7 +60,7 @@ func (stubUserLookup) FindByID(ctx context.Context, id int64) (*service.UserSnap
 func newRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := service.New(stubOrderRepo{}, stubUserLookup{})
-	return New(handler.New(svc), "secret")
+	return New(handler.New(svc), "secret", nil)
 }
 
 // TestHealthz_ReturnsOK /healthz 直返 200。

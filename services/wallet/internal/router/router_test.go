@@ -36,7 +36,7 @@ func TestHealthz(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	// 用 fake 服务填充 handler；healthz 不依赖具体业务。
 	h := handler.New(fakeRouterSvc{}, nil)
-	r := New(h, "test-secret")
+	r := New(h, "test-secret", nil)
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))

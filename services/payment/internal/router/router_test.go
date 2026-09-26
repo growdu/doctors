@@ -66,7 +66,7 @@ func signToken(t *testing.T, uid int64, role string) string {
 func TestHealthz_NoAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(fakeRouterSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -82,7 +82,7 @@ func TestHealthz_NoAuth(t *testing.T) {
 func TestCreate_NoToken_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(fakeRouterSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 
 	body, _ := json.Marshal(map[string]any{"order_id": 100, "amount": 200.0})
 	w := httptest.NewRecorder()
@@ -100,7 +100,7 @@ func TestCreate_NoToken_401(t *testing.T) {
 func TestCreate_WithToken_OK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(fakeRouterSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 	tok := signToken(t, 1, "patient")
 
 	body, _ := json.Marshal(map[string]any{"order_id": 100, "amount": 200.0})
@@ -120,7 +120,7 @@ func TestCreate_WithToken_OK(t *testing.T) {
 func TestComplete_NoToken_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := handler.New(fakeRouterSvc{})
-	r := New(h, testSecret)
+	r := New(h, testSecret, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/1/complete", nil)

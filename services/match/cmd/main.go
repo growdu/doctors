@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -26,6 +27,7 @@ import (
 	"github.com/growdu/doctors/services/match/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
+	"github.com/growdu/doctors/shared/health"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -64,7 +66,18 @@ func main() {
 	// v1 用 NopPool；接 Redis 后换 RedisPool
 	svc := service.New(pool.NewNopPool(), nilEscortLoader{}, 0)
 	h := handler.New(svc)
-	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret)
+
+	// 依赖健康检查（/readyz）。match 无 DB；kafka brokers 非空时注册 broker checker。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("match-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	} else {
+		logger.L().Warn("match-service: kafka.brokers empty; /readyz will fail-closed (no dependencies registered)")
+	}
+
+	srv := server.New(cfg.HTTP.Addr, h, cfg.Auth.JWTSecret, healthM)
 
 	// Kafka consumer（order.created → 抢单池）；cfg.Kafka.Brokers 空则跳过。
 	//

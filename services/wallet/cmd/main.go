@@ -38,6 +38,7 @@ import (
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
 	shareddb "github.com/growdu/doctors/shared/db"
+	"github.com/growdu/doctors/shared/health"
 	sharedkafka "github.com/growdu/doctors/shared/kafka"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
@@ -95,7 +96,23 @@ func main() {
 	walletRepo := repo.NewWalletRepo(pool)
 	svc := service.New(walletRepo)
 	h := handler.New(svc, svc) // service 同时实现 Service + AdminSvc
-	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
+
+	// 依赖健康检查（/readyz）。pool != nil / kafka brokers 非空 → 注册对应 checker；
+	// nil / 空 → skip + warn（manager 仍创建，路由挂载，fail-closed 行为）。
+	healthM := health.NewManager(health.WithTimeout(1 * time.Second))
+	if pool != nil {
+		healthM.MustRegister(health.NewPGPoolChecker("postgres-main", pool, time.Second))
+		logger.L().Info("wallet-service: readyz registered checker: postgres-main")
+	} else {
+		logger.L().Warn("wallet-service: cfg.db.dsn empty; /readyz will fail-closed (postgres not configured)")
+	}
+	if len(cfg.Kafka.Brokers) > 0 {
+		healthM.MustRegister(health.NewKafkaBrokerChecker("kafka-brokers", cfg.Kafka.Brokers, 1*time.Second))
+		logger.L().Info("wallet-service: readyz registered checker: kafka-brokers",
+			zap.Strings("brokers", cfg.Kafka.Brokers))
+	}
+
+	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret, healthM))
 
 	// 优雅停机：先关 OTel tracer，再关 DB pool，最后关 Kafka reader（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
