@@ -1,11 +1,11 @@
 // wallet-service 入口。
 //
 // 设计要点：
-//   - 装配 config + logger + DB pool + repo + service + handler + router + server + scanner + Kafka consumer。
-//   - cfg.DB.DSN 缺失 → 起空 pool；仅 /healthz 工作；业务 endpoint 调用会报错（v1 dev 阶段）。
-//   - cfg.Kafka.Brokers 缺失 → Kafka 监听降级为 noop（不启动 consumer）。
-//   - Scanner 间隔 = 1 分钟（v1 测试用；生产改 7*24h + daily tick，由环境变量 DOCTORS_WALLET_THRESHOLD 覆盖）。
-//   - 优雅停机：ctx.Done 触发 server.Shutdown + scanner 退出。
+//  - 装配 config + logger + DB pool + repo + service + handler + router + server + scanner + Kafka consumer。
+//  - cfg.DB.DSN 缺失 → 起空 pool；仅 /healthz 工作；业务 endpoint 调用会报错（v1 dev 阶段）。
+//  - cfg.Kafka.Brokers 缺失 → Kafka 监听降级为 noop（不启动 consumer）。
+//  - Scanner 间隔 = 1 分钟（v1 测试用；生产改 7*24h + daily tick，由环境变量 DOCTORS_WALLET_THRESHOLD 覆盖）。
+//  - 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool + kafka-readers（LIFO）。
 package main
 
 import (
@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/growdu/doctors/services/wallet/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
+	shareddb "github.com/growdu/doctors/shared/db"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -61,7 +63,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}
-	defer func() { _ = traceShutdown(context.Background()) }()
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
@@ -69,9 +70,6 @@ func main() {
 	pool, err := buildPool(cfg)
 	if err != nil {
 		log.Fatalf("build pool: %v", err)
-	}
-	if pool != nil {
-		defer pool.Close()
 	}
 
 	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
@@ -96,11 +94,18 @@ func main() {
 	h := handler.New(svc, svc) // service 同时实现 Service + AdminSvc
 	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
 
+	// 优雅停机：先关 OTel tracer，再关 DB pool，最后关 Kafka reader（LIFO）。
+	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if pool != nil {
+		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Kafka consumer（OrderCompleted → wallet.OnOrderCompleted + PaymentRefunded → wallet.OnRefund）
-	consumeKafka(ctx, cfg, svc)
+	// 返回的 *kafka.Reader 也走 shutdown hook（Close）。
+	consumeKafka(ctx, cfg, svc, srv)
 
 	// T+7 scanner
 	threshold, tick := walletScannerParams(cfg)
@@ -123,9 +128,13 @@ func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 		logger.L().Warn("wallet-service: cfg.db.dsn empty; running in healthz-only mode")
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return pgxpool.New(ctx, cfg.DB.DSN)
+	return shareddb.NewPool(ctx, shareddb.Config{
+		DSN:      cfg.DB.DSN,
+		MaxConns: cfg.DB.MaxConns,
+		MinConns: cfg.DB.MinConns,
+	})
 }
 
 // walletScannerParams 从 cfg 解析 scanner 间隔。v1 dev 默认 1 分钟；生产用 7*24h + daily tick。
@@ -142,8 +151,10 @@ func walletScannerParams(cfg *config.Config) (threshold, tick time.Duration) {
 }
 
 // consumeKafka 启动 OrderCompleted + PaymentRefunded 消费者。
-// cfg.Kafka.Brokers 空时跳过（dev 模式）。
-func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service) {
+//
+//	cfg.Kafka.Brokers 空时跳过（dev 模式）。
+//	返回的 *kafka.Reader 注册到 srv shutdown hook（LIFO），ctx cancel 后由 hook 显式 Close。
+func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service, srv *server.Server) {
 	if len(cfg.Kafka.Brokers) == 0 {
 		logger.L().Info("wallet-service: kafka brokers empty; consumer skipped")
 		return
@@ -152,7 +163,7 @@ func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service)
 	if groupID == "" {
 		groupID = "wallet-service"
 	}
-	go consumeTopic(ctx, cfg.Kafka.Brokers, groupID, contracts.TopicOrderCompleted, func(ctx context.Context, value []byte) error {
+	r1 := consumeTopic(ctx, cfg.Kafka.Brokers, groupID, contracts.TopicOrderCompleted, func(ctx context.Context, value []byte) error {
 		var ev contracts.OrderCompletedEvent
 		if err := json.Unmarshal(value, &ev); err != nil {
 			logger.FromContext(ctx).Warn("unmarshal order.completed failed", zap.Error(err))
@@ -161,7 +172,10 @@ func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service)
 		amt, _ := decimal.NewFromString(formatFloat(ev.Amount))
 		return svc.OnOrderCompleted(ctx, ev.EscortID, ev.OrderID, amt)
 	})
-	go consumeTopic(ctx, cfg.Kafka.Brokers, groupID, contracts.TopicPaymentRefunded, func(ctx context.Context, value []byte) error {
+	if r1 != nil {
+		srv.RegisterShutdownHook("kafka-reader-order.completed", func() error { return r1.Close() })
+	}
+	r2 := consumeTopic(ctx, cfg.Kafka.Brokers, groupID, contracts.TopicPaymentRefunded, func(ctx context.Context, value []byte) error {
 		var ev contracts.PaymentRefundedEvent
 		if err := json.Unmarshal(value, &ev); err != nil {
 			logger.FromContext(ctx).Warn("unmarshal payment.refunded failed", zap.Error(err))
@@ -170,9 +184,12 @@ func consumeKafka(ctx context.Context, cfg *config.Config, svc *service.Service)
 		amt, _ := decimal.NewFromString(formatFloat(ev.Amount))
 		return svc.OnRefund(ctx, ev.OrderID, ev.OrderID, amt)
 	})
+	if r2 != nil {
+		srv.RegisterShutdownHook("kafka-reader-payment.refunded", func() error { return r2.Close() })
+	}
 }
 
-func consumeTopic(ctx context.Context, brokers []string, groupID, topic string, handle func(context.Context, []byte) error) {
+func consumeTopic(ctx context.Context, brokers []string, groupID, topic string, handle func(context.Context, []byte) error) *kafka.Reader {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        groupID,
@@ -181,22 +198,28 @@ func consumeTopic(ctx context.Context, brokers []string, groupID, topic string, 
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
 	})
-	defer func() { _ = r.Close() }()
 	logger.FromContext(ctx).Info("wallet kafka consumer started", zap.String("topic", topic))
-	for {
-		m, err := r.ReadMessage(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			m, err := r.ReadMessage(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				logger.FromContext(ctx).Warn("kafka read failed", zap.String("topic", topic), zap.Error(err))
+				time.Sleep(time.Second)
+				continue
 			}
-			logger.FromContext(ctx).Warn("kafka read failed", zap.String("topic", topic), zap.Error(err))
-			time.Sleep(time.Second)
-			continue
+			if err := handle(ctx, m.Value); err != nil {
+				logger.FromContext(ctx).Warn("kafka handler failed", zap.String("topic", topic), zap.Error(err))
+			}
 		}
-		if err := handle(ctx, m.Value); err != nil {
-			logger.FromContext(ctx).Warn("kafka handler failed", zap.String("topic", topic), zap.Error(err))
-		}
-	}
+	}()
+	// reader 关闭由 shutdown hook 触发；此处只返回引用。
+	return r
 }
 
 // formatFloat 把 float64 转为 decimal.NewFromString 可接受的字符串。
