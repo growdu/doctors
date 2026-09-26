@@ -1,6 +1,9 @@
 # review-service 本地配置示例（2026-09-24 review plan）
 service: review
 
+# 服务构建版本（v1.0 §26+）；注入 OTel resource.service.version；可通过 DOCTORS_SERVICE_VERSION 环境变量覆盖。
+service_version: "v1.3.0"
+
 http:
   addr: ":8087"
   read_timeout_sec: 30
@@ -27,6 +30,9 @@ auth:
 logging:
   level: info
 
-# OTel 全链路追踪（§26 tracing plan）：endpoint 留空 → Noop，不导出 span。
+# OTel 全链路追踪（§26 tracing plan）：
+#   - otlp_endpoint：留空 → Noop（dev / 单测），生产填 otel-collector 地址。
+#   - sampling_ratio：1.0=AlwaysSample（dev 默认）；生产建议 0.1（ParentBased + TraceIDRatioBased）。
 tracing:
   otlp_endpoint: ""
+  sampling_ratio: 1.0

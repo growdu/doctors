@@ -44,7 +44,11 @@ func main() {
 	}
 
 	// OTel 全链路追踪（§26 tracing plan）：endpoint 留空 → Noop，零开销。
-	traceShutdown, err := tracing.InitTracer("user-service", cfg.Tracing.OTLPEndpoint)
+	// 生产通过 cfg.Tracing.SamplingRatio（默认 1.0）和 cfg.ServiceVersion（默认 "dev"）注入采样 + 版本。
+	traceShutdown, err := tracing.InitTracer("user-service", cfg.Tracing.OTLPEndpoint,
+		tracing.WithSamplingRatio(cfg.Tracing.SamplingRatio),
+		tracing.WithServiceVersion(cfg.ServiceVersion),
+	)
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}

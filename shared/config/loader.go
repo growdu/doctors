@@ -18,15 +18,16 @@ import (
 
 // Config 是全部服务的统一配置根。
 type Config struct {
-	Service string    `mapstructure:"service"`
-	HTTP    HTTP      `mapstructure:"http"`
-	DB      DB        `mapstructure:"db"`
-	Redis   Redis     `mapstructure:"redis"`
-	Kafka   Kafka     `mapstructure:"kafka"`
-	Auth    Auth      `mapstructure:"auth"`
-	Logging Logging   `mapstructure:"logging"`
-	Admin   Admin     `mapstructure:"admin"`
-	Tracing Tracing   `mapstructure:"tracing"`
+	Service        string  `mapstructure:"service"`
+	ServiceVersion string  `mapstructure:"service_version"` // 资源属性 service.version（默认 "dev"）
+	HTTP           HTTP    `mapstructure:"http"`
+	DB             DB      `mapstructure:"db"`
+	Redis          Redis   `mapstructure:"redis"`
+	Kafka          Kafka   `mapstructure:"kafka"`
+	Auth           Auth    `mapstructure:"auth"`
+	Logging        Logging `mapstructure:"logging"`
+	Admin          Admin   `mapstructure:"admin"`
+	Tracing        Tracing `mapstructure:"tracing"`
 }
 
 // HTTP 是 HTTP 服务配置。
@@ -81,8 +82,11 @@ type Admin struct {
 //
 // OTLPEndpoint 留空 → NoopTracerProvider（dev / 单测友好）。
 // 生产配置示例："otel-collector:4318" 或 "http://otel-collector.observability:4318"。
+// SamplingRatio ∈ [0,1]：0=NeverSample；1=AlwaysSample（默认）；中间值启用
+// ParentBased(TraceIDRatioBased(ratio))，生产推荐 0.1。
 type Tracing struct {
-	OTLPEndpoint string `mapstructure:"otlp_endpoint"`
+	OTLPEndpoint   string  `mapstructure:"otlp_endpoint"`
+	SamplingRatio  float64 `mapstructure:"sampling_ratio"`
 }
 
 // Load 读取 config/<service>.yaml + 环境变量，解析为 *Config。
@@ -104,6 +108,8 @@ func Load(service string) (*Config, error) {
 	v.SetDefault("db.min_conns", 2)
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("logging.level", "info")
+	v.SetDefault("service_version", "dev")
+	v.SetDefault("tracing.sampling_ratio", 1.0)
 
 	// 环境变量绑定
 	v.SetEnvPrefix("DOCTORS")

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -198,4 +199,92 @@ func splitTraceparent(tp string) []string {
 	}
 	out = append(out, cur)
 	return out
+}
+
+// TestInitTracer_AppliesSamplingRatio 验证 WithSamplingRatio(0) → span 不被采样；
+// ratio=0 应映射到 NeverSample，span.IsRecording() == false。
+func TestInitTracer_AppliesSamplingRatio(t *testing.T) {
+	// httptest 提供一个假 OTLP endpoint（让代码进入"非 Noop"分支，触发 sampler 设置）。
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/traces" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	shutdown, err := tracing.InitTracer("svc-ratio0", ts.URL,
+		tracing.WithSamplingRatio(0),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, shutdown)
+	defer func() { _ = shutdown(context.Background()) }()
+
+	// ratio=0 → NeverSample → span 不录制。
+	_, span := tracing.StartSpan(context.Background(), "should-not-record")
+	assert.False(t, span.IsRecording(), "ratio=0 应该映射为 NeverSample，span 不录制")
+	span.End()
+}
+
+// TestInitTracer_AppliesServiceVersion 验证 WithServiceVersion("v9.9.9") 后，
+// 通过注册到 SDK provider 的 InMemoryExporter 抓到的 span resource 上能看到 service.version="v9.9.9"。
+func TestInitTracer_AppliesServiceVersion(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/traces" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	shutdown, err := tracing.InitTracer("svc-version", ts.URL,
+		tracing.WithServiceVersion("v9.9.9"),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, shutdown)
+	defer func() { _ = shutdown(context.Background()) }()
+
+	// 取得全局 SDK provider，并外挂一个 InMemoryExporter 抓取 span（用于读 resource）。
+	tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider)
+	require.True(t, ok, "全局 TracerProvider 应为 SDK provider")
+	memExp := tracetest.NewInMemoryExporter()
+	tp.RegisterSpanProcessor(sdktrace.NewSimpleSpanProcessor(memExp))
+
+	// 起一个 span 并结束，让 exporter 拿到 SpanStub。
+	_, span := tracing.StartSpan(context.Background(), "probe-version")
+	require.True(t, span.IsRecording(), "默认 AlwaysSample，span 必须 IsRecording")
+	span.End()
+
+	// 强制 flush（避免 BatchSpanProcessor 时延）。
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	captured := memExp.GetSpans()
+	require.NotEmpty(t, captured, "InMemoryExporter 必须抓到 span")
+
+	// 取最后一个 span 的 resource 属性。
+	res := captured[len(captured)-1].Resource
+	require.NotNil(t, res, "span 必须带 resource")
+	resAttrs := res.Attributes()
+
+	// 查 service.version 属性。
+	got, found := findStringAttr(resAttrs, "service.version")
+	require.True(t, found, "resource 应包含 service.version 属性")
+	assert.Equal(t, "v9.9.9", got, "service.version 应等于注入的版本")
+
+	// 同时 service.name 也应正确（验证 WithServiceVersion 不破坏 service.name 注入）。
+	gotName, foundName := findStringAttr(resAttrs, "service.name")
+	require.True(t, foundName)
+	assert.Equal(t, "svc-version", gotName)
+}
+
+// findStringAttr 从 attribute KV 列表中查找指定 key 的 string 值；找不到返回 ("", false)。
+func findStringAttr(kvs []attribute.KeyValue, keyStr string) (string, bool) {
+	for _, kv := range kvs {
+		if string(kv.Key) == keyStr && kv.Value.Type() == attribute.STRING {
+			return kv.Value.AsString(), true
+		}
+	}
+	return "", false
 }
