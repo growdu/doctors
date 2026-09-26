@@ -1,11 +1,11 @@
 // payment-service 入口。
 //
 // 设计要点：
-//   - pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径（与 admin 一致）。
-//   - cfg.Kafka.Brokers 空 → 不发事件（v1 暂不开 publisher）。
-//   - service.New 装配；handler.RegisterRoutes 挂载；server.Run 启动。
-//   - -healthz flag：distroless 镜像的 Docker HEALTHCHECK 旁路——起独立 :9090 HTTP server
-//     持续返回 200 OK，跳过全部业务装配。
+//   - 本期（§31）：构造 pgxpool（cfg.db.dsn 缺失 → 降级 nil + warn log）。
+//   - refund.NewRepo(pool) 接入 refunds + refund_policies（v1 in-memory 实现；
+//     v2 接 PG 时只换内部存储，签名不变）。
+//   - payment 表 repo 暂保留 nilRepo 占位（v1 mock 渠道 + 内存记账即可）。
+//   - 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool。
 package main
 
 import (
@@ -19,15 +19,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/payment/internal/handler"
+	"github.com/growdu/doctors/services/payment/internal/refund"
 	"github.com/growdu/doctors/services/payment/internal/router"
 	"github.com/growdu/doctors/services/payment/internal/server"
 	"github.com/growdu/doctors/services/payment/internal/service"
 	"github.com/growdu/doctors/shared/config"
 	"github.com/growdu/doctors/shared/contracts"
+	shareddb "github.com/growdu/doctors/shared/db"
 	"github.com/growdu/doctors/shared/logger"
 	"github.com/growdu/doctors/shared/metrics"
 	"github.com/growdu/doctors/shared/tracing"
@@ -55,18 +58,61 @@ func main() {
 	if err != nil {
 		log.Fatalf("init tracer: %v", err)
 	}
-	defer func() { _ = traceShutdown(context.Background()) }()
 
 	logger.SetLevel(parseLevel(cfg.Logging.Level))
 	defer func() { _ = logger.L().Sync() }()
 
-	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
-	metrics.InitMetrics("payment-service", cfg.ServiceVersion)
+	// 构造 pgxpool；DSN 缺失时降级为 nil（路由仍生效，业务 endpoint 调用时报错）。
+	pool, err := buildPool(cfg)
+	if err != nil {
+		log.Fatalf("build pool: %v", err)
+	}
+	if pool != nil {
+		defer pool.Close()
+	}
 
-	// pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
+	// Prometheus 业务指标（§29 metrics plan）：service_info + DB pool 采集。
+	// pool != nil 时注入 StatProvider；nil 时跳过。
+	metrics.InitMetrics("payment-service", cfg.ServiceVersion,
+		metrics.WithDBStatProvider(func() []metrics.DBPoolStat {
+			if pool == nil {
+				return nil
+			}
+			s := pool.Stat()
+			return []metrics.DBPoolStat{{
+				Name:       "main",
+				Acquired:   s.AcquiredConns(),
+				Idle:       s.IdleConns(),
+				TotalConns: s.TotalConns(),
+			}}
+		}),
+	)
+
+	// refund 仓储：pool != nil 走 refund.NewRepo(pool)（v1 内存版，签名预留 PG 接入）；
+	// 否则 nil 占位（refund 业务 endpoint 调用时报错）。
+	var refundRepo refund.RefundRepo
+	if pool != nil {
+		refundRepo = refund.NewRepo(pool)
+		logger.L().Info("payment-service: refund repo wired (in-memory v1)")
+	} else {
+		logger.L().Warn("payment-service: cfg.db.dsn empty; refund repo not wired (fallback to nil)")
+		refundRepo = nilRefundRepo{}
+	}
+
+	// payment 仓储：v1 仍用 nilRepo 占位（mock 渠道）。v2 接 PG 时替换。
 	svc := service.New(nilRepo{}, nilPublisher{}, nilChannel{})
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
+
+	// 优雅停机：先关 OTel tracer，再关 DB pool（LIFO）。
+	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
+	if pool != nil {
+		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
+	// 预留 shutdown hook 标记，让运维一眼看出 refund 仓储依赖 DB。
+	if refundRepo != nil {
+		srv.RegisterShutdownHook("refund-repo", func() error { return nil })
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -77,6 +123,22 @@ func main() {
 		os.Exit(1)
 	}
 	logger.FromContext(ctx).Info("payment-service stopped")
+}
+
+// buildPool 根据 cfg.DB 构造 pgxpool；DSN 空时返回 (nil, nil) —— 调用方按"降级"
+//
+//	模式装配 nilRefundRepo，路由仍能注册（业务 endpoint 调用时才报错）。
+func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
+	if cfg.DB.DSN == "" {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return shareddb.NewPool(ctx, shareddb.Config{
+		DSN:      cfg.DB.DSN,
+		MaxConns: cfg.DB.MaxConns,
+		MinConns: cfg.DB.MinConns,
+	})
 }
 
 // runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。
@@ -114,6 +176,20 @@ func (nilChannel) CreateOutTradeNo(ctx context.Context, p *service.Payment) (str
 	return "", errNil
 }
 
+// nilRefundRepo 占位：DSN 缺失时 refund 业务 endpoint 调用即返回 error。
+//
+//	有 pool 时使用 refund.NewRepo(pool)（in-memory v1）。
+type nilRefundRepo struct{}
+
+func (nilRefundRepo) Create(ctx context.Context, r *refund.Record) error { return errNilRefund }
+func (nilRefundRepo) GetByOrderID(ctx context.Context, orderID int64) ([]*refund.Record, error) {
+	return nil, errNilRefund
+}
+func (nilRefundRepo) UpdateStatus(ctx context.Context, id int64, status string, externalTxID string, failureReason string) error {
+	return errNilRefund
+}
+
+// nilPublisher 占位：内存记账，不发外部事件。
 type nilPublisher struct{}
 
 func (nilPublisher) PublishPaymentCompleted(ctx context.Context, ev contracts.PaymentCompletedEvent) error {
@@ -123,7 +199,10 @@ func (nilPublisher) PublishPaymentRefunded(ctx context.Context, ev contracts.Pay
 	return nil
 }
 
-var errNil = errors.New("payment: repo not wired (接 pgxpool 后替换)")
+var (
+	errNil         = errors.New("payment: repo not wired (接 pgxpool 后替换)")
+	errNilRefund   = errors.New("payment: refund repo not wired (cfg.db.dsn empty)")
+)
 
 // parseLevel 把 yaml 字符串映射为 zapcore.Level，未知值默认 info。
 func parseLevel(s string) zapcore.Level {
