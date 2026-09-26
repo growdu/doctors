@@ -1,4 +1,4 @@
-# scripts/run-tests.ps1 —— 一键跑全栈测试（PowerShell 版本，与 run-tests.sh 输出格式对齐）。
+﻿# scripts/run-tests.ps1 —— 一键跑全栈测试（PowerShell 版本，与 run-tests.sh 输出格式对齐）。
 #
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1
@@ -28,7 +28,9 @@ $ROOT = (Resolve-Path -Path "$PSScriptRoot/..").Path
 Set-Location -LiteralPath $ROOT
 
 # ---------- 颜色 ----------
-$UseColor = $Host.UI.SupportsVirtualTerminal -and -not $IsWindows -or ($env:WT_SESSION -or $env:TERM -match 'xterm')
+# $UseColor 检测虚拟终端支持（PowerShell 7+ / Windows Terminal / 现代 SSH）。
+# 注意：-match 是字符串比较操作符；用括号分组确保优先级。
+$UseColor = ($Host.UI.SupportsVirtualTerminal) -and (($env:WT_SESSION) -or ($env:TERM -match 'xterm'))
 function Write-Step { param([string]$Name) Write-Host "`n▶ $Name" -ForegroundColor Cyan }
 function Write-Pass  { param([int]$Sec) Write-Host "  ✓ PASS  (${Sec}s)" -ForegroundColor Green }
 function Write-Fail  { param([int]$Sec, [int]$Code) Write-Host "  ✗ FAIL  (${Sec}s, exit=$Code)" -ForegroundColor Red }
