@@ -64,6 +64,12 @@ jobs:
         run: go vet ./services/${{ matrix.service }}/...
 
       - name: go test
+        # CI 默认按 10% 采样跑 trace（OTel 标准 env）：
+        #   - 既保证 trace 链路完整（ParentBased 跟随上游），又显著降低后端存储 / exporter 带宽开销
+        #   - 不需要改测试代码；运行时通过 OTEL_TRACES_SAMPLER 注入
+        env:
+          OTEL_TRACES_SAMPLER: traceidratio
+          OTEL_TRACES_SAMPLER_ARG: parentbased_traceidratio
         run: go test -race -count=1 -timeout=120s -v ./services/${{ matrix.service }}/...
 
   # ========================================================================
