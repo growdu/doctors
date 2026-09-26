@@ -53,6 +53,13 @@ func Fail(c *gin.Context, code int, msg string) {
 
 // traceIDOf 复用上下文里已有的 trace_id；不存在则生成新的。
 func traceIDOf(c *gin.Context) string {
+	return TraceID(c)
+}
+
+// TraceID 返回当前请求的 trace_id：复用 gin.Context 中已存在的值或
+// HeaderTraceID 请求头，缺失则生成新的 16-hex。供 Recover / RateLimit
+// 等需要直接拼装 Resp 的中间件复用。
+func TraceID(c *gin.Context) string {
 	if v, ok := c.Get(TraceIDKey); ok {
 		if s, ok := v.(string); ok && s != "" {
 			return s
