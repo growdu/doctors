@@ -2161,3 +2161,135 @@ docker compose -f docker-compose.deploy.yml up -d
 | 稳定�?| �?Recovery + RateLimit + 优雅停机 (15s) + LIFO hooks |
 | 测试 | �?71 �?0 FAIL + 跨平台一键脚�?+ golangci-lint v2 |
 | 文档 | �?dev.md 31 章节 + README + REVIEW |
+
+
+---
+
+## 32. 11 服务真实 Kafka 接入（v1.5 生产化收尾）
+
+> 本节增量：把 11 服务 `cmd/main.go` 里所有 `nilPublisher` / `NopPublisher` / `nilRepo` 占位替换为真实 Kafka publisher（broker 配置存在）或 graceful 降级。`cfg.Kafka.Brokers` 为空时保留 NopPublisher + warn log（兼容 v1.0 dev 模式）。11 个服务 × 1 commit + 1 docs commit = 12 commits。
+
+### 32.1 接入清单（11 commits）
+
+| # | 服务 | publisher 类型 | 接入方式 | commit |
+| :-- | :-- | :-- | :-- | :-- |
+| 1 | auth | 不发 Kafka（纯 JWT）| 确认不接入 + 注释 + TestAuth_NoKafkaPublisher | `3b11093` |
+| 2 | order | `events.KafkaPublisher`（已存在）| 单测覆盖 buildPublisher（空 → Nop；非空 → Kafka） | `9789ae4` |
+| 3 | match | `consumer.New`（已接）| 单测覆盖 cfg 解析（空 → 跳过；非空 → TopicOrderCreated + groupID 兜底） | `e781428` |
+| 4 | message | 单 topic（TopicMessageSent）| 新建 `internal/kafkapublisher` + buildPublisher + shutdown hook | `20ccc0e` |
+| 5 | payment | 双 topic（completed/refunded）| 新建 `internal/kafkapublisher` + buildPublisher + shutdown hook | `19a70ca` |
+| 6 | review | 单 topic（TopicOrderReviewed）| 新建 `internal/kafkapublisher` + buildPublisher + shutdown hook | `ada49da` |
+| 7 | sos | 单 topic（TopicSOSRaised）| 新建 `internal/kafkapublisher` + buildPublisher + shutdown hook | `e22177d` |
+| 8 | user | 双 topic（allocated/released，virtualnumber 模块）| 新建 `internal/virtualnumber/kafkapublisher` + virtualnumber.Service 加 Publisher 接口 + WithPublisher 注入 | `b563f34` |
+| 9 | escort | 双 topic（available/unavailable）| 新建 `internal/kafkapublisher` + 按 AvailabilityEvent.Available 路由 topic | `f40dc42` |
+| 10 | wallet | pure consumer（无 publisher）| `consumeTopic` 改用 `shared/kafka.NewReader`（统一校验）；保留已有 shutdown hook | `739ae93` |
+| 11 | admin | `events.KafkaPublisher`（多 topic）| 抽取 `buildPublisher(cfg)` 函数 + 配套单测 | `b92996c` |
+
+### 32.2 公共模式（5 项不变式）
+
+每个 main.go 都遵循以下 `buildPublisher(cfg)` 5 步契约：
+
+1. `cfg.Kafka.Brokers` 空 → 返回 `*NopPublisher`（或 `nilPublisher{}`）+ nil closer + warn log（`logger.L().Warn(...)`）
+2. `cfg.Kafka.Brokers` 非空 → 调用 `kafkapublisher.New(brokers, ...)` 构造真实 Kafka publisher
+3. 底层 writer 通过 `shared/kafka.NewWriter(brokers, topic)` 统一构造（多 topic publisher 借用首个 topic 占位初始化，发布时覆写 Topic）
+4. 返回 `(pub, closer)` 双值：closer 非 nil 时由 main 注册 `kafka-publisher` shutdown hook
+5. Publish 失败只 log 错误，不阻塞业务（best-effort），由 service 层 `_ = publisher.PublishXxx(...)` 体现
+
+````go
+func buildPublisher(cfg *config.Config) (service.Publisher, func() error) {
+    if len(cfg.Kafka.Brokers) == 0 {
+        logger.L().Warn("svc: kafka.brokers empty; publisher disabled (fallback to nilPublisher)")
+        return nilPublisher{}, nil
+    }
+    kp, err := kafkapublisher.New(cfg.Kafka.Brokers, contracts.TopicXxx)
+    if err != nil { log.Fatalf(...) }
+    return kp, kp.Close
+}
+````
+
+### 32.3 graceful shutdown 顺序（LIFO）
+
+每个 `RegisterShutdownHook` 按**注册逆序**调用（与 §31 一致）：
+
+```
+HTTP Server.Shutdown(15s)
+  -> otel-tracer flush  <- 最后注册，最先执行
+  -> kafka-publisher / kafka-reader-*  <- broker 资源先释放
+  -> db-pool  <- 最先注册，最后执行（DB 是最底层资源）
+```
+
+`kafka-publisher` 顺序细节：
+- 单 topic publisher（message/review/sos/escort/user-virtualnumber）：`kp.Close` 直接注册（`func() error`）
+- 多 topic publisher（order/admin）：同对象 + Close 直接传 `RegisterShutdownHook`
+- wallet consumer：2 个 reader 各注册一个 `kafka-reader-order.completed` / `kafka-reader-payment.refunded` hook
+
+任一 hook panic 由 `server.runShutdownHooks` 的 recover 兜底（已在 §30 middleware plan 覆盖）。
+
+### 32.4 测试新增（11 个 main_test.go + 6 个新 kafkapublisher 包）
+
+**main 包测试**（每个 1-2 个用例）：
+- `TestBuildPublisher_EmptyBrokersReturnsNop/ReturnsNil`：`cfg.Kafka.Brokers` 空 → 降级为 NopPublisher/nilPublisher + nil closer
+- `TestBuildPublisher_NonEmptyBrokersReturnsKafka`：非空 → 构造真实 KafkaPublisher + 同对象 closer + assert.NotPanics(Close)
+- `TestBuildVNPublisher_EmptyBrokersReturnsNil`（user 专用）：空 brokers → 返回 nil publisher（virtualnumber.NewService 默认注入 nilPublisher）
+- `TestMatch_KafkaConsumerConfigGating`（match）：cfg 解析契约 + groupID 兜底
+- `TestConsumeKafka_EmptyBrokersNoop`（wallet）：空 brokers → consumeKafka 提前 return
+- `TestAuth_NoKafkaPublisher`（auth）：验证 auth 不依赖 Kafka publisher
+
+**kafkapublisher 包测试**（6 个新包各 3 个用例）：
+- `TestPublisher_NilWriterReturnsError`：nil publisher 调 PublishXxx 返回 error
+- `TestPublisher_NilCloseSafe`：nil publisher Close 不 panic
+- `TestNew_InvalidBrokersReturnsError`：brokers 空 / 非法 topic 时 New 返回 error
+
+**累计**：80 包（含 11 个 main_test.go + 6 个新 kafkapublisher 包）**0 FAIL**（71 → 80，新增 9 包）。
+
+### 32.5 Plan 偏差
+
+1. **order.events.KafkaPublisher 复用现有 events 包**：本服务多 topic（8 个 order.* 事件）走 `events.NewKafkaPublisher` 内部 writer 单例 + 每次 SetTopic；不引入 shared/kafka.NewWriter（其强制 topic 不空）。shared/kafka 仅用于单 topic publisher 构造。
+2. **admin.events.KafkaPublisher 同样复用现有 events 包**：与 order 同模式；admin 已有 Publish(ctx, topic, ev) 通用接口，无需新 kafkapublisher 包。
+3. **user 虚拟号 publisher 路径**：service.Publisher 接口在 `internal/virtualnumber/` 包内定义（`PublishVirtualNumberAllocated/Released`）；kafkapublisher 放在 `internal/virtualnumber/kafkapublisher/` 子包（贴近 service 接口定义，与其他服务结构对齐）。
+4. **escort.AvailabilityEvent 字段名是 `Available` 而非 `Online`**：早期 plan 写 `Online`，实际源码为 `Available`；kafkapublisher 按真实字段路由（available=true → TopicEscortAvailable，否则 → TopicEscortUnavailable）。
+5. **escort kafkapublisher 简化构造**：service.AvailabilityEvent 含 UserID 字段，但 contracts.EscortAvailableEvent 不含；v1 仅写 contracts schema 必需字段，UserID 暂不广播（v2 扩展）。
+6. **wallet consumer 改用 shared/kafka.NewReader**：wallet 已有 kafka-reader-* shutdown hook，本轮仅把 reader 构造从 `kafka.NewReader` 改为 `shared/kafka.NewReader`（统一 brokers/topic/groupID 校验），hook 注册路径不变。
+7. **payment kafkapublisher 借用 TopicPaymentCompleted 占位**：因 shared/kafka.NewWriter 强制 topic 不空，payment 双 topic（completed/refunded）借用 completed 占位初始化，每次 WriteMessages 覆写 Topic 字段（与 order/admin 同模式）。
+8. **auth 不引入 buildPublisher 函数**：保持注释 + TestAuth_NoKafkaPublisher 双重声明"纯 JWT，不发 Kafka"，未来如需广播 UserRegisteredEvent 再按公共模式装配 kafkapublisher。
+
+### 32.6 端到端验证
+
+```
+docker compose -f docker-compose.deploy.yml up -d
+  -> 18 容器启动（11 服务 + PG/Redis/Kafka/Jaeger/Prometheus/...）
+  -> cfg.Kafka.Brokers 留空 -> 11 服务启动，publisher 全部降级为 NopPublisher；路由生效；业务事件不外发
+  -> cfg.Kafka.Brokers = ["kafka:9092"] -> 重启服务：
+      |- order (8 topic) / admin (6 topic) -> 真实 KafkaPublisher
+      |- message/review/sos/user-virtualnumber (各 1-2 topic) -> 真实 KafkaPublisher
+      |- payment (2 topic) / escort (2 topic) -> 真实 KafkaPublisher
+      |- match consumer -> 订阅 order.created（groupID = "match-service"）
+      '- wallet consumer -> 订阅 order.completed + payment.refunded（groupID = "wallet-service"）
+  -> 业务调用：
+      |- user.AllocateVirtualNumber -> DB 写入 + Kafka 广播 virtual_number.allocated
+      |- message.SendMessage -> DB 写入 + Kafka 广播 message.sent
+      |- review.Create -> DB 写入 + Kafka 广播 order.reviewed
+      |- order.Create -> DB 写入 + Kafka 广播 order.created -> match 消费 -> 候选打分
+      |- order.Complete -> Kafka 广播 order.completed -> wallet 消费 -> frozen + billings 写入
+      '- admin.ApproveEscort -> Kafka 广播 admin.escort.approved
+  -> /metrics -> service_info{service="..."} 12 个
+  -> SIGTERM -> Server.Shutdown(15s)
+            -> runShutdownHooks() LIFO
+              -> otel-tracer flush
+              -> kafka-publisher / kafka-reader-* Close
+              -> db-pool Close
+  -> 80 包 0 FAIL + Prometheus /metrics + Jaeger trace
+```
+
+### 32.7 累计交付（v1.5 收官）
+
+| 维度 | 状态 |
+| :-- | :--: |
+| 后端 11 Go 服务 | ✅ 全部接入真实 Kafka publisher（或 NopPublisher fallback） |
+| 前端 3 端 | ✅ 完整脚手架 + 业务页面 |
+| 部署 | ✅ 14 Dockerfile + docker-compose + Jaeger |
+| CI | ✅ 4 job + Pages + 仓库维护 + 0.1 采样 |
+| 可观测性 | ✅ OTel + Jaeger + Prometheus + zap 日志关联 |
+| 稳定性 | ✅ Recovery + RateLimit + 优雅停机 (15s + LIFO hooks) |
+| 测试 | ✅ 80 包 0 FAIL + 跨平台一键脚本 + golangci-lint v2 |
+| 文档 | ✅ dev.md 32 章节 + README + REVIEW |
