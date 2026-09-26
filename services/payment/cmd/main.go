@@ -5,7 +5,9 @@
 //   - refund.NewRepo(pool) 接入 refunds + refund_policies（v1 in-memory 实现；
 //     v2 接 PG 时只换内部存储，签名不变）。
 //   - payment 表 repo 暂保留 nilRepo 占位（v1 mock 渠道 + 内存记账即可）。
-//   - 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool。
+//   - §32 Kafka 接入：cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；
+//     非空 → kafkapublisher.Publisher 真实 Kafka，订阅 TopicPaymentCompleted/Refunded。
+//   - 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool + kafka-publisher。
 package main
 
 import (
@@ -24,6 +26,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/growdu/doctors/services/payment/internal/handler"
+	"github.com/growdu/doctors/services/payment/internal/kafkapublisher"
 	"github.com/growdu/doctors/services/payment/internal/refund"
 	"github.com/growdu/doctors/services/payment/internal/router"
 	"github.com/growdu/doctors/services/payment/internal/server"
@@ -100,14 +103,19 @@ func main() {
 	}
 
 	// payment 仓储：v1 仍用 nilRepo 占位（mock 渠道）。v2 接 PG 时替换。
-	svc := service.New(nilRepo{}, nilPublisher{}, nilChannel{})
+	// Kafka publisher：cfg.Kafka.Brokers 空 → nilPublisher（dev / 单测友好）；非空 → 真实 publisher。
+	publisher, kafkaCloser := buildPublisher(cfg)
+	svc := service.New(nilRepo{}, publisher, nilChannel{})
 	h := handler.New(svc)
 	srv := server.New(cfg.HTTP.Addr, router.New(h, cfg.Auth.JWTSecret))
 
-	// 优雅停机：先关 OTel tracer，再关 DB pool（LIFO）。
+	// 优雅停机：先关 OTel tracer，再关 DB pool，再关 Kafka publisher（LIFO）。
 	srv.RegisterShutdownHook("otel-tracer", func() error { return traceShutdown(context.Background()) })
 	if pool != nil {
 		srv.RegisterShutdownHook("db-pool", func() error { pool.Close(); return nil })
+	}
+	if kafkaCloser != nil {
+		srv.RegisterShutdownHook("kafka-publisher", kafkaCloser)
 	}
 	// 预留 shutdown hook 标记，让运维一眼看出 refund 仓储依赖 DB。
 	if refundRepo != nil {
@@ -197,6 +205,24 @@ func (nilPublisher) PublishPaymentCompleted(ctx context.Context, ev contracts.Pa
 }
 func (nilPublisher) PublishPaymentRefunded(ctx context.Context, ev contracts.PaymentRefundedEvent) error {
 	return nil
+}
+
+// buildPublisher 根据 cfg.Kafka 构造 publisher 与可选 closer。
+//
+// §32 公共模式：Brokers 空 → *nilPublisher + nil closer；非空 → *kafkapublisher.Publisher + 同对象 closer。
+func buildPublisher(cfg *config.Config) (service.Publisher, func() error) {
+	if len(cfg.Kafka.Brokers) == 0 {
+		logger.L().Warn("payment-service: kafka.brokers empty; publisher disabled (fallback to nilPublisher)")
+		return nilPublisher{}, nil
+	}
+	kp, err := kafkapublisher.New(cfg.Kafka.Brokers)
+	if err != nil {
+		log.Fatalf("payment-service: build kafka publisher: %v", err)
+	}
+	logger.L().Info("payment-service: kafka publisher wired",
+		zap.Strings("brokers", cfg.Kafka.Brokers),
+		zap.Strings("topics", []string{contracts.TopicPaymentCompleted, contracts.TopicPaymentRefunded}))
+	return kp, kp.Close
 }
 
 var (
