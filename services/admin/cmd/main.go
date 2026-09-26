@@ -3,7 +3,8 @@
 // 设计要点：
 //   - pool=nil：路由生效；业务调用会 panic；smoke 不走业务路径。
 //   - 内部 clients（order/refund/escort/user）从 cfg 读 baseURL；smoke 用占位。
-//   - Kafka 配置缺失 → NopPublisher（dev / 单测友好）。
+//   - §32 Kafka 接入：cfg.Kafka.Brokers 空 → events.NopPublisher（dev / 单测友好）；
+//     非空 → events.KafkaPublisher 真实 Kafka，发布多 topic（force_cancel/approve/reject 等）。
 //   - service.New 装配；handler.RegisterRoutes 挂载；server.Run 启动。
 //   - §31 接入：repo.NewWorkOrderRepo(pool) + repo.NewReportsRepo(pool) 接 admin_work_orders。
 //   - 优雅停机：srv.RegisterShutdownHook 注册 otel-tracer + db-pool + kafka-publisher（LIFO）。
@@ -103,15 +104,7 @@ func main() {
 	userClient := clients.NewUserClient(cfg.Admin.UserBaseURL, 5*time.Second)
 
 	// Publisher（Kafka 或 Nop）
-	var pub service.Publisher
-	var kafkaPub *events.KafkaPublisher
-	if len(cfg.Kafka.Brokers) > 0 {
-		kp := events.NewKafkaPublisher(cfg.Kafka.Brokers)
-		kafkaPub = kp
-		pub = kp
-	} else {
-		pub = &events.NopPublisher{}
-	}
+	pub, kafkaPub := buildPublisher(cfg)
 
 	svc := service.New(rrRepo, woRepo, orderClient, refundClient, escortClient, userClient, pub)
 	h := handler.New(svc)
@@ -149,6 +142,31 @@ func buildPool(cfg *config.Config) (*pgxpool.Pool, error) {
 		MaxConns: cfg.DB.MaxConns,
 		MinConns: cfg.DB.MinConns,
 	})
+}
+
+// buildPublisher 根据 cfg.Kafka 构造 publisher 与（可选）Kafka publisher 引用。
+//
+// §32 公共模式：
+//   - Brokers 空 → *events.NopPublisher（dev 模式），kafkaPub=nil（无资源需释放）
+//   - Brokers 非空 → *events.KafkaPublisher（多 topic：force_cancel/approve/reject/work_order），
+//     kafkaPub=同对象供 shutdown hook 释放
+func buildPublisher(cfg *config.Config) (service.Publisher, *events.KafkaPublisher) {
+	if len(cfg.Kafka.Brokers) == 0 {
+		logger.L().Warn("admin-service: kafka.brokers empty; publisher disabled (fallback to NopPublisher)")
+		return &events.NopPublisher{}, nil
+	}
+	kp := events.NewKafkaPublisher(cfg.Kafka.Brokers)
+	logger.L().Info("admin-service: kafka publisher wired",
+		zap.Strings("brokers", cfg.Kafka.Brokers),
+		zap.Strings("topics", []string{
+			"admin.order.force_cancelled",
+			"admin.escort.approved",
+			"admin.escort.rejected",
+			"admin.refund.approved",
+			"admin.refund.rejected",
+			"admin.work_order.created",
+		}))
+	return kp, kp
 }
 
 func parseLevel(s string) zapcore.Level {
