@@ -19,10 +19,23 @@ import (
 )
 
 // Config 是连接池配置。
+//
+// 字段语义：
+//   - DSN：必填；缺/非 postgres:// 前缀 → NewPool 返回 error（调用方按 DSN 缺失降级为 nil）。
+//   - MaxConns / MinConns：连接池上下限；ApplyDefaults 兜底 10 / 2。
+//   - ConnectTimeout：建立单条连接的拨号超时；默认 5s（pgxpool 自身隐式是
+//     ctx 控制的，建议调用方传 ctx 控制 NewPool 整体超时；此处为单条 conn
+//     的 TCP 拨号 / auth 阶段）。
+//   - HealthCheckPeriod：默认 30s；设为 0 时关闭主动 ping。
+//   - MaxConnLifetime / MaxConnIdleTime：默认 1h / 10m。
 type Config struct {
-	DSN      string
-	MaxConns int32
-	MinConns int32
+	DSN               string
+	MaxConns          int32
+	MinConns          int32
+	ConnectTimeout    time.Duration
+	HealthCheckPeriod time.Duration
+	MaxConnLifetime   time.Duration
+	MaxConnIdleTime   time.Duration
 }
 
 // ApplyDefaults 填默认值。
@@ -32,6 +45,18 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.MinConns <= 0 {
 		c.MinConns = 2
+	}
+	if c.ConnectTimeout <= 0 {
+		c.ConnectTimeout = 5 * time.Second
+	}
+	if c.HealthCheckPeriod <= 0 {
+		c.HealthCheckPeriod = 30 * time.Second
+	}
+	if c.MaxConnLifetime <= 0 {
+		c.MaxConnLifetime = time.Hour
+	}
+	if c.MaxConnIdleTime <= 0 {
+		c.MaxConnIdleTime = 10 * time.Minute
 	}
 }
 
@@ -66,9 +91,10 @@ func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	}
 	pcfg.MaxConns = cfg.MaxConns
 	pcfg.MinConns = cfg.MinConns
-	pcfg.HealthCheckPeriod = 30 * time.Second
-	pcfg.MaxConnLifetime = time.Hour
-	pcfg.MaxConnIdleTime = 10 * time.Minute
+	pcfg.HealthCheckPeriod = cfg.HealthCheckPeriod
+	pcfg.MaxConnLifetime = cfg.MaxConnLifetime
+	pcfg.MaxConnIdleTime = cfg.MaxConnIdleTime
+	pcfg.ConnConfig.ConnectTimeout = cfg.ConnectTimeout
 
 	pool, err := pgxpool.NewWithConfig(ctx, pcfg)
 	if err != nil {

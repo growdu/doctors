@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -49,4 +50,29 @@ func TestConfig_Defaults(t *testing.T) {
 	cfg.ApplyDefaults()
 	assert.Equal(t, int32(10), cfg.MaxConns)
 	assert.Equal(t, int32(2), cfg.MinConns)
+	// §31 增量：补齐 ConnectTimeout / HealthCheckPeriod / 生命周期默认值。
+	assert.Equal(t, 5*time.Second, cfg.ConnectTimeout)
+	assert.Equal(t, 30*time.Second, cfg.HealthCheckPeriod)
+	assert.Equal(t, time.Hour, cfg.MaxConnLifetime)
+	assert.Equal(t, 10*time.Minute, cfg.MaxConnIdleTime)
+}
+
+func TestConfig_CustomTimeouts(t *testing.T) {
+	// 调用方显式传入自定义值 → ApplyDefaults 不覆盖。
+	cfg := db.Config{
+		DSN:               "postgres://x",
+		MaxConns:          4,
+		MinConns:          1,
+		ConnectTimeout:    2 * time.Second,
+		HealthCheckPeriod: time.Minute,
+		MaxConnLifetime:   2 * time.Hour,
+		MaxConnIdleTime:   5 * time.Minute,
+	}
+	cfg.ApplyDefaults()
+	assert.Equal(t, int32(4), cfg.MaxConns)
+	assert.Equal(t, int32(1), cfg.MinConns)
+	assert.Equal(t, 2*time.Second, cfg.ConnectTimeout)
+	assert.Equal(t, time.Minute, cfg.HealthCheckPeriod)
+	assert.Equal(t, 2*time.Hour, cfg.MaxConnLifetime)
+	assert.Equal(t, 5*time.Minute, cfg.MaxConnIdleTime)
 }
