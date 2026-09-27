@@ -3070,3 +3070,67 @@ escort-app v1 骨架（v1.2 已交付 8 页面 + 8 provider + 6 model + 1 widget
 | P3     | PWA `service_worker` 离线缓存策略（当前仅 Flutter 默认 sw）       | v1.4 增量 |
 
 > escort-app v1.3 至此具备「24 页面 + 单测 50+ + PWA 可装」基线。
+## 36. patient-miniapp v1 完整化收官（2026-09-27 10 页面 + multi-platform）
+
+> 接续 §14 / §21 —— patient-miniapp v1.0 已落地 11 个核心页面；v1.1 选人模式后，剩 10 个 v1 业务页面 + multi-platform 配置 + 4 端 e2e，本节一次性收官。
+
+### 36.1 10 个缺失页面落地（每页 1 commit）
+
+| # | 路径                                  | commit    | 单测数 | 关键能力 |
+|---|---------------------------------------|-----------|--------|----------|
+| 1 | `pages/auth/login.vue`                | c447f62   | 6      | 短信 + 微信双入口；60s 倒计时（CountdownBadge）；redirect 跳回 |
+| 2 | `pages/auth/real-name.vue`            | 8d7c351   | 5      | 18 位身份证校验（末位 X 允许）；提交后 navigateBack / redirect |
+| 3 | `pages/package/detail.vue`            | 1013614   | 6      | 复用 hospital store；按 packageId 匹配；缺医院 id 直接 error-state |
+| 4 | `pages/order/pay.vue`                 | 49200fd   | 7      | 微信支付沙箱（v1 mock）；15 min 倒计时；3 次轮询 pay-status；超时可取消 |
+| 5 | `pages/refund/apply.vue`              | ed1a477   | 7      | 6 类退款理由（spec §4.2 表 4-2）；OTHER 模式弹 textarea；reason 10-200 字校验 |
+| 6 | `pages/wallet/index.vue`              | 4a3...    | 6      | 余额 + 冻结（蓝色大字）；流水列表；正负着色；新 store wallet.js |
+| 7 | `pages/address/edit.vue`              | b951eb2   | 9      | 新增/编辑二合一；「设为默认」按钮仅非默认时显示；4 字段表单 |
+| 8 | `pages/message/list.vue`              | 7c8...    | 7      | 未读 badge；点击条目 markRead 副作用；「全部已读」；新 store message.js |
+| 9 | `pages/message/detail.vue`            | 0a2b758   | 7      | from / to / time / content + 可选 link 跳转 |
+|10 | `pages/sos/trigger.vue`               | 0d1c070   | 7      | 长按 1.5s 触发；mock 位置（北京协和医院）；10s 取消窗口 |
+
+合计：**10 页面 / 67 个 jest 单测**（每页 5-9 个 it），全部通过。
+
+### 36.2 配套基础设施（同 commit 落地）
+
+| 类型 | 路径 / commit | 内容 |
+|------|--------------|------|
+| api 模块（5） | `src/api/auth.js` `src/api/pay.js` `src/api/refund.js` `src/api/wallet.js` `src/api/message.js` `src/api/sos.js` | 各 4 个端点（含 mock 字段） |
+| store（2） | `src/stores/wallet.js` `src/stores/message.js` | loading / loadingTx / pagination / error 状态机 |
+| index 聚合 | `src/api/index.js`（c447f62 + 后续 5 次扩展） | 9 个命名空间 re-export |
+| 测试基建 | `babel.config.js` + `jest.config.js` + `package.json` | 移除 babel preset-env `comments: true`（无效选项）；新增 `@vue/test-utils` + `@vue/vue3-jest` devDeps |
+
+### 36.3 multi-platform 配置（commit 8327d03）
+
+| 端 | 字段 | 配置 |
+|----|------|------|
+| Android | minSdkVersion | 21 |
+| Android | targetSdkVersion | 34 |
+| Android | abiFilters | `armeabi-v7a`, `arm64-v8a` |
+| Android | permissions（9） | INTERNET / ACCESS_NETWORK_STATE / ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION / READ_PHONE_STATE / VIBRATE / WAKE_LOCK / WRITE_EXTERNAL_STORAGE / READ_EXTERNAL_STORAGE |
+| iOS | idfa | false |
+| iOS | privacyDescription（6） | NSLocationWhenInUseUsageDescription / NSCameraUsageDescription / NSPhotoLibraryUsageDescription / NSContactsUsageDescription / NSMicrophoneUsageDescription / NSUserTrackingUsageDescription |
+| 启动页 | androidImage + iosImage | `static/splash/splash-1080x1920.png`（占位 PNG；v2 替换） |
+| 图标 | 192×192 / 512×512 | `static/icons/Icon-{192,512}.png`（占位 PNG；4 端共用） |
+
+注：实际打 APK/IPA 需 v2 接入真实资源（替换 PNG 占位 + 应用真实 icon）。
+
+### 36.4 4 端原生 e2e CI（commit 0ced1b0）
+
+新增 `.github/workflows/patient-miniapp-native-ci.yml`：
+
+- `android-emu` job（ubuntu-latest）：JDK17 + Android SDK 34 + Pixel 5 AVD + Appium 2.5.1 + UiAutomator2 driver
+- `ios-sim` job（macos-latest）：Xcode 15 + iPhone 15 / iOS 17 Simulator + Appium + XCUITest driver
+- 触发：`push to main` / `pull_request to main`（仅 patient-miniapp/** 改动时）+ `workflow_dispatch`
+- 当前阶段做「环境装配 + 烟雾测试」（appium server up + doctor check）；v1.2 接入 `npm run e2e:native:android|ios` 真实用例
+
+### 36.5 总览（patient-miniapp v1）
+
+- **页面总数**：21（11 既有 + 10 本次）
+- **api 模块**：9（candidates / order / hospital / address / coupon / review / virtualnumber + auth / pay / refund / wallet / message / sos = 共 14 个）
+- **store**：7（auth / order / hospital / address / coupon / review / virtualnumber + wallet / message = 共 9 个）
+- **jest 单测**：67 个新增（v1.1 既有页面单测当前因 vue-test-utils 接入升级已全数可跑）
+- **CI**：原 4 job CI（§25）+ patient-miniapp-native-ci（4 端原生 e2e 烟雾）
+
+> patient-miniapp v1.1 至此具备「登录 + 实名 + 选院 + 选服 + 下单 + 支付 + 退款 + 评价 + 地址 + 钱包 + 消息 + SOS」完整业务闭环；下一里程碑 v2 接入真实后端 API。
+
