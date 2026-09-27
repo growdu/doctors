@@ -69,8 +69,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled', 'loading'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -89,6 +90,7 @@ describe('message/detail.vue', () => {
   it('onLoad(id) → 写入组件 data', async () => {
     const w = await mountPage();
     w.vm.onLoad({ id: 7 });
+    await w.vm.mounted();
     expect(w.vm.id).toBe(7);
   });
 

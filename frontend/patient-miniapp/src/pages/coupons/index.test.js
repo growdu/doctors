@@ -79,8 +79,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -129,7 +130,6 @@ describe('coupons/index.vue', () => {
 
   it('mounted → 调 coupon store loadTemplates + loadMine', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     expect(fakeCouponStore.loadTemplates).toHaveBeenCalledTimes(1);
@@ -140,7 +140,6 @@ describe('coupons/index.vue', () => {
 
   it('2 个顶部 tab 渲染（领券 / 我的券）+ 切换 tab', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     expect(w.find('[data-test="top-tab-claim"]').exists()).toBe(true);
@@ -156,7 +155,6 @@ describe('coupons/index.vue', () => {
 
   it('领券 tab：模板列表渲染 + 「立即领取」点击 → store.claim(id) + 切到「我的券」tab', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     // 模板列表渲染
@@ -184,7 +182,6 @@ describe('coupons/index.vue', () => {
     ]);
 
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     // 切到「我的券」tab
@@ -217,7 +214,6 @@ describe('coupons/index.vue', () => {
     fakeCouponStore.loadTemplates.mockResolvedValueOnce([]);
 
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     const empty = w.find('.u-empty-stub');
@@ -230,7 +226,6 @@ describe('coupons/index.vue', () => {
     fakeCouponStore.loadTemplates.mockRejectedValueOnce(new Error('boom'));
 
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     const empty = w.find('.u-empty-stub');
@@ -246,7 +241,6 @@ describe('coupons/index.vue', () => {
     ]);
 
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
     await w.find('[data-test="top-tab-mine"]').trigger('click');
     await flushPromises();

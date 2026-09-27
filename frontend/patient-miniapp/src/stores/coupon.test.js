@@ -3,12 +3,16 @@
 // coupon store 单测 —— loadTemplates / loadMine / claim / useCoupon + filterByStatus。
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('coupon store - 基础', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('初始：templates / mine 都为空', async () => {
@@ -37,9 +41,9 @@ describe('coupon store - 基础', () => {
 });
 
 describe('coupon store - loadTemplates', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('拉模板列表 → 写入 templates', async () => {
@@ -75,9 +79,9 @@ describe('coupon store - loadTemplates', () => {
 });
 
 describe('coupon store - loadMine / claim', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('loadMine → 写入 mine', async () => {
@@ -123,9 +127,9 @@ describe('coupon store - loadMine / claim', () => {
 });
 
 describe('coupon store - useCoupon / filterByStatus / statusCount', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('useCoupon → 调 api + 本地同步 status=used', async () => {

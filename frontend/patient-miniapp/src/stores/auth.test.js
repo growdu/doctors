@@ -8,19 +8,21 @@
 //   - 全局 uni 由 jest.setup.ts 注入（installUniMock）；此处只关心 storage 行为
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('auth store', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    // 清 storage（jest.setup.ts 已注入 globalThis.uni）
-    try {
-      globalThis.uni.removeStorageSync('patient.token');
-      delete globalThis.__patient_token;
-    } catch (_e) {
-      // ignore
-    }
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
+    // 清 storage：globalThis.uni 在 jest.resetModules 后可能为 undefined，需守护
+    if (globalThis.uni && typeof globalThis.uni.removeStorageSync === 'function') {
+      try { globalThis.uni.removeStorageSync('patient.token'); } catch (_e) {}
+    }
+    delete globalThis.__patient_token;
   });
 
   it('初始：token / user / isLoggedIn 都为空', async () => {

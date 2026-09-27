@@ -51,20 +51,7 @@ jest.doMock('@/stores/order.js', () => ({
   useOrderStore: () => fakeStore,
 }));
 
-// ---- 子组件 stub：OrderStatusProgress 用最小化模板替换（避免拉 uView Plus + 复杂模板）
-const OrderStatusProgressStub = {
-  name: 'OrderStatusProgress',
-  props: ['currentStatus', 'steps'],
-  template:
-    '<div class="osp-stub" :data-current="currentStatus" :data-step-count="steps && steps.length"></div>',
-};
-
 // CountdownBadge 走真实组件（其本身已有单测覆盖倒计时）；本页只验证 mount + 属性透传。
-jest.doMock(
-  '@/components/OrderStatusProgress.vue',
-  () => ({ default: OrderStatusProgressStub }),
-  { virtual: true },
-);
 
 // ---- uView Plus + uni-app stub
 const U_STUBS = {
@@ -84,7 +71,19 @@ const U_STUBS = {
   },
   'u-button': {
     props: ['type', 'size', 'plain'],
-    template: '<button class="u-button-stub" @click="$emit(\'click\')"><slot /></button>',
+    emits: ['click'],
+        inheritAttrs: false,
+    template: '<button class="u-button-stub" v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
+  },
+  // 子组件 OrderStatusProgress stub
+  OrderStatusProgress: {
+    name: 'OrderStatusProgress',
+    props: {
+      currentStatus: { type: String, required: true },
+      steps: { type: Array, default: () => ['paid', 'selectingEscort', 'escortPendingAcceptance', 'accepted', 'inService', 'completed'] },
+    },
+    template:
+      '<div class="osp-stub" :data-current="currentStatus" :data-step-count="steps && steps.length"></div>',
   },
 };
 

@@ -62,8 +62,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
   },
   'u-loading': {
     props: ['mode', 'size'],
@@ -92,6 +93,7 @@ describe('reviews/create.vue', () => {
   it('onLoad 读 ?orderId=7&escortId=11 → 写入 orderId / escortId', async () => {
     const w = await mountPage();
     await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
     expect(w.vm.orderId).toBe(7);
     expect(w.vm.escortId).toBe(11);
   });
@@ -99,6 +101,7 @@ describe('reviews/create.vue', () => {
   it('5 颗星渲染 + 点击第 3 颗 → rating=3', async () => {
     const w = await mountPage();
     await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
 
     for (let n = 1; n <= 5; n += 1) {
       expect(w.find(`[data-test="star-${n}"]`).exists()).toBe(true);
@@ -118,6 +121,7 @@ describe('reviews/create.vue', () => {
   it('初始未评分 → 「提交」按钮 disabled', async () => {
     const w = await mountPage();
     await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
 
     const btn = w.find('[data-test="submit-btn"]');
     expect(btn.attributes('disabled')).toBeDefined();
@@ -127,6 +131,7 @@ describe('reviews/create.vue', () => {
   it('评分后 → 「提交」按钮 enabled + canSubmit=true', async () => {
     const w = await mountPage();
     await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
 
     await w.find('[data-test="star-4"]').trigger('click');
     const btn = w.find('[data-test="submit-btn"]');
@@ -137,6 +142,7 @@ describe('reviews/create.vue', () => {
   it('「提交」点击 → store.submit({order_id, escort_id, rating, comment}) + redirectTo', async () => {
     const w = await mountPage();
     await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
     await w.find('[data-test="star-5"]').trigger('click');
     w.vm.comment = '非常专业，强烈推荐';
 
@@ -164,6 +170,7 @@ describe('reviews/create.vue', () => {
 
     const w = await mountPage();
     await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
     await w.find('[data-test="star-3"]').trigger('click');
     await w.find('[data-test="submit-btn"]').trigger('click');
     await flushPromises();

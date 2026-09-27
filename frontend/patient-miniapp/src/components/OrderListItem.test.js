@@ -28,8 +28,10 @@ const UNI_STUBS = {
   text: { template: '<span><slot /></span>' },
   'u-button': {
     props: ['type', 'size', 'plain', 'loading', 'disabled'],
+    emits: ['click'],
+    inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :data-size="size" :data-plain="!!plain" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :data-size="size" :data-plain="!!plain" @click="$emit(\'click\', $event)"><slot /></button>',
   },
 };
 

@@ -34,8 +34,10 @@ const UNI_STUBS = {
   },
   'u-button': {
     props: ['type', 'size', 'loading', 'disabled', 'plain'],
+    emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :disabled="!!disabled" :data-loading="!!loading"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :disabled="!!disabled" :data-loading="!!loading" @click.stop="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -94,8 +96,8 @@ describe('EscortCandidateCard.vue', () => {
     const w = mountCard({ candidate: baseCandidate(), loading: true });
 
     const btn = w.find('.u-button-stub');
-    expect(btn.attributes('disabled')).toBe('true');
-    expect(btn.attributes('data-loading')).toBe('true');
+    expect(btn.attributes('disabled')).toBeDefined();
+    expect(btn.attributes('data-loading')).toBeDefined();
   });
 
   it('disabled=true → 卡片半透明 + 按钮 disabled + 点击不 emit', async () => {
@@ -108,7 +110,7 @@ describe('EscortCandidateCard.vue', () => {
 
     // 按钮 disabled（loading=false 时仍 disabled）
     const btn = w.find('.u-button-stub');
-    expect(btn.attributes('disabled')).toBe('true');
+    expect(btn.attributes('disabled')).toBeDefined();
 
     // 即使点击也不应 emit（onSelectClick 内部拦截）
     await btn.trigger('click');

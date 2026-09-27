@@ -65,8 +65,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
   },
   // CountdownBadge 通过 mount 的 stubs 选项注入，避免 vue3-jest 处理 .vue 时与 jest.doMock 冲突
   CountdownBadge: CountdownBadgeStub,

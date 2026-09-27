@@ -25,8 +25,8 @@ export const TRACE_PREFIX = 'mp';
  */
 export function newTraceId(now) {
   const ts = typeof now === 'number' ? now : Date.now();
-  // Math.random 范围 [0,1) → 6 位 base36 字符串 → padEnd 截到 6 位
-  const rand = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+  // 6 位纯数字 rand：[0, 1_000_000) → 左补 0 → 字符串
+  const rand = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
   return `${TRACE_PREFIX}-${ts}-${rand}`;
 }
 

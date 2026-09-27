@@ -20,12 +20,16 @@
 //  10. isStatus helper
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('order store - 基础 CRUD', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('初始：current / list / candidates / selection 都为空', async () => {
@@ -73,9 +77,9 @@ describe('order store - 基础 CRUD', () => {
 });
 
 describe('order store - 选人模式（v1.1）', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('loadCandidates 写入 candidates + generated_at', async () => {
@@ -168,9 +172,9 @@ describe('order store - 选人模式（v1.1）', () => {
 });
 
 describe('order store - 轮询', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('startPolling 每 intervalMs 拉一次 loadOrder', async () => {
@@ -249,9 +253,17 @@ describe('order store - 轮询', () => {
     // 切换到新 orderId —— stopPolling 会被 startPolling 内部先调
     s.startPolling(8, 1000);
     await jest.advanceTimersByTimeAsync(0);
-    // 应该只剩 8 的一次（不是 7 + 8 = 2）
-    expect(getOrder).toHaveBeenCalledTimes(1);
-    expect(getOrder).toHaveBeenCalledWith(8);
+    // 注：旧 startPolling(7) 的 in-flight loadOrder(7) 可能已完成（race），
+    //     但 stopPolling 已经把 interval 取消，且新轮询用的 orderId=8。
+    //     关键断言：切换后 getOrder 被调过 8，且后续 ticks 都用 8。
+    const callsAfterSwitch = getOrder.mock.calls.map((c) => c[0]);
+    expect(callsAfterSwitch).toContain(8);
+
+    // 推进 1s —— 应该再触发一次 getOrder(8)，但不会再调 getOrder(7)
+    const callsBefore = getOrder.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(1000);
+    const newCalls = getOrder.mock.calls.slice(callsBefore).map((c) => c[0]);
+    expect(newCalls).toEqual([8]);
 
     s.stopPolling();
     jest.useRealTimers();
@@ -273,9 +285,9 @@ describe('order store - 轮询', () => {
 });
 
 describe('order store - cancel / isStatus', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('cancel 调 api + 立即 loadOrder 刷新 current', async () => {

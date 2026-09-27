@@ -72,8 +72,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled', 'loading'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -98,11 +99,13 @@ describe('address/edit.vue', () => {
 
     // 无 addressId → 新增模式
     w.vm.onLoad({});
+    await w.vm.mounted();
     expect(w.vm.mode).toBe('create');
     expect(w.vm.addressId).toBeNull();
 
     // 有 addressId → 编辑模式
     w.vm.onLoad({ addressId: 1 });
+    await w.vm.mounted();
     expect(w.vm.mode).toBe('edit');
     expect(w.vm.addressId).toBe(1);
   });
@@ -133,6 +136,7 @@ describe('address/edit.vue', () => {
   it('canSave 计算属性：联系人 + 11 位手机 + 详细地址 ≥ 5 字', async () => {
     const w = await mountPage();
     w.vm.onLoad({}); // create mode
+    await w.vm.mounted();
 
     expect(w.vm.canSave).toBe(false);
 
@@ -152,6 +156,7 @@ describe('address/edit.vue', () => {
   it('「保存」点击（新增模式） → store.add(payload) → navigateBack', async () => {
     const w = await mountPage();
     w.vm.onLoad({});
+    await w.vm.mounted();
     await w.setData({
       recipient: '张三',
       phone: '13800138000',
@@ -222,6 +227,7 @@ describe('address/edit.vue', () => {
 
     const w = await mountPage();
     w.vm.onLoad({});
+    await w.vm.mounted();
     await w.setData({
       recipient: '张三',
       phone: '13800138000',

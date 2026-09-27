@@ -8,12 +8,16 @@
 //   - setActivePinia(createPinia()) 每个 case 隔离 store 实例
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('hospital store - 基础', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('初始：list / detail / pagination 都为空，loading=false', async () => {
@@ -29,9 +33,9 @@ describe('hospital store - 基础', () => {
 });
 
 describe('hospital store - loadList', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('拉列表 → 写入 list + pagination + lastQuery', async () => {
@@ -103,9 +107,9 @@ describe('hospital store - loadList', () => {
 });
 
 describe('hospital store - loadDetail / clearDetail', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('loadDetail 写入 detail', async () => {
@@ -121,7 +125,7 @@ describe('hospital store - loadDetail / clearDetail', () => {
     const s = useHospitalStore();
     const r = await s.loadDetail(101);
 
-    expect(s.detail).toBe(detail);
+    expect(s.detail).toEqual(detail);
     expect(getHospitalDetail).toHaveBeenCalledWith(101);
     expect(r.departments).toHaveLength(2);
     expect(s.loadingDetail).toBe(false);

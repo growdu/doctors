@@ -13,6 +13,7 @@
 
 module.exports = {
   testEnvironment: 'jsdom',
+  setupFiles: ['<rootDir>/jest.setup.js'],
   roots: ['<rootDir>/src', '<rootDir>/__tests__'],
   moduleFileExtensions: ['js', 'json', 'vue'],
   moduleNameMapper: {

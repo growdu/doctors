@@ -75,8 +75,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -98,6 +99,7 @@ describe('address/list.vue', () => {
       { id: 1, recipient: '张三', phone: '13800138000', detail: '北京市东城区某街道 1 号', is_default: true },
       { id: 2, recipient: '李四', phone: '13900139000', detail: '北京市朝阳区某街道 2 号', is_default: false },
     ]);
+    fakeAddressStore.defaultId = 1;
     fakeAddressStore.setDefault.mockResolvedValue({});
     fakeAddressStore.remove.mockResolvedValue(undefined);
     fakeAddressStore.add.mockResolvedValue({ id: 100, recipient: 'x' });
@@ -105,7 +107,6 @@ describe('address/list.vue', () => {
 
   it('mounted → 调 address store loadList()', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     expect(fakeAddressStore.loadList).toHaveBeenCalledTimes(1);
@@ -115,7 +116,6 @@ describe('address/list.vue', () => {
 
   it('地址卡片渲染 + 「默认」徽标', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     const cards = w.findAll('[data-test^="address-card-"]');
@@ -131,7 +131,6 @@ describe('address/list.vue', () => {
 
   it('「设为默认」点击 → store.setDefault(id) + 重拉列表', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     await w.find('[data-test="set-default-2"]').trigger('click');
@@ -146,7 +145,6 @@ describe('address/list.vue', () => {
 
   it('「删除」点击 → store.remove(id) + 重拉列表', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     await w.find('[data-test="delete-2"]').trigger('click');
@@ -161,7 +159,6 @@ describe('address/list.vue', () => {
 
   it('「+ 新增地址」 → 打开 dialog → 填写 → 保存 → store.add', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     // 打开 dialog
@@ -183,7 +180,6 @@ describe('address/list.vue', () => {
 
   it('dialog 「保存」缺字段 → 不调 add + toast 提示', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     await w.find('[data-test="add-address-btn"]').trigger('click');
@@ -199,7 +195,6 @@ describe('address/list.vue', () => {
     fakeAddressStore.loadList.mockResolvedValueOnce([]);
 
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     const empty = w.find('.u-empty-stub');
@@ -212,7 +207,6 @@ describe('address/list.vue', () => {
     fakeAddressStore.loadList.mockRejectedValueOnce(new Error('boom'));
 
     const w = await mountPage();
-    await w.vm.mounted();
     await flushPromises();
 
     const empty = w.find('.u-empty-stub');

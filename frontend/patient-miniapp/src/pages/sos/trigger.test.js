@@ -58,8 +58,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled', 'loading'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="!!disabled" @click="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -92,7 +93,6 @@ describe('sos/trigger.vue', () => {
     w.vm.onLoad({ orderId: 7 });
     expect(w.vm.orderId).toBe(7);
 
-    await w.vm.mounted();
     expect(w.vm.location.lat).toBeCloseTo(39.9129);
     expect(w.vm.location.lng).toBeCloseTo(116.4148);
   });
@@ -123,7 +123,6 @@ describe('sos/trigger.vue', () => {
   it('长按未到 1.5s 松开 → state=idle + progress=0（不触发 triggerSos）', async () => {
     jest.useFakeTimers();
     const w = await mountPage();
-    await w.vm.mounted();
 
     w.vm.onPressStart();
     jest.advanceTimersByTime(500); // 33%

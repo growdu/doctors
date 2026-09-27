@@ -291,11 +291,15 @@ export default {
       if (idx >= 0) {
         this.currentTabIndex = idx;
         this.currentStatus = status;
+        // onLoad 传 status → 立刻按新 status 重拉（避免依赖 mounted 的 _loaded guard）
+        this._loaded = false;
+        this.fetchList(this.currentStatus);
       }
     }
   },
   mounted() {
-    // 页面挂载完成 → 立即拉一次（brief「mounted 调 loadList」语义）
+    // 页面挂载完成 → 立即拉一次（brief「mounted 调 loadList」语义）。
+    // 若 onLoad 已触发 fetchList（_loaded=true），这里跳过避免重复。
     if (!this._loaded) {
       this.fetchList(this.currentStatus);
     }

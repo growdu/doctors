@@ -3,12 +3,16 @@
 // virtualnumber store 单测 —— allocate / loadDetail + byOrderId 缓存 + maskedPhone。
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('virtualnumber store - 基础', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('初始：current=null + byOrderId={} + loading=false', async () => {
@@ -37,9 +41,9 @@ describe('virtualnumber store - 基础', () => {
 });
 
 describe('virtualnumber store - allocate', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('allocate 成功 → 写 current + byOrderId', async () => {
@@ -65,8 +69,8 @@ describe('virtualnumber store - allocate', () => {
     });
 
     expect(r.id).toBe(1);
-    expect(s.current).toBe(vn);
-    expect(s.byOrderId[7]).toBe(vn);
+    expect(s.current).toEqual(vn);
+    expect(s.byOrderId[7]).toEqual(vn);
     expect(s.loading).toBe(false);
   });
 
@@ -90,9 +94,9 @@ describe('virtualnumber store - allocate', () => {
 });
 
 describe('virtualnumber store - loadDetail / getByOrderId / maskedPhone', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('loadDetail → 写 current + byOrderId', async () => {
@@ -103,8 +107,8 @@ describe('virtualnumber store - loadDetail / getByOrderId / maskedPhone', () => 
     const { useVirtualNumberStore } = await import('@/stores/virtualnumber.js');
     const s = useVirtualNumberStore();
     await s.loadDetail(1);
-    expect(s.current).toBe(vn);
-    expect(s.byOrderId[7]).toBe(vn);
+    expect(s.current).toEqual(vn);
+    expect(s.byOrderId[7]).toEqual(vn);
     expect(getVirtualNumber).toHaveBeenCalledWith(1);
   });
 

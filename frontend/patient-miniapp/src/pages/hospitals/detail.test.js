@@ -67,8 +67,10 @@ const U_STUBS = {
   },
   'u-button': {
     props: ['type', 'size', 'plain'],
+    emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" @click.stop="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -148,7 +150,11 @@ describe('hospitals/detail.vue', () => {
     expect(cards[0].attributes('data-test')).toBe('package-1');
 
     // 「立即下单」按钮
-    await w.find('[data-test="create-order-btn"]').trigger('click');
+    const btn = w.find('[data-test="create-order-btn"]');
+    console.log('btn.findAll count:', w.findAll('[data-test="create-order-btn"]').length);
+    console.log('btn element:', btn.element?.outerHTML?.substring(0, 100));
+    await btn.trigger('click');
+    console.log('navigateTo calls:', JSON.stringify(mockUni.navigateTo.mock.calls));
     expect(mockUni.navigateTo).toHaveBeenCalledTimes(1);
     expect(mockUni.navigateTo.mock.calls[0][0].url).toMatch(
       /\/pages\/order\/create\?hospitalId=101/,
@@ -202,7 +208,6 @@ describe('hospitals/detail.vue', () => {
   it('mounted 时无 hospitalId → 直接置 loadError=true', async () => {
     const w = await mountPage();
     // 不调 onLoad
-    await w.vm.mounted();
     expect(w.vm.loadError).toBe(true);
     expect(fakeStore.loadDetail).not.toHaveBeenCalled();
   });

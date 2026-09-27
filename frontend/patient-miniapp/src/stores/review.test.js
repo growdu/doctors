@@ -3,12 +3,16 @@
 // review store 单测 —— submit / loadList / loadDetail + submitting 状态机。
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('review store - 基础', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('初始：mine / current 都为空，submitting=false', async () => {
@@ -23,9 +27,9 @@ describe('review store - 基础', () => {
 });
 
 describe('review store - submit', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('submit 成功 → 追加到 mine + 写 lastSubmittedId', async () => {
@@ -72,9 +76,9 @@ describe('review store - submit', () => {
 });
 
 describe('review store - loadList / loadDetail', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('loadList 兼容 reviews / items / data 三种返回', async () => {

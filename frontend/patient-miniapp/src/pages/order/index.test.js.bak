@@ -53,6 +53,22 @@ const fakeStore = {
 jest.doMock('@/stores/order.js', () => ({
   useOrderStore: () => fakeStore,
 }));
+
+// ---- OrderListItem stub：render 时输出可识别的 data-test + 模拟 view/select/cancel emit
+const OrderListItemStub = {
+  name: 'OrderListItem',
+  props: ['order', 'statusActions'],
+  emits: ['view', 'select', 'cancel'],
+  template:
+    '<div class="order-list-item-stub" :data-order-id="order.id" :data-order-status="order.status" @click="$emit(\'view\', order.id)"><button class="stub-select-btn" @click.stop="$emit(\'select\', order.id)">选陪诊师</button><button class="stub-cancel-btn" @click.stop="$emit(\'cancel\', order.id)">取消</button></div>',
+};
+
+jest.doMock(
+  '@/components/OrderListItem.vue',
+  () => ({ default: OrderListItemStub }),
+  { virtual: true },
+);
+
 // ---- uView Plus stub
 const U_STUBS = {
   view: { template: '<div><slot /></div>' },
@@ -63,27 +79,9 @@ const U_STUBS = {
   },
   'u-tabs': {
     props: ['list', 'current', 'lineColor', 'activeStyle', 'inactiveColor'],
-    emits: ['click'],
-    inheritAttrs: false,
-    // emit 'click' 时附带 { index, ...item } 入参；@click.stop 防止原生 click 再次冒泡触发父 @click
+    // emit 'click' 时附带 { index, ...item } 入参
     template:
-      '<div class="u-tabs-stub"><button v-for="(item, idx) in list" :key="item.key" class="u-tab-item" :data-tab-index="idx" :data-tab-key="item.key" @click.stop="$emit(\'click\', { index: idx, key: item.key, label: item.label })">{{ item.label }}</button></div>',
-  },
-  // OrderListItem stub: 用 PascalCase key 让 Vue 模板里 `<OrderListItem>` 命中
-  OrderListItem: {
-    name: 'OrderListItem',
-    props: ['order', 'statusActions'],
-    emits: ['view', 'select', 'cancel'],
-    template:
-      '<div class="order-list-item-stub" :data-order-id="order.id" :data-order-status="order.status" @click="$emit(\'view\', order.id)"><button class="stub-select-btn" @click.stop="$emit(\'select\', order.id)">选陪诊师</button><button class="stub-cancel-btn" @click.stop="$emit(\'cancel\', order.id)">取消</button></div>',
-  },
-  // 同时以 kebab-case key 注册一份（防御性）
-  'order-list-item': {
-    name: 'OrderListItem',
-    props: ['order', 'statusActions'],
-    emits: ['view', 'select', 'cancel'],
-    template:
-      '<div class="order-list-item-stub" :data-order-id="order.id" :data-order-status="order.status" @click="$emit(\'view\', order.id)"><button class="stub-select-btn" @click.stop="$emit(\'select\', order.id)">选陪诊师</button><button class="stub-cancel-btn" @click.stop="$emit(\'cancel\', order.id)">取消</button></div>',
+      '<div class="u-tabs-stub"><button v-for="(item, idx) in list" :key="item.key" class="u-tab-item" :data-tab-index="idx" :data-tab-key="item.key" @click="$emit(\'click\', { index: idx, key: item.key, label: item.label })">{{ item.label }}</button></div>',
   },
   'u-skeleton': {
     props: ['rows', 'title', 'avatar', 'avatarShape', 'avatarSize'],
@@ -96,9 +94,8 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain'],
     emits: ['click'],
-        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" v-bind="$attrs" :data-type="type"  @click.stop="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" :data-type="type" :data-test="$attrs['data-test']" @click.stop="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -136,6 +133,7 @@ describe('order/index.vue', () => {
     const w = await mountPage();
     // 不传 status —— 默认走全部
     await w.vm.onLoad({});
+    await w.vm.mounted();
     await flushPromises();
 
     expect(fakeStore.loadList).toHaveBeenCalledTimes(1);
@@ -149,6 +147,7 @@ describe('order/index.vue', () => {
   it('onLoad 传 ?status=selectingEscort → 加载时按 status 过滤', async () => {
     const w = await mountPage();
     await w.vm.onLoad({ status: 'selectingEscort' });
+    await w.vm.mounted();
     await flushPromises();
 
     // loadList 应收到 status 参数
@@ -161,6 +160,7 @@ describe('order/index.vue', () => {
   it('状态 tab 切换 → loadList 用新 status 重拉', async () => {
     const w = await mountPage();
     await w.vm.onLoad({});
+    await w.vm.mounted();
     await flushPromises();
 
     expect(fakeStore.loadList).toHaveBeenCalledTimes(1);
@@ -182,6 +182,7 @@ describe('order/index.vue', () => {
   it('OrderListItem 渲染：orders.length>0 → N 张卡片 stub', async () => {
     const w = await mountPage();
     await w.vm.onLoad({});
+    await w.vm.mounted();
     await flushPromises();
 
     const cards = w.findAll('.order-list-item-stub');
@@ -196,6 +197,7 @@ describe('order/index.vue', () => {
   it('点击 OrderListItem → emit view → uni.navigateTo detail', async () => {
     const w = await mountPage();
     await w.vm.onLoad({});
+    await w.vm.mounted();
     await flushPromises();
 
     // 点击第一张卡片 → OrderListItem-stub 在根元素 @click="$emit('view', order.id)"
@@ -212,6 +214,7 @@ describe('order/index.vue', () => {
 
     const w = await mountPage();
     await w.vm.onLoad({});
+    await w.vm.mounted();
     await flushPromises();
 
     // 空状态 u-empty-stub 出现，text=「暂无订单」

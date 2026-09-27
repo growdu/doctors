@@ -46,16 +46,6 @@ afterEach(() => {
   // 清 mock 但不删 global.uni（每个 case 重新构造）
   jest.clearAllMocks();
 });
-
-// ---- 子组件 stub：EscortCandidateCard 用最小化模板替换（避免拉 uView Plus）
-const EscortCandidateCardStub = {
-  name: 'EscortCandidateCard',
-  props: ['candidate', 'loading', 'disabled'],
-  emits: ['select'],
-  template:
-    '<button class="escort-candidate-card-stub" :data-escort-id="candidate && candidate.escortId" :data-disabled="!!disabled" :data-loading="!!loading" @click="$emit(\'select\', candidate && candidate.escortId)">{{ candidate && candidate.nickname }}</button>',
-};
-
 // ---- uView Plus 组件 stub（页面模板用到 u-navbar / u-empty / u-skeleton / u-button）
 const U_STUBS = {
   view: { template: '<div><slot /></div>' },
@@ -71,8 +61,18 @@ const U_STUBS = {
   },
   'u-button': {
     props: ['type', 'size', 'loading', 'disabled', 'plain'],
+    emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :disabled="!!disabled" :data-loading="!!loading" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :disabled="!!disabled" :data-loading="!!loading" @click="$emit(\'click\')"><slot /></button>',
+  },
+  // 子组件 EscortCandidateCard stub（避免拉 uView Plus 子组件）
+  EscortCandidateCard: {
+    name: 'EscortCandidateCard',
+    props: ['candidate', 'loading', 'disabled'],
+    emits: ['select'],
+    template:
+      '<div class="escort-candidate-card-stub" :data-escort-id="candidate.escortId" :data-loading="!!loading" :data-disabled="!!disabled" @click="$emit(\'select\', candidate.escortId)"><button class="stub-select-btn">选TA</button></div>',
   },
 };
 
@@ -86,13 +86,6 @@ const fakeStore = {
 jest.doMock('@/stores/order.js', () => ({
   useOrderStore: () => fakeStore,
 }));
-
-// ---- 子组件 mock（用 jest.doMock 让 page 解析 EscortCandidateCard 时拿到 stub）
-jest.doMock(
-  '@/components/EscortCandidateCard.vue',
-  () => ({ default: EscortCandidateCardStub }),
-  { virtual: true },
-);
 
 const mountPage = async () => {
   const mod = await import('./index.vue');
@@ -127,9 +120,9 @@ describe('candidates/index.vue', () => {
     const w = await mountPage();
     // 模拟 uni-app 导航：本页被以 ?orderId=7 打开
     await w.vm.onLoad({ orderId: 7 });
+    await w.vm.mounted();
     // mounted 在 mount 时已触发（此时 orderId=null，未拉取）；这里再显式调一次
     // （与生产一致：onLoad 先到 → orderId 写入 → mounted 再读）
-    await w.vm.mounted();
     await flushPromises();
 
     expect(fakeStore.loadCandidates).toHaveBeenCalledWith(7);

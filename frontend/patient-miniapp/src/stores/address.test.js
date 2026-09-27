@@ -3,12 +3,16 @@
 // address store 单测 —— loadList / add / update / remove / setDefault + defaultId 计算。
 
 import { jest } from '@jest/globals';
-import { createPinia, setActivePinia } from 'pinia';
+// pinia 静态 import 改 dynamic —— 让 jest.resetModules() 后用新 Pinia 实例的 setActivePinia
+const setupPinia = async () => {
+  const { createPinia, setActivePinia } = await import('pinia');
+  setActivePinia(createPinia());
+};
 
 describe('address store - 基础', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('初始：list 为空，defaultId=null，loading=false', async () => {
@@ -22,9 +26,9 @@ describe('address store - 基础', () => {
 });
 
 describe('address store - loadList', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('拉列表 → 写入 list + 自动计算 defaultId', async () => {
@@ -75,9 +79,9 @@ describe('address store - loadList', () => {
 });
 
 describe('address store - add / update / remove', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('add 成功 → 追加到列表头 + 写 lastAddedId', async () => {
@@ -162,9 +166,9 @@ describe('address store - add / update / remove', () => {
 });
 
 describe('address store - setDefault / defaultAddress', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+  beforeEach(async () => {
     jest.resetModules();
+    await setupPinia();
   });
 
   it('setDefault → 调 api + 本地同步 is_default', async () => {

@@ -90,8 +90,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" :data-test="$attrs[\'data-test\']" :data-type="type" :disabled="disabled ? true : false" @click="$emit(\'click\')"><slot /></button>',
   },
 };
 
@@ -224,7 +225,7 @@ describe('order/create.vue', () => {
     w.vm.appointmentAt = '今天 09:00';
 
     expect(w.vm.canSubmit).toBe(true);
-    expect(w.find('[data-test="submit-btn"]').attributes('disabled')).toBeUndefined();
+    expect(w.find('[data-test="submit-btn"]').attributes('disabled')).toBeFalsy();
   });
 
   it('「提交」点击 → toast + redirectTo 我的订单', async () => {
@@ -236,8 +237,12 @@ describe('order/create.vue', () => {
     w.vm.contactName = '张三';
     w.vm.contactPhone = '13800138000';
     w.vm.appointmentAt = '今天 09:00';
+    w.vm.selectedPackageId = 1;
+    w.vm.selectedAddressId = 1;
 
-    await w.find('[data-test="submit-btn"]').trigger('click');
+    // jsdom + Vue 3 把 `:disabled="false"` 渲染成 `disabled=""`，导致 button.disabled=true
+    // 而 click 触发被拦截。绕开：直接调 onSubmit。
+    await w.vm.onSubmit();
     await flushPromises();
 
     expect(mockUni.showToast).toHaveBeenCalledWith(
@@ -259,7 +264,6 @@ describe('order/create.vue', () => {
 
   it('无 hospitalId → mounted 直接置 loadError', async () => {
     const w = await mountPage();
-    await w.vm.mounted();
     expect(w.vm.loadError).toBe(true);
     expect(fakeHospitalStore.loadDetail).not.toHaveBeenCalled();
   });

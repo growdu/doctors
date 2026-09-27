@@ -80,8 +80,9 @@ const U_STUBS = {
   'u-button': {
     props: ['type', 'size', 'plain', 'disabled', 'loading'],
     emits: ['click'],
+        inheritAttrs: false,
     template:
-      '<button class="u-button-stub" :data-type="type" :disabled="!!disabled" :data-loading="!!loading" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="u-button-stub" v-bind="$attrs" :data-type="type" :disabled="!!disabled" :data-loading="!!loading" @click="$emit(\'click\')"><slot /></button>',
   },
   CountdownBadge: CountdownBadgeStub,
 };
@@ -122,6 +123,7 @@ describe('order/pay.vue', () => {
   it('onLoad(orderId, amount) → 写入组件 data', async () => {
     const w = await mountPage();
     w.vm.onLoad({ orderId: 7, amount: '388' });
+    await w.vm.mounted();
     expect(w.vm.orderId).toBe(7);
     expect(w.vm.amount).toBe(388);
     expect(w.vm.amountText).toBe('388.00');
@@ -196,6 +198,7 @@ describe('order/pay.vue', () => {
   it('超时态：expired=true → 「支付已超时」+ 取消订单按钮显示 + 立即支付 disabled', async () => {
     const w = await mountPage();
     w.vm.onLoad({ orderId: 7 });
+    await w.vm.mounted();
     await w.setData({ expired: true });
     await flushPromises();
 

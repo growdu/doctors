@@ -54,7 +54,8 @@ export const useHospitalStore = defineStore('hospital', () => {
     error.value = null;
     try {
       const r = await _apiGetHospitals(query || {});
-      const items = (r && (r.items || r.data)) || [];
+      // 兼容两种返回形态：① 对象 { items / data / [] }；② 直返数组
+      const items = Array.isArray(r) ? r : (r && (r.items || r.data)) || [];
       list.value = Array.isArray(items) ? items : [];
       pagination.value = {
         total: r && typeof r.total === 'number' ? r.total : list.value.length,
