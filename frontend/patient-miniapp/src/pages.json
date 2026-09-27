@@ -161,6 +161,15 @@
       }
     },
     {
+      "path": "pages/notifications/index",
+      "style": {
+        "navigationBarTitleText": "通知中心",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
       "path": "pages/auth/real-name",
       "style": {
         "navigationBarTitleText": "实名认证",
