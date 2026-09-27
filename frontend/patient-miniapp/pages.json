@@ -167,6 +167,15 @@
         "navigationBarBackgroundColor": "#FFFFFF",
         "backgroundColor": "#F5F5F5"
       }
+    },
+    {
+      "path": "pages/message/list",
+      "style": {
+        "navigationBarTitleText": "消息",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
     }
   ],
   "globalStyle": {

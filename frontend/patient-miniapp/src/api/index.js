@@ -29,6 +29,7 @@ import * as auth from './auth.js';
 import * as pay from './pay.js';
 import * as refund from './refund.js';
 import * as wallet from './wallet.js';
+import * as message from './message.js';
 
 // named re-export：让 `import { xxx } from '@/api'` 也能工作
 export * from './candidates.js';
@@ -42,6 +43,7 @@ export * from './auth.js';
 export * from './pay.js';
 export * from './refund.js';
 export * from './wallet.js';
+export * from './message.js';
 
 /**
  * 命名空间聚合（默认导出）。
@@ -58,6 +60,7 @@ const api = {
   pay,
   refund,
   wallet,
+  message,
 };
 
 export default api;
