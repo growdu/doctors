@@ -181,14 +181,26 @@
 
       <!-- 底部 -->
       <view class="page-order-create__bottom">
-        <view class="page-order-create__amount">
-          <text class="page-order-create__amount-label">合计</text>
-          <text class="page-order-create__amount-value" data-test="total-amount">¥{{ totalAmount.toFixed(2) }}</text>
-          <text
+        <view class="page-order-create__amount" data-test="amount-summary">
+          <view class="page-order-create__amount-row" v-if="selectedPackageId">
+            <text class="page-order-create__amount-label">服务包原价</text>
+            <text class="page-order-create__amount-sub" data-test="subtotal-amount">
+              ¥{{ baseAmount.toFixed(2) }}
+            </text>
+          </view>
+          <view
+            class="page-order-create__amount-row"
             v-if="discountAmount > 0"
-            class="page-order-create__amount-discount"
-            data-test="discount-amount"
-          >已优惠 ¥{{ discountAmount.toFixed(2) }}</text>
+          >
+            <text class="page-order-create__amount-label">优惠券</text>
+            <text class="page-order-create__amount-discount" data-test="discount-amount">
+              -¥{{ discountAmount.toFixed(2) }}
+            </text>
+          </view>
+          <view class="page-order-create__amount-row page-order-create__amount-row--total">
+            <text class="page-order-create__amount-label">实付</text>
+            <text class="page-order-create__amount-value" data-test="total-amount">¥{{ totalAmount.toFixed(2) }}</text>
+          </view>
         </view>
         <u-button
           type="primary"
@@ -263,9 +275,13 @@ export default {
     formattedAppointmentAt() {
       return this.appointmentAt || '';
     },
-    totalAmount() {
+    /** 服务包原价（不含折扣）—— 用于底部 breakdown 第一行 */
+    baseAmount() {
       const pkg = this.packages.find((p) => p.id === this.selectedPackageId);
-      const base = pkg ? Number(pkg.price) : 0;
+      return pkg ? Number(pkg.price) : 0;
+    },
+    totalAmount() {
+      const base = this.baseAmount;
       return Math.max(0, base - this.discountAmount);
     },
     discountAmount() {
@@ -626,11 +642,30 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+
+.page-order-create__amount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-order-create__amount-row--total {
+  border-top: 1px dashed #f0f0f0;
+  padding-top: 4px;
+  margin-top: 4px;
 }
 
 .page-order-create__amount-label {
   font-size: 12px;
   color: #909399;
+}
+
+.page-order-create__amount-sub {
+  font-size: 13px;
+  color: #606266;
+  font-variant-numeric: tabular-nums;
 }
 
 .page-order-create__amount-value {
@@ -641,9 +676,9 @@ export default {
 }
 
 .page-order-create__amount-discount {
-  font-size: 11px;
+  font-size: 13px;
   color: #19be6b;
-  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
 }
 
 .page-order-create__bottom .u-button {

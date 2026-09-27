@@ -174,6 +174,9 @@ describe('order/create.vue', () => {
 
     // onLoad 传了 packageId=1 → 自动选中
     expect(w.vm.selectedPackageId).toBe(1);
+    // v1.1: 选中后展示 3 行 breakdown（服务包原价 / 优惠券 / 实付）
+    expect(w.find('[data-test="amount-summary"]').exists()).toBe(true);
+    expect(w.find('[data-test="subtotal-amount"]').text()).toBe('¥388.00');
     expect(w.find('[data-test="total-amount"]').text()).toBe('¥388.00');
 
     // 切换到全日陪诊
@@ -196,7 +199,9 @@ describe('order/create.vue', () => {
     await w.find('[data-test="coupon-100"]').trigger('click');
     expect(w.vm.selectedUserCouponId).toBe(100);
     expect(w.find('[data-test="discount-amount"]').exists()).toBe(true);
-    expect(w.find('[data-test="discount-amount"]').text()).toBe('已优惠 ¥30.00');
+    // v1.1: 底部增加 3-row breakdown：服务包原价 / 优惠券折扣 / 实付
+    expect(w.find('[data-test="subtotal-amount"]').text()).toBe('¥388.00');
+    expect(w.find('[data-test="discount-amount"]').text()).toBe('-¥30.00');
     expect(w.find('[data-test="total-amount"]').text()).toBe('¥358.00');
 
     // 切回「不使用」
