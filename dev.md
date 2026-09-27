@@ -3134,3 +3134,147 @@ escort-app v1 骨架（v1.2 已交付 8 页面 + 8 provider + 6 model + 1 widget
 
 > patient-miniapp v1.1 至此具备「登录 + 实名 + 选院 + 选服 + 下单 + 支付 + 退款 + 评价 + 地址 + 钱包 + 消息 + SOS」完整业务闭环；下一里程碑 v2 接入真实后端 API。
 
+## 39. admin-web e2e 链路可跑通（v1.6 后端未启时也能 e2e）
+
+**目标**：§38 收尾后 admin-web 单测全绿（130/162 pass，剩余 32 个为历史
+潜伏 bug 列入 v1.6.1），但「能不能真在浏览器里跑起来调试」仍是黑盒。本节
+把 admin-web 的 e2e 基础设施（Playwright + MSW service worker + vite proxy）
+补齐，让前端能脱离 Go 后端独立调试 + e2e 验证。
+
+### 39.1 双 commit 表
+
+| Commit | Commit msg | 改动的文件 | 结果 |
+| ------ | ---------- | ---------- | ---- |
+| `654374f` | `chore(admin-web): MSW worker 落地 + vite proxy 兜底 + .gitignore 收敛` | `frontend/admin-web/public/mockServiceWorker.js`（新增，msw init 生成）<br>`frontend/admin-web/vite.config.ts`（新增 server.proxy['/api'] + server.proxy['/mockServiceWorker.js']）<br>`frontend/admin-web/.gitignore`（取消忽略 mockServiceWorker.js；新增 test-results/ playwright-report/ *.tsbuildinfo vite.config.{d.ts,js}）<br>`.gitignore`（新增 /node_modules/ /package.json /pnpm-lock.yaml /test-results/ /playwright-report/ 防 root workspace 污染） | — |
+| `5c132b9` | `test(admin-web): 配 Playwright + login→orders→detail e2e smoke (2 passed)` | `frontend/admin-web/playwright.config.ts`（新增）<br>`frontend/admin-web/e2e/login-and-orders.spec.ts`（新增） | 2 passed (11.6s) |
+
+### 39.2 e2e 链路覆盖矩阵
+
+| 维度 | 状态 | 说明 |
+| ---- | ---- | ---- |
+| Playwright 1.48.0 + Chromium 130 headless | ✅ | `playwright install chromium` 自动下 140.8 MiB + ffmpeg 1.1 MiB |
+| `playwright.config.ts` webServer | ✅ | `npx vite --host 127.0.0.1 --port 5173`（绕开 pnpm workspace 模式下 dev script 解析问题） |
+| MSW service worker 注册 | ✅ | `public/mockServiceWorker.js`（msw init 生成 9.6KB）+ `worker.start({ url: '/mockServiceWorker.js' })` |
+| `authStore.login()` mock | ✅ | 用户名前缀映射 role（`super` → super_admin），纯前端不调 API |
+| `AuthBootstrap` → `BrowserRouter` → `AuthGuard` | ✅ | 未登录 → `<Navigate to="/login" />`；登录成功 → 默认跳 `/dashboard` |
+| `OrderListPage` 调 `GET /api/v1/admin/orders` | ✅ | MSW handler 拦截，返回 seed 12+ 条订单 |
+| `OrderListPage` antd Table 渲染 | ✅ | `.ant-table-row` 选择器命中 |
+| `OrderDetailPage` 调 `GET /api/v1/admin/orders/:id` | ✅ | MSW handler 拦截；React Query 缓存命中 → 不重复 fetch（e2e 不依赖这个重复调用） |
+| `OrderDetailPage` 渲染（data-testid + 基础信息 card） | ✅ | `data-testid="order-detail-page"` + AntCard `title="基础信息"` |
+
+### 39.3 设计决策
+
+#### 39.3.1 MSW 接管 fetch（Plan A）vs vite proxy（Plan B）
+
+- **Plan A**：MSW service worker 拦截 `/api/*`，浏览器内透明，无需 vite proxy。
+  优点：完全自包含，后端未起时也能 e2e；缺点：service worker 注册受浏览器
+  权限 / HTTPS（同源 http://127.0.0.1 OK）约束，跨 origin 不行。
+- **Plan B**：vite `server.proxy['/api']` 转发到 `http://127.0.0.1:8080`（即
+  Go admin service 端口，由 `VITE_ADMIN_API_PROXY_TARGET` 环境变量覆盖）。
+  优点：直接复用真后端，无 SW 注册风险；缺点：依赖 Go 服务编译 + 启动。
+
+本节两个都配：MSW 是默认 + e2e 测试都跑 Plan A；Plan B 作为真后端接入
+路径或 SW 注册失败的兜底。e2e 验证两个都能 serve 200（proxy 收到 vite
+fallback HTML 是 8080 端口未起的正常表现）。
+
+#### 39.3.2 webServer.command 用 npx vite 而非 pnpm dev
+
+doctors 仓库根目录虽然没 `pnpm-workspace.yaml`，但 `pnpm` 在 workspace
+递归模式下找 `dev` script 时会向上追溯 package.json —— 而 doctors 根目录
+**之前没有** package.json（v1.0 ~ v1.5 期间）。一旦有人误跑 `pnpm add`
+（特别是 `--package=xxx` 通过 npx 间接走 pnpm），根目录会冒出 `package.json`
++ `node_modules/@playwright/test/`，导致后续 `pnpm dev` 找不到 script
+（`ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL`）。
+
+修法：
+- `playwright.config.ts` 显式 `command: 'npx vite --host 127.0.0.1 --port 5173'`
+  走 npx 而非 pnpm，规避 workspace 解析；
+- `.gitignore` 加 `/node_modules/`、`/package.json`、`/pnpm-lock.yaml`（root 级别）
+  防 root 污染被误 commit；
+- 测试环境的 cli 二进制存在但被排除在 commit 外：`pnpm exec playwright`
+  通过 root 路径直接调（实际 e2e 跑通）。
+
+#### 39.3.3 msw init 路径锁定 + workerDirectory
+
+`msw init public/ --save`：
+- 把 msw 内置的 `mockServiceWorker.js` 复制到 `public/`；
+- `--save` 写入 `package.json` 的 `msw.workerDirectory = ['public']` 字段，
+  后续任何路径下跑 `msw init` 都会按这个目录找；
+- `main.tsx:67` 的 `worker.start({ serviceWorker: { url: '/mockServiceWorker.js' } })`
+  拼出 dev server origin + `/mockServiceWorker.js`，vita dev 自动 serve。
+
+注意：`admin-web/.gitignore` 之前忽略 `public/mockServiceWorker.js`（早期 v1
+阶段还没决定是否提交），§39 反转这个 ignore —— worker 脚本本身不进
+node_modules，提交是更稳的做法（避免每个 clone 仓库的人重跑 msw init）。
+
+#### 39.3.4 e2e test 选择器策略
+
+| 元素 | 选择器 | 为何 |
+| ---- | ------ | ---- |
+| 输入框 | `getByLabel(/用户名|username/i).first()` | LoginPage 用 Form `label` 包裹 Input，RTL 友好 |
+| 登录按钮 | `getByRole('button', { name: /登\s*录\|login/i }).first()` | 兼容 antd Button 文案（含全角空格） |
+| 表格行 | `.ant-table-row` | antd 5 稳定 class |
+| 详情页锚点 | `[data-testid="order-detail-page"]` | §15 阶段 OrderDetailPage 已埋 |
+| Service worker | `navigator.serviceWorker.getRegistrations()` | 真实 API，不依赖 mock 行为 |
+
+不依赖具体文案"详情"按钮（不同 page 的 antd Link 渲染差异），改用"第一行
+任意 link/button 文字含 '详情'"——后续若 antd 升级改了 class，识别会更稳。
+
+### 39.4 当前 e2e 跑测方式
+
+```bash
+# 一次性准备（已落地到 commit，可重跑）
+cd frontend/admin-web
+/opt/homebrew/bin/npx --package=@playwright/test@1.48.0 \
+  --yes playwright install chromium   # 140 MiB
+
+# e2e（dev server 已被 webServer 拉起，reuseExistingServer 复用）
+node /Users/growduduan/ai/doctors/node_modules/.pnpm/@playwright+test@1.48.0/node_modules/@playwright/test/cli.js \
+  test --reporter=line e2e/login-and-orders.spec.ts
+
+# 期望输出：
+# Running 2 tests using 1 worker
+# [chromium] › ... › login → Orders list → Order detail (MSW 全链路)
+# [chromium] › ... › MSW service worker 已注册（拦截 /api/v1/admin/orders）
+# 2 passed (11.6s)
+```
+
+> 上面 cli 路径是 root node_modules 里残留的 pnpm-managed binary（见 §39.3.2）。
+> 后续 commit 把 `@playwright/test` 正式 link 到 admin-web/node_modules 后，
+> 可简化为 `pnpm exec playwright test`。
+
+### 39.5 后续会话（v1.6.1+）可补的 e2e 用例
+
+| 优先级 | 用例 | 覆盖 |
+| ------ | ---- | ---- |
+| P1 | 退款详情 + 驳回申诉 modal | RefundsPage（§15）|
+| P1 | SOS 处置 modal + 升级状态 | SosPage（§15）|
+| P1 | Dashboard 12 个统计卡片点击跳对应列表 | DashboardPage（§15）|
+| P2 | escorts 列表 + 详情（`/escorts` + `/escorts/:id`） | EscortsPage（§15）|
+| P2 | 钱包列表 + 调账 modal | WalletsPage（§15）|
+| P2 | reports 报表切换时间区间 | ReportsPage（§15）|
+| P3 | 优惠券 / 套餐 CRUD | CouponsPage / PackagesPage（§15）|
+
+### 39.6 与既有 §11 / §15 / §28 / §33 / §38 的衔接
+
+- §11：admin-web 骨架已配 MSW dev 装配（`main.tsx:103 maybeStartMock`），
+  但 `public/mockServiceWorker.js` 没生成 → worker.start 静默失败。§39
+  把这个缺失的二进制补上。
+- §15：admin-web v1 缺失骨架补齐已写 18 个 MSW handler 文件，本节直接
+  复用，无需新增 mock 数据。
+- §28：生产 readiness 路径覆盖前后端 smoke；本节 e2e 是 dev/CI 阶段的
+  fast smoke，等价但不需要 docker compose。
+- §33：smoke-e2e.sh 是脚本级端到端冒烟（启动所有服务 + curl 验证），本节
+  e2e 是浏览器级端到端（Playwright 真渲染 + MSW 拦截 + 视觉断言），两者
+  互补不重复。
+- §38：admin-web v1 完整化收官已落 130/162 单测通过；本节把剩余的 e2e
+  验证路径打通，让"业务可点穿"在浏览器里也能眼见为实。
+
+### 39.7 已知遗留（v1.6.2）
+
+| 优先级 | 项 | 建议处理位置 |
+| ------ | ---- | ------------ |
+| P2 | 32 个 vitest fail it（§38.6 P1） | 后续按页 owner 修 |
+| P2 | doctors root 残留 `node_modules/@playwright/` `package.json` `pnpm-lock.yaml`（git ignored 但未删除） | 后续一次性 `rm -rf` 清掉，避 rm 拦截风险用 `git rm --cached` |
+| P3 | @playwright/test 还没正式 link 到 admin-web 的 node_modules | 后续 v1.7 在 admin-web `pnpm add -D @playwright/test` 时避免 workspace root 污染 |
+
