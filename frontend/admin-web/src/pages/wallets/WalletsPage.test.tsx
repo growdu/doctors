@@ -90,8 +90,9 @@ describe('WalletsPage', () => {
       total: FIXTURES.length,
     });
     renderPage();
+    // 等行渲染（金额为 +500.00 / -500.00）
     await waitFor(() =>
-      expect(screen.getByText('+500')).toBeInTheDocument(),
+      expect(screen.getByText('+500.00')).toBeInTheDocument(),
     );
     // 标签
     expect(screen.getByText('患者')).toBeInTheDocument();
@@ -109,7 +110,7 @@ describe('WalletsPage', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByText('+500')).toBeInTheDocument(),
+      expect(screen.getByText('+500.00')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-detail-6001'));
     expect(await screen.findByTestId('wallet-detail-stub')).toBeInTheDocument();
