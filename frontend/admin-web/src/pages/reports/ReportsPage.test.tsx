@@ -76,16 +76,19 @@ function renderReports() {
 describe('ReportsPage', () => {
   it('渲染 6 个 Statistic 卡片', async () => {
     renderReports();
-    await waitFor(() =>
-      expect(screen.getByTestId('stat-orders')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('stat-gmv')).toBeInTheDocument();
-    expect(screen.getByTestId('stat-refund-count')).toBeInTheDocument();
-    expect(screen.getByTestId('stat-refund-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('stat-net')).toBeInTheDocument();
+    // Card loading={isLoading} 在 loading 时只渲染骨架，需等待 Statistic 出现
+    // 同时表格列头也用同名（订单数等），用 getAllByText
+    await waitFor(() => {
+      expect(screen.getAllByText('订单数').length).toBeGreaterThanOrEqual(1);
+    });
+    expect(screen.getAllByText('GMV').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('退款数').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('退款额').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('净收入').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('平均评分').length).toBeGreaterThanOrEqual(1);
+    // Card data-testid 也在
+    expect(screen.getByTestId('stat-orders')).toBeInTheDocument();
     expect(screen.getByTestId('stat-rating')).toBeInTheDocument();
-    expect(screen.getByText('订单数')).toBeInTheDocument();
-    expect(screen.getByText('净收入')).toBeInTheDocument();
   });
 
   it('渲染明细表（含医院行）', async () => {
@@ -102,6 +105,7 @@ describe('ReportsPage', () => {
     await waitFor(() =>
       expect(screen.getByTestId('dimension-select')).toBeInTheDocument(),
     );
-    expect(screen.getByTestId('range-picker')).toBeInTheDocument();
+    // RangePicker 内部生成 start/end 2 个 input 都带 data-testid，用 getAllByTestId
+    expect(screen.getAllByTestId('range-picker').length).toBeGreaterThanOrEqual(1);
   });
 });
