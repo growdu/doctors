@@ -8,7 +8,7 @@
  * 对应 spec：2026-09-24-admin-web-design.md §Task 14
  */
 import { http, HttpResponse } from 'msw';
-import { mockWalletSubjects, mockWalletTransactions } from '../data/seed';
+import { mockWalletSubjects, mockWalletTransactions } from '../../data/seed';
 
 const traceId = () => `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 

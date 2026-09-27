@@ -6,7 +6,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import type { FinanceOverview } from '@/api/admin/finance';
@@ -83,7 +82,6 @@ describe('FinancePage', () => {
   });
 
   it('范围切换触发 fetchFinanceOverview', async () => {
-    const user = userEvent.setup();
     renderFinance();
     await waitFor(() =>
       expect(mocks.fetchFinanceOverview).toHaveBeenCalled(),

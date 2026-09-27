@@ -131,7 +131,6 @@ describe('ReviewsPage', () => {
   });
 
   it('escort_id 筛选触发 fetchReviews 带 escort_id=1003', async () => {
-    const user = userEvent.setup();
     mocks.fetchReviews.mockResolvedValue({
       data: [FIXTURES[0]],
       total: 1,

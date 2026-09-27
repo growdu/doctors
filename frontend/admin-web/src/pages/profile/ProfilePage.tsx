@@ -12,7 +12,6 @@
  *
  * 对应 spec：2026-09-24-admin-web-design.md §Task 20
  */
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Avatar,

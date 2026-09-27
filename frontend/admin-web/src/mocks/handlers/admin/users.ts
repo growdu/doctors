@@ -11,7 +11,7 @@
  * 对应 spec：2026-09-24-admin-web-design.md §3.3 (RBAC) + §5.2
  */
 import { http, HttpResponse } from 'msw';
-import { mockUsers } from '../data/seed';
+import { mockUsers } from '../../data/seed';
 
 const traceId = () => `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 

@@ -4,7 +4,7 @@
  *   - 非法 id → 渲染 Alert；
  *   - 点击返回 → 跳 /dashboard。
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

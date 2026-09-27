@@ -10,7 +10,7 @@
  * 对应 spec：2026-09-24-admin-web-design.md §Task 13
  */
 import { http, HttpResponse } from 'msw';
-import { mockRefunds } from '../data/seed';
+import { mockRefunds } from '../../data/seed';
 
 const traceId = () => `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 

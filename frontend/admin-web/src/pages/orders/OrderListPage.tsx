@@ -61,7 +61,7 @@ const ORDER_STATUS_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
 export default function OrderListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const statusFilter = searchParams.get('status') ?? '';
+  const statusFilter = (searchParams.get('status') ?? '') as OrderStatus | '';
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: orderQueryKeys.list({ status: statusFilter || undefined }),

@@ -22,8 +22,8 @@ import { Table } from 'antd';
 import type {
   TableProps,
   TablePaginationConfig,
-  TableRowSelection,
 } from 'antd/es/table';
+import type { TableRowSelection } from 'antd/es/table/interface';
 
 export type ProTableDensity = 'compact' | 'middle' | 'large';
 
