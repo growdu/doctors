@@ -14,9 +14,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAuthStore, ADMIN_ROLES, ERR_ADMIN_FORBIDDEN } from './authStore';
 
-// 在 jsdom 环境清理 localStorage
+// 在 jsdom 环境清理 localStorage + 重置 store state
 beforeEach(() => {
   localStorage.clear();
+  // 同时清空 Zustand store 的内存状态（防止前一个 test 的 login 残留）
+  useAuthStore.setState({ token: null, user: null, role: null, isAuthed: false });
 });
 
 describe('authStore.ADMIN_ROLES', () => {
@@ -73,9 +75,15 @@ describe('authStore.bootstrap', () => {
 
   it('持久化有效 session → isAuthed=true', async () => {
     await useAuthStore.getState().login('refund', 'pwd');
-    // 重置 store state（模拟刷新页面）
+    // 捕获 persist 写入 localStorage 的完整 session 数据
+    const persistedSnapshot = localStorage.getItem('doctors-admin-auth');
+    // 重置 store state（模拟刷新页面：内存清空但 localStorage 仍保留）
     useAuthStore.setState({ token: null, user: null, role: null, isAuthed: false });
-    useAuthStore.persist.rehydrate();
+    // 防止 setState 同步把 null 写回 localStorage，覆盖原 session
+    if (persistedSnapshot) {
+      localStorage.setItem('doctors-admin-auth', persistedSnapshot);
+    }
+    await useAuthStore.persist.rehydrate();
     useAuthStore.getState().bootstrap();
     expect(useAuthStore.getState().isAuthed).toBe(true);
     expect(useAuthStore.getState().role).toBe('refund_admin');
@@ -119,16 +127,14 @@ describe('authStore.logout', () => {
 describe('authStore.onUnauthorized', () => {
   it('调 logout 清状态', async () => {
     await useAuthStore.getState().login('viewer', 'pwd');
-    // 拦截 window.location.assign 避免 jsdom 跳转报错
-    const origAssign = window.location.assign;
+    // 通过注入 navigateFn 避免 jsdom 中 window.location.assign 只读限制
     let called = false;
-    window.location.assign = () => {
+    const navigateFn = () => {
       called = true;
     };
-    useAuthStore.getState().onUnauthorized();
+    useAuthStore.getState().onUnauthorized(navigateFn);
     expect(useAuthStore.getState().isAuthed).toBe(false);
     expect(called).toBe(true);
-    window.location.assign = origAssign;
   });
 });
 

@@ -68,7 +68,7 @@ export interface AuthState {
   logout: () => void;
 
   /** 401 触发时调用：清状态 + 跳 /login（由调用方提供 navigateFn 注入以避免 store 耦合 router）。 */
-  onUnauthorized: () => void;
+  onUnauthorized: (navigateFn?: () => void) => void;
 }
 
 // ── 工具函数 ────────────────────────────────────────────────────────
@@ -148,10 +148,14 @@ export const useAuthStore = create<AuthState>()(
         set({ token: null, user: null, role: null, isAuthed: false });
       },
 
-      onUnauthorized: () => {
+      onUnauthorized: (navigateFn?: () => void) => {
         get().logout();
         // 路由跳转由调用方（axios 拦截器 / 业务组件）通过注入的 navigateFn 完成；
         // 这里只清状态。简化方案：直接 window.location 兜底。
+        if (navigateFn) {
+          navigateFn();
+          return;
+        }
         if (typeof window !== 'undefined') {
           window.location.assign('/login');
         }
