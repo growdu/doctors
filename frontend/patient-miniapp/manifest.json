@@ -76,7 +76,9 @@
       "splashscreen": {
         "androidStyle": "common",
         "iosStyle": "common",
-        "useOriginalMsgbox": true
+        "useOriginalMsgbox": true,
+        "androidImage": "static/splash/splash-1080x1920.png",
+        "iosImage": "static/splash/splash-1080x1920.png"
       }
     }
   },
