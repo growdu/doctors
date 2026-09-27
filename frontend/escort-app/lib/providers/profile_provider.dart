@@ -8,6 +8,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'auth_provider.dart';
+
 import '../models/profile.dart';
 import '../services/api_client.dart';
 
