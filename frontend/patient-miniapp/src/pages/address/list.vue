@@ -89,11 +89,17 @@
 
     <!-- 浮动「+ 新增地址」按钮（弹层表单占位） -->
     <view class="page-address__bottom">
+      <text
+        class="page-address__limit-hint"
+        data-test="address-limit-hint"
+      >{{ addresses.length }} / 5</text>
       <u-button
         type="primary"
+        :disabled="atLimit"
+        :data-disabled="atLimit"
         data-test="add-address-btn"
         @click="onAdd"
-      >+ 新增地址</u-button>
+      >{{ atLimit ? '已达上限' : '+ 新增地址' }}</u-button>
     </view>
 
     <!-- 新增地址弹层（占位：v1 直接 prompt + store.add；后续接表单页） -->
@@ -153,6 +159,8 @@
 import { useAddressStore } from '@/stores/address.js';
 
 const EMPTY_DRAFT = () => ({ recipient: '', phone: '', detail: '' });
+// 地址上限（v1 后端约束 5 条/client 端也兜底）
+const ADDRESS_LIMIT = 5;
 
 export default {
   name: 'AddressListPage',
@@ -169,6 +177,10 @@ export default {
   computed: {
     addressStore() {
       return useAddressStore();
+    },
+    /** 当前已用地址数；client-side 兜底判断是否达到上限 */
+    atLimit() {
+      return Array.isArray(this.addresses) && this.addresses.length >= ADDRESS_LIMIT;
     },
   },
   methods: {
@@ -242,6 +254,13 @@ export default {
 
     /** 「+ 新增地址」 → 打开 dialog */
     onAdd() {
+      // 客户端兜底：已达上限禁止打开 dialog
+      if (this.atLimit) {
+        if (typeof uni !== 'undefined' && typeof uni.showToast === 'function') {
+          uni.showToast({ title: `最多 ${ADDRESS_LIMIT} 条地址`, icon: 'none' });
+        }
+        return;
+      }
       this.draft = EMPTY_DRAFT();
       this.showAddDialog = true;
     },
@@ -375,6 +394,14 @@ export default {
   border-top: 1px solid #f0f0f0;
   z-index: 10;
   .u-button { width: 100%; }
+}
+
+.page-address__limit-hint {
+  display: block;
+  text-align: right;
+  font-size: 12px;
+  color: #909399;
+  padding-bottom: 4px;
 }
 
 .page-address__dialog-mask {

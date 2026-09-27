@@ -214,4 +214,40 @@ describe('address/list.vue', () => {
     expect(empty.attributes('data-text')).toBe('加载失败');
     expect(w.find('[data-test="retry-btn"]').exists()).toBe(true);
   });
+
+  it('5 条地址 → 显示 5/5，「+ 新增地址」按钮 disabled（v1.1 上限守卫）', async () => {
+    fakeAddressStore.loadList.mockResolvedValueOnce([
+      { id: 1, recipient: 'a1', phone: '13800000001', detail: 'addr1', is_default: true },
+      { id: 2, recipient: 'a2', phone: '13800000002', detail: 'addr2', is_default: false },
+      { id: 3, recipient: 'a3', phone: '13800000003', detail: 'addr3', is_default: false },
+      { id: 4, recipient: 'a4', phone: '13800000004', detail: 'addr4', is_default: false },
+      { id: 5, recipient: 'a5', phone: '13800000005', detail: 'addr5', is_default: false },
+    ]);
+    fakeAddressStore.defaultId = 1;
+
+    const w = await mountPage();
+    await flushPromises();
+
+    expect(w.vm.atLimit).toBe(true);
+    // 提示 5/5
+    expect(w.find('[data-test="address-limit-hint"]').text()).toBe('5 / 5');
+    // 按钮 disabled
+    const btn = w.find('[data-test="add-address-btn"]');
+    expect(btn.attributes('disabled')).toBeDefined();
+    expect(btn.attributes('data-disabled')).toBe('true');
+
+    // 点击不打开 dialog
+    await btn.trigger('click');
+    expect(w.vm.showAddDialog).toBe(false);
+  });
+
+  it('2 条地址 → 提示 2/5，按钮启用', async () => {
+    const w = await mountPage();
+    await flushPromises();
+
+    expect(w.vm.atLimit).toBe(false);
+    expect(w.find('[data-test="address-limit-hint"]').text()).toBe('2 / 5');
+    const btn = w.find('[data-test="add-address-btn"]');
+    expect(btn.attributes('disabled')).toBeUndefined();
+  });
 });
