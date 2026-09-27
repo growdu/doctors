@@ -312,7 +312,7 @@ export default function RefundsPage() {
 
       {/* 驳回 Modal */}
       <Modal
-        title={`驳回退款 #${rejectTarget?.id ?? '—'}`}
+        title={`退款被驳回申诉 #${rejectTarget?.id ?? '—'}`}
         open={rejectOpen}
         onCancel={() => {
           setRejectOpen(false);

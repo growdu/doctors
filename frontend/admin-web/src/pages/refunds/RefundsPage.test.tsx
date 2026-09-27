@@ -185,7 +185,7 @@ describe('RefundsPage', () => {
     );
     await user.click(screen.getByTestId('btn-reject-2001'));
     await waitFor(() =>
-      expect(screen.getByText('退款被驳回申诉')).toBeInTheDocument(),
+      expect(screen.getByText(/退款被驳回申诉/)).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-reject-confirm'));
     expect(mocks.rejectRefund).not.toHaveBeenCalled();
