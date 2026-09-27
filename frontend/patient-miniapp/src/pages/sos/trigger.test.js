@@ -220,4 +220,63 @@ describe('sos/trigger.vue', () => {
     await w.find('[data-test="back-btn"]').trigger('click');
     expect(mockUni.navigateBack).toHaveBeenCalledTimes(1);
   });
+
+  it('v1.1: 原因 chips 多选 toggle', async () => {
+    const w = await mountPage();
+    await w.vm.mounted();
+    await flushPromises();
+
+    // 4 个原因 chip
+    expect(w.find('[data-test="reason-lost"]').exists()).toBe(true);
+    expect(w.find('[data-test="reason-wait_long"]').exists()).toBe(true);
+    expect(w.find('[data-test="reason-medical"]').exists()).toBe(true);
+    expect(w.find('[data-test="reason-other"]').exists()).toBe(true);
+
+    // 选第一个
+    await w.find('[data-test="reason-lost"]').trigger('click');
+    expect(w.vm.selectedReasonKeys).toContain('lost');
+
+    // 再选第二个 → 共 2 个
+    await w.find('[data-test="reason-medical"]').trigger('click');
+    expect(w.vm.selectedReasonKeys).toHaveLength(2);
+
+    // 取消第一个
+    await w.find('[data-test="reason-lost"]').trigger('click');
+    expect(w.vm.selectedReasonKeys).not.toContain('lost');
+    expect(w.vm.selectedReasonKeys).toHaveLength(1);
+  });
+
+  it('v1.1: onLoad(orderId=7) → 上下文卡片显示 #7 + 位置', async () => {
+    const w = await mountPage();
+    w.vm.onLoad({ orderId: 7 });
+    await w.vm.mounted();
+    await flushPromises();
+
+    expect(w.find('[data-test="order-context"]').text()).toBe('#7');
+    expect(w.find('[data-test="location-context"]').text()).toContain('mock');
+  });
+
+  it('v1.1: 选中 reasons 后长按完成 → triggerSos payload 携带 reason + reason_keys', async () => {
+    jest.useFakeTimers();
+    const w = await mountPage();
+    w.vm.onLoad({ orderId: 7 });
+    await w.vm.mounted();
+    await flushPromises();
+
+    // 选两个 reason
+    await w.find('[data-test="reason-lost"]').trigger('click');
+    await w.find('[data-test="reason-medical"]').trigger('click');
+
+    // 长按 1.5s
+    w.vm.onPressStart();
+    jest.advanceTimersByTime(1600);
+    await flushPromises();
+
+    expect(fakeSos.triggerSos).toHaveBeenCalledTimes(1);
+    expect(fakeSos.triggerSos).toHaveBeenCalledWith(expect.objectContaining({
+      order_id: 7,
+      reason_keys: ['lost', 'medical'],
+      reason: expect.stringContaining('找不到路'),
+    }));
+  });
 });
