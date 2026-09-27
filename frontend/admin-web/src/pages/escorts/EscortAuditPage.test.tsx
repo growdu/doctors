@@ -112,12 +112,11 @@ describe('EscortAuditPage', () => {
       total: FIXTURES.length,
     });
     renderPage('audit_admin');
-    await waitFor(() =>
-      expect(screen.getByTestId('audit-table')).toBeInTheDocument(),
-    );
-    // 行按钮
-    expect(screen.getByTestId('btn-approve-1001')).toBeInTheDocument();
-    expect(screen.getByTestId('btn-reject-1001')).toBeInTheDocument();
+    // 等查询返回后断言：行按钮 testid 出现
+    await waitFor(() => {
+      expect(screen.getByTestId('btn-approve-1001')).toBeInTheDocument();
+      expect(screen.getByTestId('btn-reject-1001')).toBeInTheDocument();
+    });
     // 状态徽章（audit_status 不在 OrderStatus 枚举，StatusBadge 兜底渲染原 status 文本）
     expect(screen.getByTestId('row-status-1001')).toHaveTextContent('pending');
   });
@@ -128,13 +127,12 @@ describe('EscortAuditPage', () => {
       total: FIXTURES.length,
     });
     renderPage('viewer');
+    // 等查询返回后断言：详情按钮出现（审批按钮不应出现）
     await waitFor(() =>
-      expect(screen.getByTestId('audit-table')).toBeInTheDocument(),
+      expect(screen.getByTestId('btn-detail-1001')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-approve-1001')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-reject-1001')).not.toBeInTheDocument();
-    // 但详情按钮仍可见
-    expect(screen.getByTestId('btn-detail-1001')).toBeInTheDocument();
   });
 
   it('点击通过 → 调 approveEscort + message.success', async () => {
