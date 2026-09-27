@@ -115,7 +115,10 @@ describe('PatientDetailPage', () => {
     expect(screen.getByText('张三')).toBeInTheDocument();
     expect(screen.getByText('138****0001')).toBeInTheDocument();
     expect(screen.getByTestId('patient-verify')).toHaveTextContent('已实名');
-    expect(screen.getByText('800.00')).toBeInTheDocument();
+    // 钱包金额 ¥800.00（¥ 与 800.00 是 2 个 text node，用 regex 匹配）
+    await waitFor(() =>
+      expect(screen.getByText(/¥800\.00/)).toBeInTheDocument(),
+    );
     // 等 orders 子查询解析
     await waitFor(() =>
       expect(screen.getByTestId('orders-table')).toBeInTheDocument(),
