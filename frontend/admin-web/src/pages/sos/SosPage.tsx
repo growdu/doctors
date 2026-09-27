@@ -289,6 +289,12 @@ export default function SosPage() {
         destroyOnClose
       >
         <Form form={resolveForm} layout="vertical" preserve={false}>
+          {resolveTarget?.description && (
+            <div data-testid="resolve-description" style={{ marginBottom: 12, color: '#666' }}>
+              <span>报警描述：</span>
+              <span>{resolveTarget.description}</span>
+            </div>
+          )}
           <Form.Item
             label="处置说明"
             name="note"

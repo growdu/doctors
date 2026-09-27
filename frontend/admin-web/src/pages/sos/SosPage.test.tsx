@@ -48,6 +48,7 @@ const FIXTURES = [
     escort_name: '赵陪诊',
     location: '北京协和医院',
     contact: '138****0030',
+    description: '老人突发不适',
     status: 'open' as const,
     created_at: '2026-09-24T10:30:00Z',
   },
@@ -58,6 +59,7 @@ const FIXTURES = [
     escort_name: '王陪诊',
     location: '上海同济医院',
     contact: '138****0040',
+    description: '陪同对象突发不适',
     status: 'closed' as const,
     resolution_note: '已处置',
     created_at: '2026-09-19T13:00:00Z',
@@ -169,12 +171,14 @@ describe('SosPage', () => {
     mocks.fetchSosAlerts.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
+      expect(screen.getByTestId('btn-resolve-12001')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-resolve-12001'));
+    // 等 Modal 渲染：resolve-note-input 出现 + description 渲染
     await waitFor(() =>
-      expect(screen.getByText('老人突发不适')).toBeInTheDocument(),
+      expect(screen.getByTestId('resolve-description')).toBeInTheDocument(),
     );
+    expect(screen.getByTestId('resolve-description')).toHaveTextContent('老人突发不适');
     await user.click(screen.getByTestId('btn-resolve-confirm'));
     expect(mocks.resolveSos).not.toHaveBeenCalled();
   });

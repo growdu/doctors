@@ -29,6 +29,7 @@ export interface SosItem {
   contact: string;
   status: SosStatus;
   created_at: string;
+  description?: string | null;
   resolution_note?: string | null;
   escalate_level?: string;
   escalate_reason?: string | null;
