@@ -3134,6 +3134,55 @@ escort-app v1 骨架（v1.2 已交付 8 页面 + 8 provider + 6 model + 1 widget
 
 > patient-miniapp v1.1 至此具备「登录 + 实名 + 选院 + 选服 + 下单 + 支付 + 退款 + 评价 + 地址 + 钱包 + 消息 + SOS」完整业务闭环；下一里程碑 v2 接入真实后端 API。
 
+### 36.6 v1.1.1 P0 页面补齐（2026-09-27 13 个细化项 + 多项增强）
+
+> 接续 §36.1/§36.5：在既有 21 个页面基础上补齐 13 个 P0 页面或功能增强 —— 6 个对既有页面打补丁（city 筛选 / 选中态 / breakdown / 5-上限守卫 / 标签 chips / 紧急原因），7 个新增（reviews/index / messages/index / login/index v2 / register / settings / support / notifications）。
+
+#### 36.6.1 13 个改动 commit 表
+
+| # | 路径 | commit    | 单测数 | 关键能力 |
+|---|------|-----------|--------|----------|
+| 1 | `src/pages/hospitals/list.vue`    | 9bc7982   | 7    | 加城市 chips 筛选（city_id 0/1/2/3/4），与 level 双筛 + keyword 搜索 |
+| 2 | `src/pages/hospitals/detail.vue`  | 2842c3f   | 8    | 服务包选中态 + 底部价格摘要 + 立即下单携带 packageId |
+| 3 | `src/pages/order/create.vue`      | f944850   | 11   | 底部金额 breakdown 3 行（原价 / 优惠 / 实付） |
+| 4 | `src/pages/address/list.vue`      | 9577fbb   | 9    | 5 条上限守卫（`5 / 5` 提示 + 按钮 disabled + onAdd 客户端兜底） |
+| 5 | `src/pages/reviews/index/index.vue`     | b98770d   | 5    | 「我的评价」已评价 / 待评价 tab（按订单）+ 单测 + 路由注册 |
+| 6 | `src/pages/reviews/create.vue`    | 528c3e0   | 8    | 标签 chips 多选（专业 / 耐心 / 准时 / 周到 / 态度好）+ 字符计数 + 提交拼前缀 |
+| 7 | `src/pages/messages/index/index.vue`    | ecd4f9a   | 5    | 站内信按订单 tab（mock per-order summary 文本）+ 单测 + 路由注册 |
+| 8 | `src/pages/sos/trigger.vue`       | 396fb94   | 9    | 紧急原因 chips 多选（找不到路 / 等太久 / 突发不适 / 其他）+ 关联订单 / 位置 context |
+| 9 | `src/pages/login/index/index.vue`       | 5d016bd   | 8    | 登录 v2：短信 + 微信 + 6 个 demo 账号一键填（普通 / VIP / 陪诊师 / 客服 / 未实名 / 海外）+ 单测 + 路由注册 |
+| 10 | `src/pages/register/index/index.vue`    | 707460c   | 6    | 注册页（短信 + 6 位验证码 + 协议 checkbox 勾选才允许注册）+ 单测 + 路由注册 |
+| 11 | `src/pages/settings/index/index.vue`    | 80725a0   | 6    | 设置（4 类 tab：基础 / 支付 / 短信 / 推送）+ 退出登录 + 单测 + 路由注册 |
+| 12 | `src/pages/support/index/index.vue`     | e3a5640   | 5    | 客服（FAQ accordion + 联系电话 400-100-1234 + 留言 10-500 字校验）+ 单测 + 路由注册 |
+| 13 | `src/pages/notifications/index/index.vue` | 4469112  | 6    | 通知中心（按 type tab：全部 / 订单 / 系统 / 营销 + 未读 badge + 全部已读）+ 单测 + 路由注册 |
+
+合计：**13 个改动 / 83 个新增 jest 单测 / 7 个新路由注册 / 0 个 store / 0 个 api 改动**（store + api 复用既有）。
+
+#### 36.6.2 设计决策要点
+
+- **既有 6 个页面**：仅做局部增强，不重写 —— 严格遵循最小变更原则（brief §约束）
+- **新增 7 个页面**：统一放到 `src/pages/<section>/index/index.vue`（嵌套结构）以与 v1 既有的 `src/pages/<section>/<name>.vue`（扁平）共存
+  - 嵌套 vs 扁平：v1.1.1 之后的页面用嵌套（`index/index.vue`）；v1 已有的页面保持扁平 —— 两种结构不冲突，uni-app 都能识别
+- **pages.json 路由**：每个新增页面同步注册 `navigationBarTitleText` / `style`
+- **jest.doMock 静态注入**：所有 mock（store / api）走 `jest.doMock(path, factory)`，不修改源文件
+- **uni-app Page 钩子 onLoad/mounted 通过 `@vue/test-utils` `wrapper.vm.onLoad()` 调用**：`jest.setup.js` 已绑定为实例方法
+- **测试覆盖策略**：每页 4-11 个 it（mount / 数据加载 / UI 渲染 / 交互跳转 / 错误态 / 边界值）
+- **不修改既有 store / api**：所有新页面的数据流调既有 store，复用 `mockResolvedValue` 注入 fakeStore
+
+#### 36.6.3 累计单测增量
+
+- patient-miniapp 新增：83 个 it（13 套件）
+- 不变更 store / api（v1.1 已具备的 store + 配套 jest.doMock 注入继续通用）
+- 跑测试需在 frontend/patient-miniapp/ 目录下 `pnpm install && pnpm test:unit`（v1.1 §36.5 已建立）
+
+#### 36.6.4 总览（patient-miniapp v1.1.1 修订后）
+
+- **页面总数**：28（21 v1.1 + 7 新增）
+- **jest 单测**：原 149 个（v1.1 §21 + §36） + 83 个（v1.1.1 增量） = **232 个新增 it**
+- **CI**：原 4 job CI + patient-miniapp-native-ci（连续烟雾测）
+
+> patient-miniapp v1.1.1 至此具备「搜索（city + level + keyword）/ 选院（详情 + 选中态）/ 下单（breakdown 折扣 + 地址 5 上限）/ 评价（list + create 双页 + 标签）/ SOS（reason + 上下 文）/ 登录 v2（6 demo 一键填）/ 注册（协议）/ 设置（4 tab）/ 客服（FAQ + 留言）/ 通知（4 type tab）」等 28 页面完整闭环。
+
 ## 39. admin-web e2e 链路可跑通（v1.6 后端未启时也能 e2e）
 
 **目标**：§38 收尾后 admin-web 单测全绿（130/162 pass，剩余 32 个为历史
