@@ -125,6 +125,15 @@
       }
     },
     {
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录 v2",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
       "path": "pages/auth/real-name",
       "style": {
         "navigationBarTitleText": "实名认证",
