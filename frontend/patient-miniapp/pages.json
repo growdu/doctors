@@ -140,6 +140,15 @@
         "navigationBarBackgroundColor": "#FFFFFF",
         "backgroundColor": "#F5F5F5"
       }
+    },
+    {
+      "path": "pages/refund/apply",
+      "style": {
+        "navigationBarTitleText": "申请退款",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
     }
   ],
   "globalStyle": {

@@ -27,6 +27,7 @@ import * as review from './review.js';
 import * as virtualnumber from './virtualnumber.js';
 import * as auth from './auth.js';
 import * as pay from './pay.js';
+import * as refund from './refund.js';
 
 // named re-export：让 `import { xxx } from '@/api'` 也能工作
 export * from './candidates.js';
@@ -38,6 +39,7 @@ export * from './review.js';
 export * from './virtualnumber.js';
 export * from './auth.js';
 export * from './pay.js';
+export * from './refund.js';
 
 /**
  * 命名空间聚合（默认导出）。
@@ -52,6 +54,7 @@ const api = {
   virtualnumber,
   auth,
   pay,
+  refund,
 };
 
 export default api;
