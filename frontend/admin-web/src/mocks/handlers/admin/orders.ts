@@ -14,7 +14,7 @@
  * 对应 spec：2026-09-24-admin-web-setup.md §Task 5
  */
 import { http, HttpResponse } from 'msw';
-import { mockOrders } from '../data/seed';
+import { mockOrders } from '../../data/seed';
 
 export const orderHandlers = [
   // ── 列表 ──────────────────────────────────────────────────────────

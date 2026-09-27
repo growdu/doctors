@@ -32,6 +32,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { StatusBadge } from '@/components/StatusBadge';
+import { EscortPendingCountdown } from '@/components/EscortPendingCountdown';
 import { fetchOrders, orderQueryKeys } from '@/api/admin/orders';
 import type { OrderListItem, OrderStatus } from '@/types/generated';
 
@@ -116,7 +117,7 @@ export default function OrderListPage() {
       dataIndex: 'escort_pending_expire_at',
       width: 170,
       render: (v: string | null) =>
-        v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '—',
+        v ? <EscortPendingCountdown expireAt={v} /> : '—',
     },
     {
       title: '下单时间',

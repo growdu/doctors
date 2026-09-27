@@ -19,7 +19,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Steps, Descriptions, Card as AntCard, Alert, Tag, Spin, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { StatusBadge } from '@/components/StatusBadge';
-import { EscortPendingCountdown } from './EscortPendingCountdown';
+import { EscortPendingCountdown } from '@/components/EscortPendingCountdown';
 import { fetchOrderDetail, orderQueryKeys } from '@/api/admin/orders';
 import type { OrderDetail } from '@/types/generated';
 
