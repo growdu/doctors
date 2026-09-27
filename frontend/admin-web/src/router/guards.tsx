@@ -73,17 +73,18 @@ export function RequireRole({ roles, children }: RequireRoleProps) {
   const allowed = role != null && roles.includes(role);
   if (!allowed) {
     return (
-      <Result
-        status="403"
-        title="403"
-        subTitle={`抱歉，当前角色（${role ?? '未知'}）无权访问该页面。需要：${roles.join(' / ')}`}
-        extra={
-          <Button type="primary" onClick={() => window.history.back()}>
-            返回上一页
-          </Button>
-        }
-        data-testid="rbac-403"
-      />
+      <div data-testid="rbac-403">
+        <Result
+          status="403"
+          title="403"
+          subTitle={`抱歉，当前角色（${role ?? '未知'}）无权访问该页面。需要：${roles.join(' / ')}`}
+          extra={
+            <Button type="primary" onClick={() => window.history.back()}>
+              返回上一页
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
