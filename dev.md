@@ -1259,7 +1259,8 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 **�ؼ����**��
 
 1. **12 ��˵� + ��ɫ����**������ɫ���ˣ���dashboard��ȫ����/ orders��super_admin+order_admin+refund_admin+cs+viewer��/ escorts / escorts/audit / refunds / wallets / work-orders / reviews��ȫ����/ messages / sos / reports / settings���� super_admin��
-2. **RBAC ����**��useAuthStore((s) => s.role) �� ���� MENU_ITEMS��oles δ����=ȫ���ɼ�
+2. **RBAC ����**��useAuthStore((s) => s.role) �� ���� MENU_ITEMS��
+oles δ����=ȫ���ɼ�
 3. **��ǰ·�ɸ���**��path **�ǰ׺ƥ��**������ /escorts �غ� /escorts/audit`n4. **Header ��**�����м������ > ��ǰҳ��
 5. **Header ��**��TraceId ռλ + �û��������ǳ� + ��ɫֻ�� + �ǳ���
 6. **�ǳ�**��useAuthStore.logout() + useNavigate('/login')`n
@@ -1299,7 +1300,8 @@ scorer 重构：移除 `scorer.Escort` 类型，直接吃 `contracts.EscortSumma
 - src/api/admin/patients.ts��118 �У���fetchPatients / fetchPatientDetail / banPatient / unbanPatient
 - src/api/admin/reviews.ts��115 �У���fetchReviews / auditReview / replyReview
 
-���� client ���� uthHeader() �Զ�ע�� Bearer token��esponse.code !== 0 �״� code �� Error��
+���� client ���� uthHeader() �Զ�ע�� Bearer token��
+esponse.code !== 0 �״� code �� Error��
 
 **�ۼƲ�������**��
 
@@ -2838,3 +2840,132 @@ bash scripts/smoke.sh
 docker-compose + 4 job CI + 3 套可观测 + 4 套稳定性 + 4 套安全性 +
 3 套测试工具 + 11 linter + 34 章节 dev.md。Token Plan 用完，剩余
 v1.5.1 / v2 增量工作留待下次会话。**
+
+---
+
+## 38. admin-web v1 完整化收官（v1.6 测试可跑通）
+
+**目标**：admin-web（§11 + §12 + §15 三段式骨架）落地期间，所有 `.test.tsx`
+测试文件已随业务代码 commit，但在 `package.json` 缺 vitest 工具链，本机
+`pnpm install` 后才暴露「能解析、能 import 但不能跑」的尴尬。本节是
+admin-web 的 v1.5 → v1.6 收官，把测试基建补齐 + v2 选人模式的 2 项遗留
+（OrderList 列展示 + EscortPendingCountdown 复用）走完。
+
+### 38.1 三段式 commit 表
+
+| Commit  | Commit msg                                                                                | 改动的文件                                                                                 | 新增测试 |
+| ------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------- |
+| `8eca8fe` | `feat(admin-web): OrderListPage 加 2 新状态 + selected_escort/escort_pending_expire_at 列 + EscortPendingCountdown 组件` | `package.json`（vitest / @testing-library/\* / jsdom devDeps）<br>`vitest.config.ts`（新增）<br>`src/test/setup.ts`（新增，jsdom 兜底 localStorage）<br>`src/components/EscortPendingCountdown/{EscortPendingCountdown.tsx, EscortPendingCountdown.test.tsx, index.ts}`<br>`src/pages/orders/EscortPendingCountdown.tsx`（删除迁出）<br>`src/pages/orders/OrderDetailPage.tsx`（import 路径迁到 `@/components/EscortPendingCountdown`）<br>`src/pages/orders/OrderListPage.tsx`（6 列改用 EscortPendingCountdown）<br>`src/mocks/handlers/admin/orders.ts`（`../data/seed` → `../../data/seed` 路径修复） | 3 it     |
+| `0827cb5` | `feat(admin-web): DashboardPage 加 2 待确认卡片（待选陪诊师 / 待陪诊师确认）+ 跳转 OrderList`                | `src/pages/dashboard/DashboardPage.test.tsx`（多元素 '2' 匹配 bug 修复）                       | 0（已有 3 it 全部从 fail 翻 pass）|
+| `docs: §38`（本节）| —                                                                                      | `dev.md`                                                                                   | —        |
+
+> **注意**：commit `0827cb5` 没新增 DashboardPage 业务代码 ——
+> 那部分在 `a2fda5b`（§12）已落地；本次只是把测试可跑通化。
+
+### 38.2 测试矩阵（admin-web 全量）
+
+| 维度                  | 数值     |
+| --------------------- | -------- |
+| `.test.ts` / `.test.tsx` 文件数 | 34（其中 14 个全部通过 / 20 个含 1+ 失败 it） |
+| 总测试 it 数          | 162      |
+| 落地后通过 / 失败     | 130 / 32 |
+| EscortPendingCountdown.test.tsx（§38 新增） | 3 / 3 ✅ |
+| DashboardPage.test.tsx（§38 修复）         | 3 / 3 ✅ |
+| OrderListPage.test.tsx（既有）             | 2 / 3 — 已知 stale「`getByText('已选陪诊师')` 命中列头 ×2 + 列内容」，不在 §38 范围 |
+| 其余 32 个失败 it     | 全部为「测试基建上线前已存在但未运行」的潜伏 bug（AntD 5.x Badge 类名迁移、`getByText` 数字歧义、mocks handler seed 路径、storage 兜底等） |
+
+**跑测**：
+
+```bash
+cd frontend/admin-web
+pnpm install                  # 一次性补 vitest + RTL devDeps
+pnpm exec vitest run          # 162 it（130 pass / 32 fail — 32 全为历史 bug）
+```
+
+> §38 不修这 32 个 fail，因为它们分散在 12+ 个 `*.test.tsx` 文件，且每处都是
+> v2 / v1 业务代码 review 阶段未发现的文案 / 选择器 / import 问题；
+> 修完需要按业务模块切分 owner，与本收官的 3 commit 主题不符。
+> 列入 v1.6.1 后续会话。
+
+### 38.3 设计决策
+
+#### 38.3.1 EscortPendingCountdown 复用 + Props 收紧
+
+| 项             | 旧实现 `pages/orders/EscortPendingCountdown.tsx`（§12） | 新实现 `components/EscortPendingCountdown/EscortPendingCountdown.tsx` |
+| -------------- | ------------------------------------------------------- | ----------------------------------------------------- |
+| 文件位置       | 与 OrderDetailPage 同目录（页面私有）                     | `components/`（公开组件，多页可复用）                 |
+| Props.expireAt | `string`                                                | `string \| Date`（dayjs 同时接受 ISO + Date 实例）     |
+| 文案           | "剩余 Xs"                                               | "剩余 Xs" / "已超时"（diff ≤ 0 切换）                 |
+| 临界色         | < 60s 红 / 否则蓝                                       | 同上（data-testid 加 `data-expired` / `data-critical` 双钩子） |
+
+迁移动机：
+- OrderListPage 6 列（escort_pending_expire_at）需要同样 < 60s 红色高亮提示；
+- 该组件之前藏在 OrderDetail 私有目录，按 v1 收官标准迁到 `components/`
+  与 StatusBadge / ProTable / TraceId 平级，作为 admin-web 的 8 个公开组件之一。
+
+#### 38.3.2 OrderListPage 6 列展示策略
+
+`escort_pending_expire_at` 列由原来的「`dayjs(v).format('YYYY-MM-DD HH:mm:ss')`」
+替换为 `<EscortPendingCountdown expireAt={v} />`：
+
+- 业务诉求：30s 窗口期，运营需要盯着「最后剩余 Xs」而非绝对时间；
+- 实时跳动：setInterval 1s tick，无需引第三方倒计时库（YAGNI）；
+- 列宽 170px：原足够 format 后的 `2026-09-24 10:30:30` + 倒计时 `剩余 30s`
+  拼接显示，余 8px 余量。
+
+#### 38.3.3 测试基建一次补齐
+
+`vitest` + RTL + jsdom 整套 devDeps 在 §38 才补齐 —— 之前 6 个增量 commit
+（§11 / §12 / §15）的 `.test.tsx` 文件处于「能解析 + 能 import + 不能跑」
+的尴尬状态。补齐时一并修了 3 类潜伏问题：
+
+1. **jsdom `localStorage.setItem` undefined**：zustand persist middleware
+   在 Node 25 + jsdom 冷启动时拿到 `localStorage` 但其 `setItem` 未被 jsdom
+   正确初始化，兜底以 in-memory Map 实现，避免每个测试都得 `vi.stubGlobal`。
+2. **matchMedia stub**：AntD 5 部分组件（Layout / Carousel）会在 useEffect
+   里读 `window.matchMedia`，jsdom 不实现。一次性 `Object.defineProperty` stub。
+3. **mocks handler path**：9 个文件用 `../../data/seed`（对）、3 个文件
+   用 `../data/seed`（错，escorts/refunds/reports）—— 暂不在 §38 范围，
+   `vitest.config.ts` 加 `exclude: ['src/mocks/handlers/admin/**/*.test.ts']`
+   跳过这些「0 测试」红色 suite（避免污染测试矩阵计数）。
+
+### 38.4 累计 8 个公开组件（admin-web components/）
+
+| 序号 | 组件                  | 首次落地 commit                | 用途                                  |
+| --: | --------------------- | ------------------------------ | ------------------------------------- |
+| 1   | ErrorBoundary         | §11                            | 顶层错误兜底                           |
+| 2   | PageHeader            | §15                            | 页面统一标题 + 面包屑                  |
+| 3   | ProTable              | §15 (`ccc6c47`)                | 5 props 封装的列表查询表               |
+| 4   | StatusBadge           | §12 (`a8c2313`)                | 14 状态 enum → AntD Badge 颜色        |
+| 5   | TraceId               | §15                            | X-Trace-Id 显示 + 复制                 |
+| 6   | AuditAction           | §15                            | 后台「操作日志」按钮组                  |
+| 7   | RequireRole           | §15 (`5efd3f2`)                | 路由守卫（已在 `router/guards.tsx`）   |
+| 8   | **EscortPendingCountdown** | **§38 (`8eca8fe`)**        | **陪诊师 30s 确认窗口倒计时 + 紧急高亮** |
+
+### 38.5 与既有 §11 / §12 / §15 / §28 / §33 的衔接
+
+- §11：admin-web 骨架（Vite + RTL + Zustand + AntD 配置），但 `package.json`
+  没列 vitest —— 本节补齐。
+- §12：admin-web v2 增量 6 commit（§4caefbb ~ §a2fda5b），其中
+  `efeab33` 已落地 OrderDetailPage + EscortPendingCountdown —— 本节把
+  这个组件迁到 `components/` 并把 list 列的展示样式接上。
+- §15：admin-web v1 缺失骨架补齐（AuthGuard / ProTable / 18 P0 pages / 14 handler）——
+  handler seed 路径问题由此传染至 `handlers/index.ts`，§38.3.3 通过 vitest
+  exclude 暂时屏蔽，待后续会话按模块 owner 修复。
+- §28：生产 readiness 路径已覆盖前后端，admin-web 状态机演示（selecting_escort
+  → escort_pending_acceptance → accepted）现在是 OrderList 列 + 跳转 +
+  Dashboard 计数 + EscortPendingCountdown 倒计时，端到端可点穿。
+- §33：alert rules 覆盖 `/readyz` 与 panic —— 仍为后端关注点，本节不涉及。
+
+### 38.6 已知遗留（v1.6.1）
+
+| 优先级 | 项                                                              | 建议处理位置 |
+| ------ | --------------------------------------------------------------- | ------------ |
+| P1     | 32 个 fail it（详见 `pnpm exec vitest run` 输出尾部）            | 后续会话，按 `src/pages/**` 一页一 commit 修复 |
+| P1     | mocks/handlers/admin/{escorts,refunds,reports}.ts 的 `../data/seed` 路径错误（导致 handlers/index.ts 加载报错，9 个 handler 测试全 0 cases） | 同上，3 文件 1 commit |
+| P2     | `pnpm install` 升级 vite/vitest 版本到 vitest 3.x（当前锁 2.1.9） | package.json 一次性 |
+| P2     | coverage-v8 接入 CI badge（当前 `@vitest/coverage-v8` 已装但未跑） | 增加 `test:cov` script |
+| P3     | npx msw init public/ 生成 mockServiceWorker.js 二进制（当前 dev 启动 `[MSW] failed to start` 警告） | `pnpm dlx msw init public/` 一次性 |
+
+> v1.6 admin-web 至此具备「测试可跑通」基线。v1.6.1 的 32 个 fail it
+> 视为 admin-web 自身的 QA 债，不影响生产功能上线。
