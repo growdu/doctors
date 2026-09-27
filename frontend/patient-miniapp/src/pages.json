@@ -107,6 +107,15 @@
       }
     },
     {
+      "path": "pages/reviews/index",
+      "style": {
+        "navigationBarTitleText": "我的评价",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
       "path": "pages/auth/login",
       "style": {
         "navigationBarTitleText": "登录",
