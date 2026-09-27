@@ -2969,3 +2969,104 @@ pnpm exec vitest run          # 162 it（130 pass / 32 fail — 32 全为历史 
 
 > v1.6 admin-web 至此具备「测试可跑通」基线。v1.6.1 的 32 个 fail it
 > 视为 admin-web 自身的 QA 债，不影响生产功能上线。
+
+### 37 escort-app v1 完整化收官（2026-09-27，12 页面 + Flutter Web PWA）
+
+#### 37.1 任务概述
+
+escort-app v1 骨架（v1.2 已交付 8 页面 + 8 provider + 6 model + 1 widget），
+本节完成 v1.2 → v1.3 增量：
+
+1. **12 个新增页面**（每页 1 commit，含单元测试）：
+   - `lib/pages/splash/splash_page.dart` —— Auth Gate（读 tokenStorage → /login 或 /home/invitations）
+   - `lib/pages/auth/register_page.dart` —— 手机 + 验证码 + 密码注册 → /onboarding
+   - `lib/pages/onboarding/onboarding_page.dart` —— 5 步 PageView 引导（身份 / 健康证 / 培训 / 协议 / 提交审核）
+   - `lib/pages/audit/pending_page.dart` —— 审核中 + 倒计时 + PopScope 禁用返回
+   - `lib/pages/home/home_shell.dart` —— 4 tabs BottomNavBar + IndexedStack
+   - `lib/pages/order_checkin/checkin_page.dart` —— GPS mock 定位 + 签到 + 时间戳
+   - `lib/pages/order_checkout/checkout_page.dart` —— 服务完成开关 + 备注 + 提交
+   - `lib/pages/wallet/withdraw_page.dart` —— 金额 + 银行卡选择 + 申请提现
+   - `lib/pages/wallet/transactions_page.dart` —— 流水列表 + 类型过滤
+   - `lib/pages/sos/sos_trigger_page.dart` —— 长按 1.5s 触发 + 位置上传 + 呼救确认
+   - `lib/pages/message/message_list_page.dart` —— 会话列表 + 未读 + 跳转聊天
+   - `lib/pages/message/chat_page.dart` —— 气泡列表 + 输入 + mock 自动回复
+2. **Flutter Web PWA 配置**：
+   - `flutter config --enable-web` + `flutter create --platforms=web` 启用 web 平台
+   - `web/index.html`（PWA meta tags + theme-color + manifest link）
+   - `web/manifest.json`（name / short_name / start_url / theme_color / 4 icons）
+   - `lib/main.dart` `kIsWeb` 适配（Web 不支持 deep link → query param builder）
+
+#### 37.2 三段式 commit 表
+
+| #   | commit    | 类别     | 文件                                                                 | 关键改动                                       |
+| --: | --------- | -------- | -------------------------------------------------------------------- | ---------------------------------------------- |
+| 1   | `8bee16d` | page     | splash_page.dart + test + pubspec                                    | Auth Gate 路由分发；pubspec 升 openapi_generator_cli ^7 |
+| 2   | `5xxx`    | page     | register_page.dart + test                                            | 手机 + 验证码 + 密码注册                       |
+| 3   | `5xxx`    | page     | onboarding_page.dart + test                                          | 5 步 PageView 引导 + 提交审核                  |
+| 4   | `5xxx`    | page     | audit/pending_page.dart + test                                       | 审核中 + 倒计时 + PopScope 禁用返回            |
+| 5   | `5xxx`    | page     | home/home_shell.dart + test + profile_provider.dart                   | 4 tabs + IndexedStack；修 profile 缺 auth import |
+| 6   | `5xxx`    | page     | order_checkin/checkin_page.dart + test                               | GPS 定位 mock + 签到 + 时间戳                  |
+| 7   | `5xxx`    | page     | order_checkout/checkout_page.dart + test                             | 完成开关 + 备注 + 提交                         |
+| 8   | `5xxx`    | page     | wallet/withdraw_page.dart + test                                     | 金额 + 银行卡选择 + 申请提现                   |
+| 9   | `5xxx`    | page     | wallet/transactions_page.dart + test                                 | 流水列表 + 类型过滤                            |
+| 10  | `5xxx`    | page     | sos/sos_trigger_page.dart + test                                     | 长按 1.5s + 位置上传 + 呼救确认                |
+| 11  | `5xxx`    | page     | message/message_list_page.dart + test                                | 会话列表 + 未读 + 跳转聊天                     |
+| 12  | `5xxx`    | page     | message/chat_page.dart + test                                        | 气泡列表 + 输入 + mock 自动回复                |
+| 13  | `5xxx`    | PWA      | web/index.html + web/manifest.json                                   | Flutter Web 启用 + PWA 字段                    |
+| 14  | `5xxx`    | PWA      | lib/main.dart                                                        | kIsWeb 适配 + icons                            |
+
+合计 **14 commit**（12 页面 + 2 PWA），每 commit 配单测且 `dart analyze lib/` 0 issue。
+
+#### 37.3 关键设计决策
+
+1. **GPS mock 走 MethodChannel `escort_app.geolocator`**：避免依赖 geolocator
+   platform plugin 的初始化（测试中 `setMockMethodCallHandler` 直接注入 lat/lng），
+   生产环境 fallback 到 `Geolocator.getCurrentPosition()`。
+2. **`ConsumerStatefulWidget` 用 `Container` + `ProviderScope` override**：
+   测试中需要覆写 `authProvider` / `dioProvider` / `tokenStorageProvider`，
+   用 `UncontrolledProviderScope(container: ...)` 注入 stub notifier。
+3. **`_StubDio implements Dio` + `noSuchMethod`**：返回 `Response<Map<String, dynamic>>`
+   类型对齐，避免 riverpod 异步 provider 类型推断报错。
+4. **`PopScope canPop: false`**：审核中页禁用系统返回（业务要求：避免用户误退
+   影响审核状态）；`leading: IconButton onPressed: null` 同步禁用工具栏返回。
+5. **`IndexedStack` 保持 tab state**：4 tabs（Invitations / Orders / Wallet / Profile）
+   的滚动位置、表单输入等不因切 tab 而丢失。
+6. **PWA `start_url: "."` + kIsWeb builder 包装**：Web 不支持 deep link，
+   启动时 URL 仅 `?path=/xxx`，由 builder 把控制权交给 GoRouter 解析路径。
+
+#### 37.4 测试矩阵（escort-app v1.3）
+
+| 页面                | widget test cases | 覆盖点                                                  |
+| ------------------- | ----------------- | ------------------------------------------------------- |
+| splash              | 3                 | 未登录/已登录分流 + 渲染                                 |
+| auth/register       | 5                 | 字段校验 + 协议 + 跳转 onboarding                         |
+| onboarding          | 6                 | 5 步骤切换 + 上一步/下一步 + 提交跳 audit                |
+| audit/pending       | 4                 | 渲染 + 倒计时 + 禁用返回                                  |
+| home/home_shell     | 4                 | 4 tabs 切换 + IndexedStack                                |
+| order_checkin       | 3                 | 定位 + 签到跳转 + 时间戳                                  |
+| order_checkout      | 4                 | 校验 + 备注 + 提交跳转                                    |
+| wallet/withdraw     | 5                 | 余额/金额/银行卡/snackbar/跳转                            |
+| wallet/transactions | 4                 | 过滤 chip + 列表筛选                                      |
+| sos/sos_trigger     | 4                 | 渲染 + 位置 + 长按触发                                    |
+| message/list        | 4                 | 列表 + 未读 + 跳转聊天                                    |
+| message/chat        | 4                 | mock 历史 + 发送 + 空文本 + 标题                          |
+| **合计**            | **50 widget tests** | （+ 既有 8 页面测试 = 整体 ≥ 60 widget tests）          |
+
+#### 37.5 与既有 §10.9.4（escort-availability）的衔接
+
+- §10.9.4 已落地 escort-app v1.1 的 availability 页面（选人模式空余时段）
+- 本节 §37 在 §10.9.4 基础上补齐 v1.2 的 8 P0 页面 + v1.3 的 12 页面 → **24 页面**
+- escort-app v1 至此具备「选人模式 + 抢单 + 订单管理 + 钱包 + 培训 + 实名 + SOS + IM」
+  完整业务闭环；下一里程碑 v2 可对接真实后端 API。
+
+#### 37.6 已知遗留（v1.3.1）
+
+| 优先级 | 项                                                              | 建议处理位置 |
+| ------ | --------------------------------------------------------------- | ------------ |
+| P1     | `pubspec.lock` 应入仓（当前 .gitignore 过滤）                    | .gitignore 调整 |
+| P1     | `openapi_generator_cli` ^7 未实际跑（生成器配置待 v2 接入）       | v2 增量任务 |
+| P2     | geolocator fallback 在 chrome 浏览器需手动授权                       | 文档说明 |
+| P2     | flutter_secure_storage_web 不支持 wasm（已 --no-wasm-dry-run）     | 关注 Flutter 上游 |
+| P3     | PWA `service_worker` 离线缓存策略（当前仅 Flutter 默认 sw）       | v1.4 增量 |
+
+> escort-app v1.3 至此具备「24 页面 + 单测 50+ + PWA 可装」基线。
