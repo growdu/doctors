@@ -12,6 +12,8 @@
 // 测试策略：
 //   - jest.doMock('@/stores/review.js') 注入 fake store
 //   - uView Plus 组件全部 stub
+//
+// 注：v1.1 增量 —— 加入标签 chips 多选 + 字符计数 maxlength 500
 
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
@@ -192,5 +194,63 @@ describe('reviews/create.vue', () => {
     expect(mockUni.showToast).toHaveBeenCalledWith(
       expect.objectContaining({ title: '订单信息缺失' }),
     );
+  });
+
+  it('v1.1: 标签 chips 多选 — 点击 toggle 选中/取消', async () => {
+    const w = await mountPage();
+    await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
+
+    // 5 个标签
+    expect(w.find('[data-test="tag-professional"]').exists()).toBe(true);
+    expect(w.find('[data-test="tag-patient"]').exists()).toBe(true);
+
+    // 点击「专业」→ 选中
+    await w.find('[data-test="tag-professional"]').trigger('click');
+    expect(w.vm.selectedTagKeys).toContain('professional');
+    expect(w.find('[data-test="tag-professional"]').attributes('data-selected')).toBe('true');
+
+    // 再点「专业」→ 取消
+    await w.find('[data-test="tag-professional"]').trigger('click');
+    expect(w.vm.selectedTagKeys).not.toContain('professional');
+    expect(w.find('[data-test="tag-professional"]').attributes('data-selected')).toBe('false');
+
+    // 多选：同时选中 2 个
+    await w.find('[data-test="tag-patient"]').trigger('click');
+    await w.find('[data-test="tag-punctual"]').trigger('click');
+    expect(w.vm.selectedTagKeys).toHaveLength(2);
+  });
+
+  it('v1.1: 字符计数 0/500 → input 同步显示 X / 500', async () => {
+    const w = await mountPage();
+    await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
+
+    expect(w.find('[data-test="char-counter"]').text()).toBe('0 / 500');
+    w.vm.comment = '陪诊师非常专业';
+    await w.vm.$nextTick();
+    expect(w.find('[data-test="char-counter"]').text()).toBe('7 / 500');
+  });
+
+  it('v1.1: 提交时把 tag 拼到 comment 前缀', async () => {
+    const w = await mountPage();
+    await w.vm.onLoad({ orderId: 7, escortId: 11 });
+    await w.vm.mounted();
+    await w.find('[data-test="star-5"]').trigger('click');
+    // 选两个 tag
+    await w.find('[data-test="tag-professional"]').trigger('click');
+    await w.find('[data-test="tag-punctual"]').trigger('click');
+    w.vm.comment = '非常准时';
+
+    await w.find('[data-test="submit-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(fakeReviewStore.submit).toHaveBeenCalledTimes(1);
+    expect(fakeReviewStore.submit).toHaveBeenCalledWith({
+      order_id: 7,
+      escort_id: 11,
+      rating: 5,
+      comment: '#专业 #准时 非常准时',
+    });
   });
 });

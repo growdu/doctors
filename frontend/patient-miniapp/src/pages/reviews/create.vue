@@ -45,6 +45,22 @@
       </text>
     </view>
 
+    <!-- v1.1: 标签 chips（多选） -->
+    <view class="page-review-create__tags" data-test="tags-card">
+      <text class="page-review-create__label">标签（可多选）</text>
+      <view class="page-review-create__tag-list">
+        <view
+          v-for="t in REVIEW_TAGS"
+          :key="t.key"
+          class="page-review-create__tag"
+          :class="{ 'page-review-create__tag--active': selectedTagKeys.includes(t.key) }"
+          :data-test="'tag-' + t.key"
+          :data-selected="selectedTagKeys.includes(t.key)"
+          @click="onTagToggle(t.key)"
+        >{{ t.label }}</view>
+      </view>
+    </view>
+
     <view class="page-review-create__comment">
       <text class="page-review-create__label">评价内容</text>
       <textarea
@@ -54,6 +70,11 @@
         placeholder="请输入评价内容（最多 500 字）"
         :maxlength="500"
       />
+      <!-- v1.1: 字符计数 -->
+      <text
+        class="page-review-create__counter"
+        data-test="char-counter"
+      >{{ comment.length }} / 500</text>
     </view>
 
     <view class="page-review-create__bottom">
@@ -82,6 +103,15 @@
 
 import { useReviewStore } from '@/stores/review.js';
 
+// v1.1 增量 —— 评价标签（多选）
+const REVIEW_TAGS = [
+  { key: 'professional', label: '专业' },
+  { key: 'patient',      label: '耐心' },
+  { key: 'punctual',     label: '准时' },
+  { key: 'considerate',  label: '周到' },
+  { key: 'friendly',     label: '态度好' },
+];
+
 export default {
   name: 'ReviewCreatePage',
   data() {
@@ -90,6 +120,8 @@ export default {
       escortId: null,
       rating: 0,    // 1..5
       comment: '',
+      selectedTagKeys: [], // v1.1 多选 tag
+      REVIEW_TAGS,
       submitting: false,
     };
   },
@@ -106,6 +138,16 @@ export default {
       this.rating = n;
     },
 
+    /** v1.1: tag 多选 toggle */
+    onTagToggle(key) {
+      const idx = this.selectedTagKeys.indexOf(key);
+      if (idx >= 0) {
+        this.selectedTagKeys.splice(idx, 1);
+      } else {
+        this.selectedTagKeys.push(key);
+      }
+    },
+
     async onSubmit() {
       if (!this.canSubmit) return;
       if (!this.orderId || !this.escortId) {
@@ -116,11 +158,22 @@ export default {
       }
       this.submitting = true;
       try {
+        // v1.1: 拼接 tags 到 comment 前面（v1 后端 review api 不支持 tags 字段，先合并到 comment）
+        const tagPrefix = (this.selectedTagKeys || [])
+          .map((k) => {
+            const found = REVIEW_TAGS.find((t) => t.key === k);
+            return found ? `#${found.label}` : '';
+          })
+          .filter(Boolean)
+          .join(' ');
+        const finalComment = tagPrefix
+          ? `${tagPrefix} ${this.comment || ''}`.trim()
+          : (this.comment || '');
         await this.reviewStore.submit({
           order_id: this.orderId,
           escort_id: this.escortId,
           rating: this.rating,
-          comment: this.comment || '',
+          comment: finalComment,
         });
         if (typeof uni !== 'undefined' && typeof uni.showToast === 'function') {
           uni.showToast({ title: '评价成功', icon: 'success' });
@@ -161,11 +214,41 @@ export default {
 }
 
 .page-review-create__body,
+.page-review-create__tags,
 .page-review-create__comment {
   background: #fff;
   margin: 12px;
   border-radius: 12px;
   padding: 16px;
+}
+
+.page-review-create__tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.page-review-create__tag {
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: #f4f4f5;
+  color: #606266;
+  font-size: 13px;
+}
+
+.page-review-create__tag--active {
+  background: #e8f3ff;
+  color: #1989fa;
+  font-weight: 500;
+}
+
+.page-review-create__counter {
+  display: block;
+  text-align: right;
+  font-size: 11px;
+  color: #909399;
+  margin-top: 6px;
 }
 
 .page-review-create__label {
