@@ -28,6 +28,7 @@ import * as virtualnumber from './virtualnumber.js';
 import * as auth from './auth.js';
 import * as pay from './pay.js';
 import * as refund from './refund.js';
+import * as wallet from './wallet.js';
 
 // named re-export：让 `import { xxx } from '@/api'` 也能工作
 export * from './candidates.js';
@@ -40,6 +41,7 @@ export * from './virtualnumber.js';
 export * from './auth.js';
 export * from './pay.js';
 export * from './refund.js';
+export * from './wallet.js';
 
 /**
  * 命名空间聚合（默认导出）。
@@ -55,6 +57,7 @@ const api = {
   auth,
   pay,
   refund,
+  wallet,
 };
 
 export default api;

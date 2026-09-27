@@ -149,6 +149,15 @@
         "navigationBarBackgroundColor": "#FFFFFF",
         "backgroundColor": "#F5F5F5"
       }
+    },
+    {
+      "path": "pages/wallet/index",
+      "style": {
+        "navigationBarTitleText": "我的钱包",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
     }
   ],
   "globalStyle": {
