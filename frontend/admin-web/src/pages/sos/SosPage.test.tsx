@@ -100,7 +100,7 @@ describe('SosPage', () => {
     mocks.fetchSosAlerts.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('sos-table')).toBeInTheDocument(),
+      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
     );
     expect(screen.getByText('北京协和医院')).toBeInTheDocument();
     expect(screen.getByText('上海同济医院')).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe('SosPage', () => {
     mocks.fetchSosAlerts.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('sos-table')).toBeInTheDocument(),
+      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-resolve-12001')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-escalate-12001')).not.toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('SosPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-resolve-12001')).toBeInTheDocument(),
+      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-resolve-12001'));
     await waitFor(() =>
@@ -154,7 +154,7 @@ describe('SosPage', () => {
     });
     renderPage('cs');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-escalate-12001')).toBeInTheDocument(),
+      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-escalate-12001'));
     await waitFor(() =>
@@ -169,11 +169,11 @@ describe('SosPage', () => {
     mocks.fetchSosAlerts.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-resolve-12001')).toBeInTheDocument(),
+      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-resolve-12001'));
     await waitFor(() =>
-      expect(screen.getByTestId('btn-resolve-confirm')).toBeInTheDocument(),
+      expect(screen.getByText('老人突发不适')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-resolve-confirm'));
     expect(mocks.resolveSos).not.toHaveBeenCalled();

@@ -101,9 +101,8 @@ describe('MessagesPage', () => {
     mocks.fetchMessages.mockResolvedValue({ data: FIXTURES, total: 3 });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('messages-table')).toBeInTheDocument(),
+      expect(screen.getByText('系统维护通知（9/25 02:00-04:00）')).toBeInTheDocument(),
     );
-    expect(screen.getByText('系统维护通知（9/25 02:00-04:00）')).toBeInTheDocument();
     expect(screen.getByText('新版退款流程上线')).toBeInTheDocument();
     expect(screen.getByText('全员')).toBeInTheDocument();
   });

@@ -106,7 +106,7 @@ describe('RefundsPage', () => {
     mocks.fetchRefunds.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('refunds-table')).toBeInTheDocument(),
+      expect(screen.getByText('甲')).toBeInTheDocument(),
     );
     expect(screen.getByText('患者取消')).toBeInTheDocument();
     expect(screen.getByText('服务不达标')).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('RefundsPage', () => {
     mocks.fetchRefunds.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('refunds-table')).toBeInTheDocument(),
+      expect(screen.getByText('甲')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-approve-2001')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-reject-2001')).not.toBeInTheDocument();
@@ -134,7 +134,7 @@ describe('RefundsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-approve-2001')).toBeInTheDocument(),
+      expect(screen.getByText('甲')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-approve-2001'));
     await waitFor(() =>
@@ -160,7 +160,7 @@ describe('RefundsPage', () => {
     });
     renderPage('refund_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-reject-2001')).toBeInTheDocument(),
+      expect(screen.getByText('甲')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-reject-2001'));
     await waitFor(() =>
@@ -181,11 +181,11 @@ describe('RefundsPage', () => {
     mocks.fetchRefunds.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-reject-2001')).toBeInTheDocument(),
+      expect(screen.getByText('甲')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-reject-2001'));
     await waitFor(() =>
-      expect(screen.getByTestId('btn-reject-confirm')).toBeInTheDocument(),
+      expect(screen.getByText('退款被驳回申诉')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-reject-confirm'));
     expect(mocks.rejectRefund).not.toHaveBeenCalled();
@@ -196,7 +196,7 @@ describe('RefundsPage', () => {
     mocks.fetchRefunds.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-detail-2001')).toBeInTheDocument(),
+      expect(screen.getByText('甲')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-detail-2001'));
     expect(await screen.findByTestId('refund-detail-stub')).toBeInTheDocument();

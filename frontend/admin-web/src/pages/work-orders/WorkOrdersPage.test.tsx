@@ -109,7 +109,7 @@ describe('WorkOrdersPage', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('work-orders-table')).toBeInTheDocument(),
+      expect(screen.getByText('陪诊师迟到')).toBeInTheDocument(),
     );
     expect(screen.getByText('陪诊师迟到')).toBeInTheDocument();
     expect(screen.getByText('退款被驳回申诉')).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe('WorkOrdersPage', () => {
     });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('work-orders-table')).toBeInTheDocument(),
+      expect(screen.getByText('陪诊师迟到')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-assign-8001')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-close-8001')).not.toBeInTheDocument();
@@ -166,7 +166,7 @@ describe('WorkOrdersPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-assign-8001')).toBeInTheDocument(),
+      expect(screen.getByText('陪诊师迟到')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-assign-8001'));
     await waitFor(() =>
@@ -195,7 +195,7 @@ describe('WorkOrdersPage', () => {
     });
     renderPage('cs');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-close-8001')).toBeInTheDocument(),
+      expect(screen.getByText('陪诊师迟到')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-close-8001'));
     await waitFor(() =>

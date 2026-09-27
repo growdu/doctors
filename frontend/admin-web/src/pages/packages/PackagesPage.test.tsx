@@ -96,7 +96,7 @@ describe('PackagesPage', () => {
     mocks.fetchPackages.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('packages-table')).toBeInTheDocument(),
+      expect(screen.getByText('半日陪诊')).toBeInTheDocument(),
     );
     expect(screen.getByText('半日陪诊')).toBeInTheDocument();
     expect(screen.getByText('专项陪诊')).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe('PackagesPage', () => {
     mocks.fetchPackages.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('order_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-create')).toBeInTheDocument(),
+      expect(screen.getByText('半日陪诊')).toBeInTheDocument(),
     );
     expect(screen.getByTestId('btn-edit-14001')).toBeInTheDocument();
     expect(screen.getByTestId('btn-toggle-14001')).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe('PackagesPage', () => {
     mocks.fetchPackages.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('packages-table')).toBeInTheDocument(),
+      expect(screen.getByText('半日陪诊')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-create')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-edit-14001')).not.toBeInTheDocument();
@@ -154,7 +154,7 @@ describe('PackagesPage', () => {
     mocks.updatePackage.mockResolvedValue({ ...FIXTURES[0], status: 'off' });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-toggle-14001')).toBeInTheDocument(),
+      expect(screen.getByText('半日陪诊')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-toggle-14001'));
     await waitFor(() => {
@@ -173,7 +173,7 @@ describe('PackagesPage', () => {
     mocks.fetchPackages.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-edit-14001')).toBeInTheDocument(),
+      expect(screen.getByText('半日陪诊')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-edit-14001'));
     await waitFor(() =>

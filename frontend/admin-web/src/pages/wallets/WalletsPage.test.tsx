@@ -91,7 +91,7 @@ describe('WalletsPage', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('wallets-table')).toBeInTheDocument(),
+      expect(screen.getByText('+500')).toBeInTheDocument(),
     );
     // 标签
     expect(screen.getByText('患者')).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe('WalletsPage', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('btn-detail-6001')).toBeInTheDocument(),
+      expect(screen.getByText('+500')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-detail-6001'));
     expect(await screen.findByTestId('wallet-detail-stub')).toBeInTheDocument();

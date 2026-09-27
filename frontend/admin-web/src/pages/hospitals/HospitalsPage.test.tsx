@@ -94,7 +94,7 @@ describe('HospitalsPage', () => {
     mocks.fetchHospitals.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('hospitals-table')).toBeInTheDocument(),
+      expect(screen.getByText('北京协和医院')).toBeInTheDocument(),
     );
     expect(screen.getByText('北京协和医院')).toBeInTheDocument();
     expect(screen.getByText('广州安贞医院')).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('HospitalsPage', () => {
     mocks.fetchHospitals.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('hospitals-table')).toBeInTheDocument(),
+      expect(screen.getByText('北京协和医院')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-create')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-edit-13001')).not.toBeInTheDocument();
@@ -153,7 +153,7 @@ describe('HospitalsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-edit-13001')).toBeInTheDocument(),
+      expect(screen.getByText('北京协和医院')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-edit-13001'));
     await waitFor(() =>

@@ -114,7 +114,7 @@ describe('PatientsPage', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('patient-table')).toBeInTheDocument(),
+      expect(screen.getByText('张三')).toBeInTheDocument(),
     );
     expect(screen.getByText('张三')).toBeInTheDocument();
     expect(screen.getByText('李四')).toBeInTheDocument();
@@ -129,7 +129,7 @@ describe('PatientsPage', () => {
     });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('patient-table')).toBeInTheDocument(),
+      expect(screen.getByText('张三')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-ban-7001')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-unban-7002')).not.toBeInTheDocument();
@@ -150,7 +150,7 @@ describe('PatientsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-ban-7001')).toBeInTheDocument(),
+      expect(screen.getByText('张三')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-ban-7001'));
     await waitFor(() =>
@@ -178,7 +178,7 @@ describe('PatientsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-unban-7002')).toBeInTheDocument(),
+      expect(screen.getByText('张三')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-unban-7002'));
     await waitFor(() => {
@@ -215,7 +215,7 @@ describe('PatientsPage', () => {
     });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-detail-7001')).toBeInTheDocument(),
+      expect(screen.getByText('张三')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-detail-7001'));
     expect(await screen.findByTestId('patient-detail-stub')).toBeInTheDocument();

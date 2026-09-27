@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>陪诊师平台 · 患者陪诊全程旅程</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafbfc; --paper-2:#ffffff;
+    --ink:#1f3a4d; --muted:#6b8294; --soft:#97a7b6;
+    --rule:#e5eaf0; --rule-solid:#cdd7e0;
+    --accent:#1a8f7a; --accent-tint:rgba(26,143,122,0.10);
+    --accent-deep:#0f6b5a; --link:#2e5aa8;
+    --danger:#c0392b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Geist','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 32px;}
+  .eyebrow{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:36px;line-height:1.2;margin:0 0 8px;color:var(--ink);letter-spacing:.005em}
+  .subtitle{font-family:'Geist',sans-serif;font-size:14px;color:var(--muted);margin-bottom:32px;max-width:820px;line-height:1.6}
+  .diagram{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:24px;overflow-x:auto}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule);font-family:'Geist Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid var(--rule-solid)}
+  .legend-swatch.step{background:#ffffff;border-color:var(--ink)}
+  .legend-swatch.focal{background:var(--accent-tint);border-color:var(--accent)}
+  .legend-swatch.pain{background:rgba(192,57,43,0.06);border-color:var(--danger)}
+  .colophon{margin-top:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--soft);letter-spacing:.06em;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DIAGRAM · 04 / USER JOURNEY</p>
+  <h1>患者陪诊全程旅程</h1>
+  <p class="subtitle">从"决定下单"到"评价回家"的 6 个阶段、3 类触点（APP、小程序、院内现场）；焦点是服务执行时段，红色痛点标记了高风险/低情绪点。</p>
+
+  <div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 720" role="img" aria-labelledby="jny04-title jny04-desc">
+<title id="jny04-title">患者陪诊全程旅程</title>
+<desc id="jny04-desc">六个阶段横向并列：需求萌芽、平台下单、到院陪诊、检查陪同、医嘱记录、回家评价。每个阶段包含用户行为、触点（APP/小程序/现场）、情绪曲线与平台关键响应。焦点为第三与第四阶段（核心服务执行），红色痛点出现在第二阶段匹配等待与第五阶段医嘱遗忘。</desc>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b8294"/></marker>
+  <marker id="arr-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1a8f7a"/></marker>
+</defs>
+
+<!-- axis labels -->
+<text x="40" y="50" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.14em">STAGE / 阶段</text>
+<text x="40" y="568" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.14em">EMOTION / 情绪曲线</text>
+
+<!-- 6 stages -->
+<!-- Stage 1: 需求萌芽 -->
+<rect x="40" y="80" width="160" height="200" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="48" y="88" width="60" height="14" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="78" y="99" font-size="8" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">STAGE 01</text>
+<text x="120" y="124" font-size="13" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">需求萌芽</text>
+
+<text x="120" y="150" font-size="10" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">认知到自己需要陪诊</text>
+<g transform="translate(56,166)" font-size="11" fill="#1f3a4d">
+  <text y="0">· 子女搜索</text>
+  <text y="18">· 朋友推荐</text>
+  <text y="36">· 医院指引牌</text>
+</g>
+
+<text x="120" y="234" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">TOUCH: 微信 / 搜索</text>
+<text x="120" y="252" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">PLATFORM: SEO / 落地页</text>
+<text x="120" y="270" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">EMOTION: 焦虑 → 好奇</text>
+
+<!-- Stage 2: 平台下单 -->
+<rect x="220" y="80" width="160" height="200" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="228" y="88" width="60" height="14" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="258" y="99" font-size="8" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">STAGE 02</text>
+<text x="300" y="124" font-size="13" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">平台下单</text>
+
+<text x="300" y="150" font-size="10" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">选医院/时间/服务包 → 支付</text>
+<g transform="translate(236,166)" font-size="11" fill="#1f3a4d">
+  <text y="0">· 实名认证</text>
+  <text y="18">· 选择服务包</text>
+  <text y="36">· 微信支付</text>
+</g>
+
+<text x="300" y="234" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">TOUCH: 小程序</text>
+<text x="300" y="252" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">PLATFORM: 订单 + 匹配池</text>
+<text x="300" y="270" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">PAIN: 匹配等待 30min</text>
+
+<!-- Stage 3 (FOCAL): 到院陪诊 -->
+<rect x="400" y="80" width="160" height="200" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<rect x="408" y="88" width="60" height="14" rx="2" fill="rgba(26,143,122,0.20)" stroke="#1a8f7a" stroke-width="0.8"/>
+<text x="438" y="99" font-size="8" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">STAGE 03</text>
+<text x="480" y="124" font-size="13" font-family="'Geist',sans-serif" font-weight="600" fill="#0f6b5a" text-anchor="middle">到院陪诊</text>
+
+<text x="480" y="150" font-size="10" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">陪诊师到院 + 全程陪同</text>
+<g transform="translate(416,166)" font-size="11" fill="#0f6b5a">
+  <text y="0">· GPS 签到</text>
+  <text y="18">· 引导就诊</text>
+  <text y="36">· 关键节点打卡</text>
+</g>
+
+<text x="480" y="234" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">TOUCH: 现场 + 虚拟号</text>
+<text x="480" y="252" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">PLATFORM: timeline 上报</text>
+<text x="480" y="270" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">EMOTION: 安心</text>
+
+<!-- Stage 4 (FOCAL): 检查陪同 -->
+<rect x="580" y="80" width="160" height="200" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<rect x="588" y="88" width="60" height="14" rx="2" fill="rgba(26,143,122,0.20)" stroke="#1a8f7a" stroke-width="0.8"/>
+<text x="618" y="99" font-size="8" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">STAGE 04</text>
+<text x="660" y="124" font-size="13" font-family="'Geist',sans-serif" font-weight="600" fill="#0f6b5a" text-anchor="middle">检查陪同</text>
+
+<text x="660" y="150" font-size="10" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">取号/排队/检查/复诊</text>
+<g transform="translate(596,166)" font-size="11" fill="#0f6b5a">
+  <text y="0">· 自助机操作</text>
+  <text y="18">· 排队管理</text>
+  <text y="36">· 应急呼叫</text>
+</g>
+
+<text x="660" y="234" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">TOUCH: 现场 + APP</text>
+<text x="660" y="252" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">PLATFORM: SOS 通道</text>
+<text x="660" y="270" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">EMOTION: 踏实</text>
+
+<!-- Stage 5: 医嘱记录 -->
+<rect x="760" y="80" width="160" height="200" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="768" y="88" width="60" height="14" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="798" y="99" font-size="8" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">STAGE 05</text>
+<text x="840" y="124" font-size="13" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">医嘱记录</text>
+
+<text x="840" y="150" font-size="10" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">记录医生交代 / 取药</text>
+<g transform="translate(776,166)" font-size="11" fill="#1f3a4d">
+  <text y="0">· 语音转写</text>
+  <text y="18">· 取药核对</text>
+  <text y="36">· 子女远程查看</text>
+</g>
+
+<text x="840" y="234" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">TOUCH: APP</text>
+<text x="840" y="252" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">PLATFORM: 医嘱上传</text>
+<text x="840" y="270" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">PAIN: 医嘱易遗漏</text>
+
+<!-- Stage 6: 回家评价 -->
+<rect x="940" y="80" width="160" height="200" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="948" y="88" width="60" height="14" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="978" y="99" font-size="8" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">STAGE 06</text>
+<text x="1020" y="124" font-size="13" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">回家评价</text>
+
+<text x="1020" y="150" font-size="10" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">服务完成 + 评价</text>
+<g transform="translate(956,166)" font-size="11" fill="#1f3a4d">
+  <text y="0">· 星级 + 标签</text>
+  <text y="18">· 文字评价</text>
+  <text y="36">· 申请发票</text>
+</g>
+
+<text x="1020" y="234" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">TOUCH: 小程序</text>
+<text x="1020" y="252" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">PLATFORM: 结算 + 复访</text>
+<text x="1020" y="270" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">EMOTION: 满意 / 复购</text>
+
+<!-- arrows between stages -->
+<path d="M 200 180 L 220 180" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 380 180 L 400 180" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<path d="M 560 180 L 580 180" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<path d="M 740 180 L 760 180" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 920 180 L 940 180" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- emotion curve axis -->
+<line x1="40" y1="624" x2="1100" y2="624" stroke="#cdd7e0" stroke-width="1"/>
+<text x="40" y="640" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294">低</text>
+<text x="40" y="592" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294">高</text>
+
+<!-- emotion curve: drop in stage 2 (matching wait), drop in stage 5 (concern) -->
+<path d="M 120 596 Q 220 600, 300 612 Q 380 640, 480 600 Q 580 596, 660 604 Q 740 612, 840 624 Q 920 608, 1020 600"
+  fill="none" stroke="#1f3a4d" stroke-width="1.4" stroke-dasharray="0"/>
+
+<!-- markers on curve -->
+<circle cx="120" cy="596" r="4" fill="#1f3a4d"/>
+<circle cx="300" cy="612" r="4" fill="#c0392b"/>
+<circle cx="480" cy="600" r="4" fill="#1a8f7a"/>
+<circle cx="660" cy="604" r="4" fill="#1a8f7a"/>
+<circle cx="840" cy="624" r="4" fill="#c0392b"/>
+<circle cx="1020" cy="600" r="4" fill="#1f3a4d"/>
+
+<!-- pain callouts -->
+<rect x="240" y="660" width="120" height="40" rx="4" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="300" y="678" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">痛点：匹配等待</text>
+<text x="300" y="692" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">自动扩大 + 客服</text>
+
+<rect x="780" y="660" width="120" height="40" rx="4" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="840" y="678" font-size="10" font-family="'Geist',sans-serif" font-weight="600" fill="#c0392b" text-anchor="middle">痛点：医嘱遗漏</text>
+<text x="840" y="692" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">语音转写 + 子女推送</text>
+
+</svg>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch step"></span>普通阶段</span>
+    <span class="legend-item"><span class="legend-swatch focal"></span>焦点阶段（核心服务执行）</span>
+    <span class="legend-item"><span class="legend-swatch pain"></span>用户痛点（产品优化方向）</span>
+  </div>
+
+  <p class="colophon">docs/diagrams/04-patient-journey.html · v1.0 · 医疗蓝绿主题</p>
+</div>
+</body>
+</html>

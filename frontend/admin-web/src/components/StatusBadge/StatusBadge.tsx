@@ -14,7 +14,6 @@
  *
  * 对应 spec：2026-09-24-order-matching-redesign.md §4
  */
-import { Badge } from 'antd';
 import type { OrderStatus } from '@/types/generated';
 
 const STATUS_MAP: Record<
@@ -55,13 +54,16 @@ export interface StatusBadgeProps {
  */
 export function StatusBadge({ status, testId }: StatusBadgeProps) {
   const meta = STATUS_MAP[status as OrderStatus] ?? { text: status, color: 'default' as const };
+  const colorClass = `ant-badge-status-${meta.color}`;
   return (
-    <Badge
-      status={meta.color}
-      text={meta.text}
+    <span
       data-testid={testId}
       data-status={status}
-    />
+      className={`ant-badge ${colorClass}`}
+    >
+      <span className={`ant-badge-status-dot ${colorClass}`} aria-hidden />
+      <span className="ant-badge-status-text">{meta.text}</span>
+    </span>
   );
 }
 

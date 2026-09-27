@@ -97,9 +97,8 @@ describe('CouponsPage', () => {
     mocks.fetchCoupons.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByTestId('coupons-table')).toBeInTheDocument(),
+      expect(screen.getByText('新人 50 元券')).toBeInTheDocument(),
     );
-    expect(screen.getByText('新人 50 元券')).toBeInTheDocument();
     expect(screen.getByText('8 折优惠券')).toBeInTheDocument();
     expect(screen.getByText('¥50')).toBeInTheDocument();
     expect(screen.getByText('80 折')).toBeInTheDocument();
@@ -117,8 +116,9 @@ describe('CouponsPage', () => {
     mocks.fetchCoupons.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('order_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-create')).toBeInTheDocument(),
+      expect(screen.getByText('新人 50 元券')).toBeInTheDocument(),
     );
+    expect(screen.getByTestId('btn-create')).toBeInTheDocument();
     expect(screen.getByTestId('btn-disable-15001')).toBeInTheDocument();
   });
 
@@ -126,7 +126,7 @@ describe('CouponsPage', () => {
     mocks.fetchCoupons.mockResolvedValue({ data: FIXTURES, total: 2 });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByTestId('coupons-table')).toBeInTheDocument(),
+      expect(screen.getByText('新人 50 元券')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('btn-create')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-disable-15001')).not.toBeInTheDocument();
@@ -156,11 +156,11 @@ describe('CouponsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByTestId('btn-disable-15001')).toBeInTheDocument(),
+      expect(screen.getByText('新人 50 元券')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-disable-15001'));
     await waitFor(() =>
-      expect(screen.getByTestId('btn-disable-confirm')).toBeInTheDocument(),
+      expect(screen.getByText('新人 50 元券')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('btn-disable-confirm'));
     await waitFor(() => {

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>陪诊师平台 · 服务依赖图</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafbfc; --paper-2:#ffffff;
+    --ink:#1f3a4d; --muted:#6b8294; --soft:#97a7b6;
+    --rule:#e5eaf0; --rule-solid:#cdd7e0;
+    --accent:#1a8f7a; --accent-tint:rgba(26,143,122,0.10);
+    --accent-deep:#0f6b5a; --link:#2e5aa8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Geist','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 32px;}
+  .eyebrow{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:36px;line-height:1.2;margin:0 0 8px;color:var(--ink);letter-spacing:.005em}
+  .subtitle{font-family:'Geist',sans-serif;font-size:14px;color:var(--muted);margin-bottom:32px;max-width:820px;line-height:1.6}
+  .diagram{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:24px;overflow-x:auto}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule);font-family:'Geist Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid var(--rule-solid)}
+  .legend-swatch.focal{background:var(--accent-tint);border-color:var(--accent)}
+  .legend-swatch.norm{background:#ffffff;border-color:var(--ink)}
+  .legend-swatch.store{background:rgba(31,58,77,0.05);border-color:var(--muted)}
+  .colophon{margin-top:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--soft);letter-spacing:.06em;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DIAGRAM · 10 / DEPENDENCY GRAPH</p>
+  <h1>服务依赖图 · 11 个微服务的调用关系</h1>
+  <p class="subtitle">聚焦订单主链路（订单→匹配→支付→结算→通知）与其他服务的依赖；清晰划分"必须强依赖"与"弱依赖"，避免循环依赖。</p>
+
+  <div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 760" role="img" aria-labelledby="dg10-title dg10-desc">
+<title id="dg10-title">服务依赖图</title>
+<desc id="dg10-desc">九个 Go 微服务节点按三层布局：上层网关与认证、中层领域服务（订单、陪诊师、匹配、支付、评价、消息）、下层平台服务（钱包、SOS、用户）；箭头表示同步或异步依赖；订单域为焦点高亮；存储层为 PostgreSQL 16 + Patroni 主从、Redis 集群、Kafka 集群。</desc>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b8294"/></marker>
+  <marker id="arr-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1a8f7a"/></marker>
+</defs>
+
+<!-- ===== Layer labels ===== -->
+<text x="40" y="62" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.10em">EDGE LAYER</text>
+<text x="40" y="222" font-family="'Geist Mono',monospace" font-size="9" fill="#0f6b5a" letter-spacing="0.10em">DOMAIN LAYER · 焦点</text>
+<text x="40" y="542" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.10em">PLATFORM LAYER</text>
+
+<!-- ===== EDGE ===== -->
+<rect x="80" y="80" width="180" height="56" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="170" y="100" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">EDGE</text>
+<text x="170" y="124" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">API Gateway</text>
+
+<rect x="280" y="80" width="180" height="56" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="370" y="100" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">AUTH</text>
+<text x="370" y="124" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">认证服务</text>
+
+<!-- ===== DOMAIN ===== -->
+<!-- Order (FOCAL) -->
+<rect x="80" y="240" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="160" y="260" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL · 1</text>
+<text x="160" y="286" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">订单服务</text>
+<text x="160" y="304" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">order-service</text>
+
+<!-- Escort -->
+<rect x="280" y="240" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="360" y="260" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SVC · 2</text>
+<text x="360" y="286" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">陪诊师服务</text>
+<text x="360" y="304" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">escort-service</text>
+
+<!-- Match (FOCAL) -->
+<rect x="480" y="240" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="560" y="260" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL · 3</text>
+<text x="560" y="286" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">匹配服务</text>
+<text x="560" y="304" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">match-service</text>
+
+<!-- Pay (FOCAL) -->
+<rect x="680" y="240" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="760" y="260" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL · 4</text>
+<text x="760" y="286" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">支付服务</text>
+<text x="760" y="304" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">payment-service</text>
+
+<!-- Bill (FOCAL) -->
+<rect x="880" y="240" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<text x="960" y="260" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL · 5</text>
+<text x="960" y="286" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">结算服务</text>
+<text x="960" y="304" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">billing-service</text>
+
+<!-- Review -->
+<rect x="80" y="360" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="160" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SVC · 6</text>
+<text x="160" y="406" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">评价服务</text>
+<text x="160" y="424" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">review-service</text>
+
+<!-- Message -->
+<rect x="280" y="360" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="360" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">SVC · 7</text>
+<text x="360" y="406" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">消息服务</text>
+<text x="360" y="424" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">msg-service</text>
+
+<!-- SOS -->
+<rect x="480" y="360" width="160" height="80" rx="6" fill="rgba(192,57,43,0.06)" stroke="#c0392b" stroke-width="1"/>
+<text x="560" y="380" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle" letter-spacing="0.08em">SVC · 8</text>
+<text x="560" y="406" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#c0392b" text-anchor="middle">SOS · 安全</text>
+<text x="560" y="424" font-size="9" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle">sos-service</text>
+
+<!-- ===== PLATFORM ===== -->
+<rect x="80" y="560" width="180" height="64" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="170" y="580" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">USER · 9</text>
+<text x="170" y="606" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">用户中心</text>
+
+<rect x="320" y="560" width="180" height="64" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<text x="410" y="580" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">WALLET · 10</text>
+<text x="410" y="606" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">钱包 · 提现</text>
+
+<rect x="560" y="560" width="180" height="64" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="650" y="580" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">DATA · 11</text>
+<text x="650" y="606" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">PostgreSQL · Redis · Kafka</text>
+
+<rect x="800" y="560" width="180" height="64" rx="6" fill="rgba(31,58,77,0.05)" stroke="#6b8294" stroke-width="1"/>
+<text x="890" y="580" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.08em">EXT · 12</text>
+<text x="890" y="606" font-size="13" font-family:'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">三方（支付/实名）</text>
+
+<!-- ===== ARROWS ===== -->
+
+<!-- Edge → Domain (gateway fan-out) -->
+<path d="M 170 136 L 170 240" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 230 136 L 360 240" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 280 136 L 560 240" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 350 136 L 760 240" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<path d="M 410 136 L 960 240" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- Order → Match (同步) -->
+<path d="M 240 280 L 480 280" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="346" y="260" width="40" height="12" rx="2" fill="#fafbfc"/>
+<text x="366" y="270" font-size="8" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">SYNC</text>
+
+<!-- Order → Pay (强一致) -->
+<path d="M 240 296 L 680 264" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="430" y="252" width="60" height="12" rx="2" fill="#fafbfc"/>
+<text x="460" y="262" font-size="8" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">RPC · STRICT</text>
+
+<!-- Pay → Bill (异步) -->
+<path d="M 840 280 L 880 280" fill="none" stroke="#1a8f7a" stroke-width="1.4" marker-end="url(#arr-acc)"/>
+<rect x="844" y="260" width="32" height="12" rx="2" fill="#fafbfc"/>
+<text x="860" y="270" font-size="8" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">MQ</text>
+
+<!-- Order → Message (异步通知) -->
+<path d="M 200 320 L 320 360" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arr)"/>
+
+<!-- Match → Escort (查询) -->
+<path d="M 480 264 L 440 240" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="442" y="222" width="36" height="12" rx="2" fill="#fafbfc"/>
+<text x="460" y="232" font-size="8" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">QUERY</text>
+
+<!-- Escort → Message (异步) -->
+<path d="M 400 320 L 380 360" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arr)"/>
+
+<!-- Order → Bill (异步) -->
+<path d="M 200 320 L 920 320" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arr)"/>
+
+<!-- Bill → Wallet (直接读) -->
+<path d="M 920 320 L 460 560" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- Pay → Ext (微信支付) -->
+<path d="M 760 320 L 800 560" fill="none" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arr)"/>
+
+<!-- Order → User (查询实名) -->
+<path d="M 160 320 L 170 560" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- Escort → User (查询) -->
+<path d="M 360 320 L 230 560" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- SOS → Message (告警) -->
+<path d="M 560 360 L 440 360" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arr)"/>
+<rect x="466" y="340" width="36" height="12" rx="2" fill="#fafbfc"/>
+<text x="484" y="350" font-size="8" font-family="'Geist Mono',monospace" fill="#c0392b" text-anchor="middle" letter-spacing="0.06em">ALERT</text>
+
+<!-- SOS → Order (查询订单上下文) -->
+<path d="M 480 380 L 240 320" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arr)"/>
+
+<!-- All domain → Data (DB/Redis/MQ) -->
+<path d="M 240 320 L 600 560" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)"/>
+<path d="M 560 320 L 650 560" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)"/>
+<path d="M 760 320 L 700 560" fill="none" stroke="#6b8294" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)"/>
+
+<!-- Review → Order (依赖状态) -->
+<path d="M 160 360 L 200 320" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- Footer notes -->
+<text x="80" y="700" font-family="'Instrument Serif',serif" font-style="italic" font-size="14" fill="#1f3a4d">原则：<tspan font-weight="600">不允许循环依赖</tspan>；订单域为其他域的下游；异步依赖走 MQ（消息、计费、通知）；同步依赖走 RPC（认证、查询）；SOS 与消息强联动确保应急触达。</text>
+
+</svg>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch norm"></span>普通服务</span>
+    <span class="legend-item"><span class="legend-swatch focal"></span>焦点服务（订单主链路）</span>
+    <span class="legend-item"><span class="legend-swatch store"></span>数据存储 / 三方依赖</span>
+  </div>
+
+  <p class="colophon">docs/diagrams/10-service-dependencies.html · v1.0 · 医疗蓝绿主题</p>
+</div>
+</body>
+</html>

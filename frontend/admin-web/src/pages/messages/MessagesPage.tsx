@@ -13,7 +13,7 @@
  *
  * 对应 spec：2026-09-24-admin-web-design.md §Task 17
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -115,7 +115,7 @@ export default function MessagesPage() {
     },
   });
 
-  const items: MessageItem[] = data?.data ?? [];
+  const items: MessageItem[] = useMemo(() => data?.data ?? [], [data?.data]);
 
   const columns: ColumnsType<MessageItem> = [
     {
