@@ -95,19 +95,31 @@
           v-else
           :key="pkg.id"
           class="page-hospital-detail__package-card"
+          :class="{ 'page-hospital-detail__package-card--select': selectedPackageId === pkg.id }"
           :data-test="'package-' + pkg.id"
-          @click="onPackageClick(pkg)"
+          :data-package-id="pkg.id"
+          :data-selected="selectedPackageId === pkg.id"
+          @click="onPackageSelect(pkg)"
         >
           <view class="page-hospital-detail__package-row">
             <text class="page-hospital-detail__package-name">{{ pkg.name }}</text>
             <text class="page-hospital-detail__package-price">¥{{ pkg.price }}</text>
           </view>
           <text v-if="pkg.description" class="page-hospital-detail__package-desc">{{ pkg.description }}</text>
+          <text
+            v-if="selectedPackageId === pkg.id"
+            class="page-hospital-detail__package-tag"
+            data-test="package-selected-tag"
+          >已选</text>
         </view>
       </view>
 
-      <!-- 底部「立即下单」 -->
+      <!-- 底部「立即下单」+ 服务包价格摘要 -->
       <view class="page-hospital-detail__bottom">
+        <view v-if="selectedPackage" class="page-hospital-detail__bottom-summary" data-test="package-summary">
+          <text class="page-hospital-detail__bottom-summary-name">{{ selectedPackage.name }}</text>
+          <text class="page-hospital-detail__bottom-summary-price">¥{{ selectedPackage.price }}</text>
+        </view>
         <u-button
           type="primary"
           data-test="create-order-btn"
@@ -138,11 +150,18 @@ export default {
       loading: false,
       loadError: false,
       packages: [],
+      selectedPackageId: null,
     };
   },
   computed: {
     hospitalStore() {
       return useHospitalStore();
+    },
+    /** 当前选中的服务包（用于底部摘要） */
+    selectedPackage() {
+      if (!this.selectedPackageId) return null;
+      const list = Array.isArray(this.packages) ? this.packages : [];
+      return list.find((p) => p.id === this.selectedPackageId) || null;
     },
   },
   methods: {
@@ -169,21 +188,34 @@ export default {
       if (this.hospitalId) this.fetchDetail();
     },
 
-    /** 服务包卡片 → 跳订单创建页（带 hospitalId + packageId） */
-    onPackageClick(pkg) {
+    /**
+     * 服务包卡片点击：v1.1 增量 —— 选中态记录 selectedPackageId（用于底部摘要），
+     * 同时立即跳订单创建页（带 hospitalId + packageId）。
+     */
+    onPackageSelect(pkg) {
       if (!pkg || !pkg.id) return;
+      this.selectedPackageId = pkg.id;
       if (typeof uni === 'undefined' || typeof uni.navigateTo !== 'function') return;
       uni.navigateTo({
         url: `/pages/order/create?hospitalId=${this.hospitalId}&packageId=${pkg.id}`,
       });
     },
 
-    /** 「立即下单」 → 跳订单创建页（带 hospitalId） */
+    /** 向后兼容的别名 —— onPackageClick 仍指向选中逻辑 */
+    onPackageClick(pkg) {
+      return this.onPackageSelect(pkg);
+    },
+
+    /**
+     * 「立即下单」 → 跳订单创建页；
+     * 若已 selectedPackageId 则一并带上 packageId 跳到订单创建页。
+     */
     onCreateOrder() {
       if (typeof uni === 'undefined' || typeof uni.navigateTo !== 'function') return;
-      uni.navigateTo({
-        url: `/pages/order/create?hospitalId=${this.hospitalId}`,
-      });
+      const url = this.selectedPackageId
+        ? `/pages/order/create?hospitalId=${this.hospitalId}&packageId=${this.selectedPackageId}`
+        : `/pages/order/create?hospitalId=${this.hospitalId}`;
+      uni.navigateTo({ url });
     },
   },
   onLoad(query) {
@@ -312,6 +344,23 @@ export default {
   padding: 14px 16px;
   margin-bottom: 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  position: relative;
+}
+
+.page-hospital-detail__package-card--select {
+  border: 1px solid #1989fa;
+  background: #f0f8ff;
+}
+
+.page-hospital-detail__package-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 11px;
+  background: #1989fa;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .page-hospital-detail__package-row {
@@ -349,5 +398,28 @@ export default {
   border-top: 1px solid #f0f0f0;
   z-index: 10;
   .u-button { width: 100%; }
+}
+
+.page-hospital-detail__bottom-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+}
+
+.page-hospital-detail__bottom-summary-name {
+  font-size: 13px;
+  color: #606266;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-hospital-detail__bottom-summary-price {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ff4d4f;
+  margin-left: 12px;
 }
 </style>

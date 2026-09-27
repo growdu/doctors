@@ -211,4 +211,44 @@ describe('hospitals/detail.vue', () => {
     expect(w.vm.loadError).toBe(true);
     expect(fakeStore.loadDetail).not.toHaveBeenCalled();
   });
+
+  it('点服务包 → 写入 selectedPackageId + 底部摘要出现', async () => {
+    const w = await mountPage();
+    await w.vm.onLoad({ id: 101 });
+    await w.vm.mounted();
+    await flushPromises();
+
+    // 未选中前，摘要不应出现
+    expect(w.find('[data-test="package-summary"]').exists()).toBe(false);
+
+    // 点第二个服务包 (id=2)
+    await w.find('[data-test="package-2"]').trigger('click');
+    await flushPromises();
+
+    expect(w.vm.selectedPackageId).toBe(2);
+    // 选中态高亮
+    const card = w.find('[data-test="package-2"]');
+    expect(card.attributes('data-selected')).toBe('true');
+    // 底部摘要出现
+    expect(w.find('[data-test="package-summary"]').exists()).toBe(true);
+  });
+
+  it('已 selectedPackageId → 「立即下单」拼接 packageId 跳 order/create', async () => {
+    const w = await mountPage();
+    await w.vm.onLoad({ id: 101 });
+    await w.vm.mounted();
+    await flushPromises();
+
+    // 选第 1 个
+    await w.find('[data-test="package-1"]').trigger('click');
+    await flushPromises();
+    expect(mockUni.navigateTo).toHaveBeenCalledTimes(1);
+
+    // 再点「立即下单」—— 应携带 packageId
+    await w.find('[data-test="create-order-btn"]').trigger('click');
+    expect(mockUni.navigateTo).toHaveBeenCalledTimes(2);
+    expect(mockUni.navigateTo.mock.calls[1][0].url).toMatch(
+      /\/pages\/order\/create\?hospitalId=101&packageId=1/,
+    );
+  });
 });
