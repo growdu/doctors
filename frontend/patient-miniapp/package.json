@@ -2,7 +2,7 @@
   "name": "patient-miniapp",
   "version": "0.1.0",
   "private": true,
-  "description": "Doctors 患者陪诊小程序 (uni-app + Vue 3 + uView Plus + Pinia)",
+  "description": "Doctors \u60a3\u8005\u966a\u8bca\u5c0f\u7a0b\u5e8f (uni-app + Vue 3 + uView Plus + Pinia)",
   "scripts": {
     "dev:h5": "uni",
     "dev:mp-weixin": "uni -p mp-weixin",
@@ -21,8 +21,7 @@
     "@dcloudio/uni-mp-weixin": "3.0.0-4030620241128001",
     "@dcloudio/uni-h5": "3.0.0-4030620241128001",
     "pinia": "^2.2.0",
-    "vue": "^3.4.21",
-    "uview-plus": "^0.1.4"
+    "vue": "^3.4.21"
   },
   "devDependencies": {
     "@babel/core": "^7.24.4",

@@ -18,8 +18,6 @@ module.exports = {
         targets: { node: 'current' },
         // jest 跑在 Node 而非浏览器；modules 走 'commonjs' 让 require() 兼容
         modules: 'commonjs',
-        // 单元测试更看重栈可读性，关掉 minify
-        comments: true,
       },
     ],
   ],

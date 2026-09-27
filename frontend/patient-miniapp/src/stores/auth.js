@@ -35,6 +35,14 @@ async function _apiLoginByPhone(payload) {
   const mod = await import('@/api/auth.js');
   return mod.loginByPhone(payload);
 }
+async function _apiLoginByWechat(payload) {
+  const mod = await import('@/api/auth.js');
+  return mod.loginByWechat(payload);
+}
+async function _apiSendSmsCode(payload) {
+  const mod = await import('@/api/auth.js');
+  return mod.sendSmsCode(payload);
+}
 async function _apiFetchMe() {
   const mod = await import('@/api/auth.js');
   return mod.fetchMe();
@@ -99,10 +107,41 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function loginByPhone(phone, code) {
     const resp = await _apiLoginByPhone({ phone, code });
+    return _applyLoginResponse(resp);
+  }
+
+  /**
+   * 微信登录（v1 mock）。成功后同样写 token + user。
+   *
+   * @param {{ code: string, nickname?: string, avatar?: string }} payload
+   * @returns {Promise<{ access_token?: string, user?: object }>}
+   */
+  async function loginByWechat(payload) {
+    const resp = await _apiLoginByWechat(payload || { code: 'WechatAuth' });
+    return _applyLoginResponse(resp);
+  }
+
+  /**
+   * 触发短信验证码下发（v1 后端沙箱总是 200）。
+   *
+   * @param {string} phone
+   * @returns {Promise<{ sent: boolean, ttl: number }>}
+   */
+  async function sendSmsCode(phone) {
+    return _apiSendSmsCode({ phone });
+  }
+
+  /**
+   * 内部：把登录响应写进 store + storage。
+   * loginByPhone / loginByWechat 共用。
+   *
+   * @param {object} resp
+   */
+  function _applyLoginResponse(resp) {
     const accessToken = resp && (resp.access_token || resp.token) || '';
     const profile = resp && (resp.user || resp.profile) || null;
     if (!accessToken) {
-      throw new Error('loginByPhone: response missing access_token / token');
+      throw new Error('login: response missing access_token / token');
     }
     token.value = accessToken;
     user.value = profile;
@@ -167,6 +206,8 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     // actions
     loginByPhone,
+    loginByWechat,
+    sendSmsCode,
     fetchMe,
     logout,
     onUnauthorized,

@@ -25,6 +25,7 @@ import * as address from './address.js';
 import * as coupon from './coupon.js';
 import * as review from './review.js';
 import * as virtualnumber from './virtualnumber.js';
+import * as auth from './auth.js';
 
 // named re-export：让 `import { xxx } from '@/api'` 也能工作
 export * from './candidates.js';
@@ -34,6 +35,7 @@ export * from './address.js';
 export * from './coupon.js';
 export * from './review.js';
 export * from './virtualnumber.js';
+export * from './auth.js';
 
 /**
  * 命名空间聚合（默认导出）。
@@ -46,6 +48,7 @@ const api = {
   coupon,
   review,
   virtualnumber,
+  auth,
 };
 
 export default api;
