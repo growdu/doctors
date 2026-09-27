@@ -1,0 +1,13 @@
+// src/uni.scss
+//
+// uni-app 的全局 SCSS 入口。
+// @dcloudio/vite-plugin-uni 在每个 .scss / <style lang="scss"> 编译前
+// 会把此文件内容注入到 additionalData。
+//
+// uView Plus 3.x 各组件 .vue 内部直接用 $u-primary 等变量，
+// 没有这些变量声明会触发 "Undefined variable: $u-primary" 报错。
+//
+// 此处引入 uview-plus 的 theme.scss（仅变量）+ 公共 mixin，
+// 让 App.vue / pages / components 编译时都能找到这些变量。
+
+@import 'uview-plus/theme.scss';

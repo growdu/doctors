@@ -1,0 +1,25 @@
+{
+  "name": "doctors-patient-miniapp",
+  "appid": "__UNI__DOCTORS1",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "transformPx": false,
+  "app-plus": {
+    "distribute": {
+      "android": {
+        "minSdkVersion": 21
+      },
+      "ios": {
+        "minimumVersion": "12.0"
+      }
+    }
+  },
+  "vueVersion": "3",
+  "h5": {
+    "title": "陪诊师平台",
+    "router": {
+      "mode": "hash",
+      "base": "/"
+    }
+  }
+}
