@@ -46,3 +46,12 @@ Thumbs.dbsite/
 venv/
 __pycache__/
 *.pyc
+
+# JS / TS workspace 根目录污染防护
+#   - 任何子项目误把依赖提到 doctors 根时（pnpm 误判等），不应被误 commit
+#   - 子项目自己的 node_modules / package.json 由其本地 .gitignore 接管
+/node_modules/
+/package.json
+/pnpm-lock.yaml
+/test-results/
+/playwright-report/

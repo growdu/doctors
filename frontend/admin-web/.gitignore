@@ -47,6 +47,13 @@ Desktop.ini
 # Test
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
 
-# MSW
-public/mockServiceWorker.js
+# TypeScript build 缓存 + vite plugin emit
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+
+# MSW — worker script 需提交（vite dev 直接 serve）
+# public/mockServiceWorker.js
