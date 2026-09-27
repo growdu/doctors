@@ -70,7 +70,7 @@ export function EscortPendingCountdown({
       data-expired={expired ? 'true' : 'false'}
       data-critical={isCritical ? 'true' : 'false'}
     >
-      {expired ? expiredText : `${remaining}s`}
+      {expired ? expiredText : `剩余 ${remaining}s`}
     </span>
   );
 }

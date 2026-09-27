@@ -111,7 +111,7 @@ describe('OrderDetailPage v2 选人模式分支', () => {
     expect(countdown.style.color).toBe('rgb(255, 77, 79)');
     expect(countdown.getAttribute('data-critical')).toBe('true');
     // 剩余秒数 < 60s
-    const m = countdown.textContent?.match(/^(\d+)s$/);
+    const m = countdown.textContent?.match(/剩余\s*(\d+)s/);
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBeLessThan(60);
   });
