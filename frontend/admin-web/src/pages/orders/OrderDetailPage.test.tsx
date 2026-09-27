@@ -90,8 +90,8 @@ describe('OrderDetailPage v2 选人模式分支', () => {
       expect(screen.getByTestId('order-detail-page')).toBeInTheDocument(),
     );
     expect(screen.getByText(/订单 9001/)).toBeInTheDocument();
-    // 步骤条文本
-    expect(screen.getByText('待患者选人')).toBeInTheDocument();
+    // 步骤条文本（同时被 StatusBadge 也渲染 → getAllByText）
+    expect(screen.getAllByText('待患者选人').length).toBeGreaterThanOrEqual(2);
     // 已选陪诊师单元格显示「未选」
     const cell = screen.getByTestId('selected-escort-cell');
     expect(cell).toHaveTextContent('未选');

@@ -148,14 +148,16 @@ export default function OrderDetailPage() {
           </Descriptions.Item>
 
           {/* v2 新增字段：已选陪诊师 */}
-          <Descriptions.Item label="已选陪诊师" data-testid="selected-escort-cell">
-            {order.selected_escort_id ? (
-              <Tag color="blue" data-testid="selected-escort-tag">
-                #{order.selected_escort_id}
-              </Tag>
-            ) : (
-              <Tag data-testid="selected-escort-empty">未选</Tag>
-            )}
+          <Descriptions.Item label="已选陪诊师">
+            <span data-testid="selected-escort-cell">
+              {order.selected_escort_id ? (
+                <Tag color="blue" data-testid="selected-escort-tag">
+                  #{order.selected_escort_id}
+                </Tag>
+              ) : (
+                <Tag data-testid="selected-escort-empty">未选</Tag>
+              )}
+            </span>
           </Descriptions.Item>
 
           {/* v2 新增字段：30s 倒计时（仅 escort_pending_acceptance 时展示） */}
