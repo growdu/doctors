@@ -9,7 +9,7 @@
  * 对应 spec：2026-09-24-admin-web-setup.md §Task 3
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -70,9 +70,13 @@ describe('DashboardPage v2 待确认卡片', () => {
     // v2 新增 2 卡片标题
     expect(screen.getByText('待患者选人')).toBeInTheDocument();
     expect(screen.getByText('待陪诊师确认')).toBeInTheDocument();
-    // 数值（statistic 渲染在 .ant-statistic-content-value）
-    expect(screen.getByText('5')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
+    // 数值（statistic 渲染在 .ant-statistic-content-value）；
+    // 用 data-testid 锁住新增 2 卡片，避开 pending_refunds=2 / today_orders=12
+    // 这类数字混淆（多个 '2' 出现时 getByText 会报多元素）。
+    const selectingCard = screen.getByTestId('card-selecting-escort');
+    expect(within(selectingCard).getByText('5')).toBeInTheDocument();
+    const acceptingCard = screen.getByTestId('card-escort-pending-acceptance');
+    expect(within(acceptingCard).getByText('2')).toBeInTheDocument();
   });
 
   it('点击「待患者选人」卡片跳 /orders?status=selecting_escort', async () => {
