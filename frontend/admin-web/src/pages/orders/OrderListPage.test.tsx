@@ -72,12 +72,14 @@ describe('OrderListPage v2 selecting_escort 列与筛选', () => {
   it('renders selected_escort_id + escort_pending_expire_at 2 列', async () => {
     mocks.fetchOrders.mockResolvedValue({ data: FIXTURES, total: FIXTURES.length });
     renderList();
-    await waitFor(() =>
-      expect(screen.getByTestId('order-list-page')).toBeInTheDocument(),
-    );
-    // 列名
-    expect(screen.getByText('已选陪诊师')).toBeInTheDocument();
-    expect(screen.getByText('确认截止')).toBeInTheDocument();
+    // 等查询返回后断言：行 testid 出现
+    await waitFor(() => {
+      expect(screen.getByTestId('row-status-9001')).toBeInTheDocument();
+      expect(screen.getByTestId('row-status-9002')).toBeInTheDocument();
+    });
+    // 列名（AntD Table 会克隆 header 到 measure-cell，所以用 getAllByText）
+    expect(screen.getAllByText('已选陪诊师').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('确认截止').length).toBeGreaterThanOrEqual(1);
     // 行内容：9001 未选 / 9002 #42
     expect(screen.getByTestId('row-status-9001')).toHaveTextContent('待患者选人');
     expect(screen.getByTestId('row-status-9002')).toHaveTextContent('待陪诊师确认');
