@@ -78,6 +78,11 @@ export function ProTable<T extends object = object>(props: ProTableProps<T>) {
     width: '100%',
   };
 
+  // 业务层 density 是 'compact' | 'middle' | 'large'，映射到 antd Table
+  // size 三档 'small' | 'middle' | 'large'（antd 没有 'compact' 命名）。
+  const antdSize: 'small' | 'middle' | 'large' =
+    density === 'compact' ? 'small' : density;
+
   return (
     <div data-testid={testId} style={wrapperStyle}>
       <Table<T>
@@ -85,7 +90,7 @@ export function ProTable<T extends object = object>(props: ProTableProps<T>) {
         loading={loading}
         pagination={pagination}
         rowSelection={rowSelection}
-        size={density}
+        size={antdSize}
         scroll={scroll}
         rowKey={rest.rowKey ?? 'id'}
       />

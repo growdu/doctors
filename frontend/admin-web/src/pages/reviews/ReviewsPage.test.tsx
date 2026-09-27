@@ -108,8 +108,9 @@ describe('ReviewsPage', () => {
       total: FIXTURES.length,
     });
     renderPage();
+    // "陪诊师" 列渲染为 `${escort_name} (#${id})` — 跨多个 text node + 2 行都用同模板
     await waitFor(() =>
-      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
+      expect(screen.getAllByText(/赵陪诊\s*\(#1003\)/).length).toBeGreaterThanOrEqual(1),
     );
     expect(screen.getByText('服务专业')).toBeInTheDocument();
     expect(screen.getByTestId('row-rating-9001')).toHaveTextContent('★ 5');
@@ -153,7 +154,7 @@ describe('ReviewsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
+      expect(screen.getAllByText(/赵陪诊\s*\(#1003\)/).length).toBeGreaterThanOrEqual(1),
     );
     expect(screen.getByTestId('btn-reply-9001')).toBeInTheDocument();
     expect(screen.getByTestId('btn-hide-9001')).toBeInTheDocument();
@@ -166,7 +167,7 @@ describe('ReviewsPage', () => {
     });
     renderPage('viewer');
     await waitFor(() =>
-      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
+      expect(screen.getAllByText(/赵陪诊\s*\(#1003\)/).length).toBeGreaterThanOrEqual(1),
     );
     expect(screen.queryByTestId('btn-audit-9001')).not.toBeInTheDocument();
     expect(screen.queryByTestId('btn-reply-9001')).not.toBeInTheDocument();
@@ -188,7 +189,7 @@ describe('ReviewsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
+      expect(screen.getAllByText(/赵陪诊\s*\(#1003\)/).length).toBeGreaterThanOrEqual(1),
     );
     await user.click(screen.getByTestId('btn-audit-9001'));
     // Modal 出现 + result radio 默认 pass + 直接提交
@@ -219,7 +220,7 @@ describe('ReviewsPage', () => {
     });
     renderPage('super_admin');
     await waitFor(() =>
-      expect(screen.getByText('赵陪诊')).toBeInTheDocument(),
+      expect(screen.getAllByText(/赵陪诊\s*\(#1003\)/).length).toBeGreaterThanOrEqual(1),
     );
     await user.click(screen.getByTestId('btn-reply-9001'));
     await waitFor(() =>

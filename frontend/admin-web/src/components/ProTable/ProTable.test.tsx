@@ -61,7 +61,7 @@ describe('ProTable', () => {
         density="compact"
       />,
     );
-    expect(container.querySelector('.ant-table-sm')).not.toBeNull();
+    expect(container.querySelector('.ant-table-small')).not.toBeNull();
   });
 
   it('rowSelection.selectedRowKeys 透传', () => {
