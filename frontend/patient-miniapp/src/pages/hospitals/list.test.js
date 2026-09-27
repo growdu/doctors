@@ -12,6 +12,8 @@
 // 测试策略：
 //   - jest.doMock('@/stores/hospital.js') 注入 fake store
 //   - uView Plus 组件全部 stub（u-search / u-skeleton / u-empty / u-button）
+//
+// 注：v1.1 增量 —— 加入城市筛选 chips（brief：city + level 双筛 + keyword 搜索）
 
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
@@ -97,7 +99,7 @@ describe('hospitals/list.vue', () => {
     });
   });
 
-  it('mounted → 调 loadList({ page: 1, limit: 20, keyword: "", level: "" })', async () => {
+  it('mounted → 调 loadList({ page: 1, limit: 20, keyword: "", level: "", city_id: 0 })', async () => {
     const w = await mountPage();
     await flushPromises();
 
@@ -107,6 +109,7 @@ describe('hospitals/list.vue', () => {
       limit: 20,
       keyword: '',
       level: '',
+      city_id: 0,
     });
     expect(w.vm.hospitals).toHaveLength(2);
   });
@@ -196,5 +199,26 @@ describe('hospitals/list.vue', () => {
     expect(empty.exists()).toBe(true);
     expect(empty.attributes('data-text')).toBe('加载失败');
     expect(w.find('[data-test="retry-btn"]').exists()).toBe(true);
+  });
+
+  it('城市 chips 渲染 + 切换 → loadList 用新 city_id', async () => {
+    const w = await mountPage();
+    await flushPromises();
+
+    // 城市 chips 渲染（5 项：全部/北京/上海/广州/深圳）
+    expect(w.find('[data-test="city-chip-0"]').exists()).toBe(true);
+    expect(w.find('[data-test="city-chip-1"]').exists()).toBe(true);
+    expect(w.find('[data-test="city-chip-2"]').exists()).toBe(true);
+    expect(w.find('[data-test="city-chip-3"]').exists()).toBe(true);
+    expect(w.find('[data-test="city-chip-4"]').exists()).toBe(true);
+
+    // 点击「北京」（key=1）
+    await w.find('[data-test="city-chip-1"]').trigger('click');
+    await flushPromises();
+    expect(fakeStore.loadList).toHaveBeenCalledTimes(2);
+    expect(fakeStore.loadList).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      city_id: 1,
+    }));
+    expect(w.vm.currentCity).toBe(1);
   });
 });

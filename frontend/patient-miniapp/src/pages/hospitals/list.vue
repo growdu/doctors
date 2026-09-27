@@ -38,6 +38,22 @@
       />
     </view>
 
+    <!-- 城市筛选 chips -->
+    <scroll-view
+      class="page-hospitals-list__filters"
+      data-test="city-filters"
+      scroll-x
+    >
+      <view
+        v-for="city in CITY_FILTERS"
+        :key="city.key"
+        class="page-hospitals-list__chip"
+        :class="{ 'page-hospitals-list__chip--active': currentCity === city.key }"
+        :data-test="'city-chip-' + city.key"
+        @click="onCityChange(city.key)"
+      >{{ city.label }}</view>
+    </scroll-view>
+
     <!-- 等级筛选 chips -->
     <scroll-view
       class="page-hospitals-list__filters"
@@ -115,13 +131,25 @@ const LEVEL_FILTERS = [
   { key: '二甲',     label: '二甲' },
 ];
 
+// 城市筛选（与 hospital.city_id 1:1；key=0 表示全部）
+// 简化覆盖：v1 仅展示 4 个一线城市 + 全部；后端 query 仍按 city_id 透传
+const CITY_FILTERS = [
+  { key: 0,           label: '全部' },
+  { key: 1,           label: '北京' },
+  { key: 2,           label: '上海' },
+  { key: 3,           label: '广州' },
+  { key: 4,           label: '深圳' },
+];
+
 export default {
   name: 'HospitalsListPage',
   data() {
     return {
       LEVEL_FILTERS,
+      CITY_FILTERS,
       keyword: '',
       currentLevel: '',
+      currentCity: 0,
       hospitals: [],
       loading: false,
       loadError: false,
@@ -147,6 +175,7 @@ export default {
           limit: 20,
           keyword: this.keyword || '',
           level: this.currentLevel || '',
+          city_id: this.currentCity || 0,
         }, extra || {});
         const r = await this.hospitalStore.loadList(query);
         const items = (r && r.items) || [];
@@ -183,6 +212,13 @@ export default {
       this.fetchList();
     },
 
+    /** 城市 chip 切换 */
+    onCityChange(key) {
+      this.currentCity = key;
+      this._loaded = false;
+      this.fetchList();
+    },
+
     onRetry() {
       this.fetchList();
     },
@@ -195,9 +231,10 @@ export default {
     },
   },
   onLoad(query) {
-    // 预留：可能从外部传入 ?keyword=xxx / ?level=xxx（admin-web 跳转 / DashboardPage）
+    // 预留：可能从外部传入 ?keyword=xxx / ?level=xxx / ?city=xxx（admin-web 跳转 / DashboardPage）
     if (query && query.keyword) this.keyword = query.keyword;
     if (query && query.level) this.currentLevel = query.level;
+    if (query && query.city) this.currentCity = Number(query.city) || 0;
   },
   mounted() {
     if (!this._loaded) {
