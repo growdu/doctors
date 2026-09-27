@@ -57,16 +57,19 @@ function renderFinance() {
 describe('FinancePage', () => {
   it('渲染 4 个核心 Statistic 卡片', async () => {
     renderFinance();
-    await waitFor(() =>
-      expect(screen.getByTestId('card-gmv')).toBeInTheDocument(),
-    );
+    // Card loading={isLoading} 在 loading 时只渲染骨架，需等待 Statistic 出现
+    // Statistic 标题与 Table 列头可能同名，用 getAllByText
+    await waitFor(() => {
+      expect(screen.getAllByText('GMV').length).toBeGreaterThanOrEqual(1);
+    });
+    expect(screen.getAllByText('退款额').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('净收入').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('提现汇总').length).toBeGreaterThanOrEqual(1);
+    // Card data-testid 也在
+    expect(screen.getByTestId('card-gmv')).toBeInTheDocument();
     expect(screen.getByTestId('card-refund')).toBeInTheDocument();
     expect(screen.getByTestId('card-net')).toBeInTheDocument();
     expect(screen.getByTestId('card-withdraw')).toBeInTheDocument();
-    expect(screen.getByText('GMV')).toBeInTheDocument();
-    expect(screen.getByText('退款额')).toBeInTheDocument();
-    expect(screen.getByText('净收入')).toBeInTheDocument();
-    expect(screen.getByText('提现汇总')).toBeInTheDocument();
   });
 
   it('渲染每日 GMV + 渠道拆分表', async () => {
