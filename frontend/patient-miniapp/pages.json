@@ -185,6 +185,15 @@
         "navigationBarBackgroundColor": "#FFFFFF",
         "backgroundColor": "#F5F5F5"
       }
+    },
+    {
+      "path": "pages/sos/trigger",
+      "style": {
+        "navigationBarTitleText": "紧急呼救",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
     }
   ],
   "globalStyle": {
