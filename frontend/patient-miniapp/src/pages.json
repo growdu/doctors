@@ -188,6 +188,15 @@
       }
     },
     {
+      "path": "pages/messages/index",
+      "style": {
+        "navigationBarTitleText": "订单消息",
+        "navigationBarTextStyle": "black",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "backgroundColor": "#F5F5F5"
+      }
+    },
+    {
       "path": "pages/message/detail",
       "style": {
         "navigationBarTitleText": "消息详情",
