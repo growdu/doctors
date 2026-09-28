@@ -104,6 +104,16 @@ type RedisPool struct {
 	popScript *redis.Script
 }
 
+// Ping 检查底层 redis 连接是否可用；供 cmd/main.go 在装配后做健康检查。
+func (p *RedisPool) Ping(ctx context.Context) error {
+	return p.rdb.Ping(ctx).Err()
+}
+
+// Close 关闭底层 redis 客户端；cmd/main.go 注册到 shutdown hook。
+func (p *RedisPool) Close() error {
+	return p.rdb.Close()
+}
+
 // NewRedisPool 构造一个 RedisPool。
 func NewRedisPool(rdb *redis.Client) *RedisPool {
 	return &RedisPool{

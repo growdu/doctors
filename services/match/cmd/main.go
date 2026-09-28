@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -63,8 +64,17 @@ func main() {
 	// match 无 DB pool → 不注入 StatProvider，DB 指标不会出现在 /metrics。
 	metrics.InitMetrics("match-service", cfg.ServiceVersion)
 
-	// v1 用 NopPool；接 Redis 后换 RedisPool
-	svc := service.New(pool.NewNopPool(), nilEscortLoader{}, 0)
+	// pool 装配：cfg.Redis.Addr 非空 → RedisPool；空 → NopPool（单元测试 / 离线 demo）。
+	matchPool := buildPool(cfg)
+
+	// escort loader 装配：env DOCTORS_DEV_FAKE_ESCORT=1 → devFakeEscortLoader
+	// （固定返回 3 个 escort 候选，便于 dev 端到端跑通 Match 业务流）。
+	escortLoader := chooseEscortLoader()
+	if _, ok := escortLoader.(devFakeEscortLoader); ok {
+		logger.L().Warn("match-service: DOCTORS_DEV_FAKE_ESCORT=1; using devFakeEscortLoader")
+	}
+
+	svc := service.New(matchPool, escortLoader, 0)
 	h := handler.New(svc)
 
 	// 依赖健康检查（/readyz）。match 无 DB；kafka brokers 非空时注册 broker checker。
@@ -143,6 +153,54 @@ type nilEscortLoader struct{}
 
 func (nilEscortLoader) ListAvailable(ctx context.Context, city string) ([]contracts.EscortSummary, error) {
 	return nil, nil
+}
+
+// buildPool 按 cfg.Redis 装配 pool.Pool：
+//   - cfg.Redis.Addr 空 → *NopPool（单元测试 / 离线 demo）
+//   - 非空 → *RedisPool（新 redis.Client + Ping 校验；cmd 装配层负责 Close）
+func buildPool(cfg *config.Config) pool.Pool {
+	if cfg.Redis.Addr == "" {
+		return pool.NewNopPool()
+	}
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	return pool.NewRedisPool(rdb)
+}
+
+// devFakeEscortLoader 是 dev 环境接入 escort 数据的简易实现：
+//   - 固定返回 3 个 escort（id 1001/1002/1003），city 与查询参数对齐
+//   - rating 4.0+，距离近 → 全部满足 scorer minScore 阈值
+//   - 时间窗口默认全天（AvailableFrom=epoch0, AvailableUntil=epoch0）让所有 service_time 通过
+//
+// 启用方式：环境变量 DOCTORS_DEV_FAKE_ESCORT=1。
+//
+//	接入 escort-service 后会移除本类型，由真实 gRPC stub / HTTP client 替代。
+type devFakeEscortLoader struct{}
+
+func (devFakeEscortLoader) ListAvailable(ctx context.Context, city string) ([]contracts.EscortSummary, error) {
+	return []contracts.EscortSummary{
+		{ID: 1001, UserID: 2001, City: city, Rating: 4.9, Lat: 39.91, Lng: 116.40, Status: "available", AvailableFrom: time.Time{}, AvailableUntil: time.Time{}},
+		{ID: 1002, UserID: 2002, City: city, Rating: 4.7, Lat: 39.92, Lng: 116.41, Status: "available", AvailableFrom: time.Time{}, AvailableUntil: time.Time{}},
+		{ID: 1003, UserID: 2003, City: city, Rating: 4.5, Lat: 39.93, Lng: 116.42, Status: "available", AvailableFrom: time.Time{}, AvailableUntil: time.Time{}},
+	}, nil
+}
+
+// chooseEscortLoader 决定 escort 数据源：
+//   - env DOCTORS_DEV_FAKE_ESCORT=1 → devFakeEscortLoader
+//   - 否则 → nilEscortLoader（占位，返回 nil 候选）
+func chooseEscortLoader() service.EscortProvider {
+	if os.Getenv("DOCTORS_DEV_FAKE_ESCORT") == "1" {
+		return devFakeEscortLoader{}
+	}
+	return nilEscortLoader{}
+}
+
+// shouldStartConsumer 判断是否启用 Kafka consumer。
+func shouldStartConsumer(cfg *config.Config) bool {
+	return len(cfg.Kafka.Brokers) > 0
 }
 
 // runHealthzServer 在 :9090 起独立 http server，仅暴露 /healthz。
