@@ -33,6 +33,16 @@ const domIcons: Record<Role, string> = {
   viewer: '👁️',
 };
 
+function goTo(path: string) {
+  // uni-app 运行时全局 uni；web 端用 history.pushState 兜底
+  const w = (typeof globalThis !== 'undefined' ? (globalThis as any).uni : undefined);
+  if (w && typeof w.navigateTo === 'function') {
+    w.navigateTo({ url: `/pages/${path}/index` });
+  } else if (typeof window !== 'undefined') {
+    window.history.pushState({}, '', `/pages/${path}/index`);
+  }
+}
+
 async function onSendSms() {
   smsSent.value = true;
   if (typeof uni !== 'undefined') {
@@ -119,7 +129,7 @@ async function onSwitchRole(r: Role) {
         <button
           v-for="(path, name) in { '🩺 患者域': 'patient', '🚑 陪诊师域': 'escort', '🛡️ 管理后台': 'admin' }"
           :key="name"
-          @click="typeof uni !== 'undefined' ? uni.navigateTo({ url: `/pages/${path}/index` }) : null"
+          @click="goTo(path)"
           style="display: block; width: 100%; padding: 10px; margin-bottom: 8px; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
         >
           {{ name }}

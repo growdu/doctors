@@ -199,7 +199,7 @@ jobs:
           - name: unified-app
             directory: frontend/unified-app
             setup: node-pnpm
-            command: pnpm install --no-audit --no-fund && pnpm typecheck && pnpm build:h5
+            command: pnpm install && pnpm typecheck && pnpm build:h5
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
