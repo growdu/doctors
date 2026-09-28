@@ -3734,3 +3734,90 @@ curl -H "Authorization: Bearer $token2" :8083/api/v1/match/feed?order_id=1
 | P3 | Task 1.10 移除 v1 Claims.Role | Phase 4 收尾；前端迁完后再移除（破坏性变更）|
 | P3 | admin 端点加 `POST /users/:id/roles` | 运营审核通过添加角色（当前 dev fake 用 psql 直接 INSERT）|
 
+## 43. unified-app v2 Phase 2 spike 落地（3 commits）
+
+**目标**：按 plan `2026-09-28-unified-app-v2.md` Phase 2 推进，
+新建 `frontend/unified-app/` 项目骨架 + build:h5 + dev:h5 跑通 + 真后端联通验证。
+
+### 43.1 3 commits 表
+
+| Commit | 内容 |
+| ------ | ---- |
+| `a28ea2f` | 新建 v2 统一 App 项目骨架（20 files / 836 lines） |
+| `3f59e8a` | 修复 build:h5 链路（vite config ESM interop + vue 3.5 + proxy） |
+| `d10703b` | Playwright e2e spike 截图（h5 渲染 + proxy 联通 2 passed） |
+
+### 43.2 已落地
+
+| 维度 | 状态 |
+| ---- | ---- |
+| 项目骨架 | ✅ package.json + tsconfig + vite.config.js + manifest.json + pages.json + uni.scss |
+| 类型层 | ✅ src/types/auth.ts（Role 枚举 + MeResponse + LoginResponse + SwitchRoleResponse）|
+| API 层 | ✅ src/api/client.ts + src/api/auth.ts（Bearer 自动注入 + 401 回调） |
+| 状态层 | ✅ src/store/auth.ts（Pinia setup syntax，bootstrap / login / switchRole / hasRole / persist） |
+| 组件层 | ✅ src/components/shared/RoleGuard.vue（路由级守卫） |
+| 页面层 | ✅ home + patient + escort + admin（4 页 demo） |
+| build:h5 | ✅ 212KB dist/build/h5 |
+| dev:h5 | ✅ port 5174（占则 5175）+ vite proxy /api → :8081 |
+| e2e | ✅ Playwright 2 passed (2.1s) + spike-1-home.png 截图证明 spike 渲染正确 |
+
+### 43.3 设计决策（按时间倒序）
+
+#### 43.3.1 vite config ESM interop（关键）
+
+`@dcloudio/vite-plugin-uni` 是 CJS module，package.json 没设 `"exports"`；
+ESM 环境下 `import default` 拿到 `{ default: { default: fn } }` 双层包装。
+
+```ts
+import * as uniModule from '@dcloudio/vite-plugin-uni';
+const uni = uniModule.default.default || uniModule.default;
+export default { plugins: [uni()], ... };
+```
+
+patient-miniapp 用 `import uni from ...`（CJS 模块）居然 work，是 vite 内部 ESM/CJS interop 自动 unwrap 的副作用；unified-app 用 `.ts`（默认 ESM）需要显式穿透双层 default。
+
+#### 43.3.2 vue 3.4 → 3.5
+
+uni-app 3.0.0-4030620241128001 用了 vue 3.5+ 才有的 `isInSSRComponentSetup` 内部函数；
+`vue ^3.4.21`（package.json spec）hoist 后实际装的 3.5.43（patient-miniapp 同款），build 报错。
+锁 `vue ^3.5.0` 让 pnpm 显式装 3.5.x。
+
+#### 43.3.3 uview-plus 暂时移除
+
+uview-plus 3.8.125 组件 u-index-list 有重复声明 bug（第三方包 issue）；
+spike 阶段用原生 HTML 元素（`<input>`, `<button>`, `<view>`）；
+Phase 3 业务迁移时换 ant-design-vue-mobile 或 fork uview-plus fix。
+
+#### 43.3.4 Pinia setup syntax
+
+`hasRole(role: Role)` 需要参数 → 不能放在 getters（getter 必须无参）；
+改 setup syntax 让 `hasRole` 作为 action，TS 推导完整（this 上下文类型不变）。
+
+#### 43.3.5 vite proxy 跨域
+
+h5 origin (5174) 跨域到 auth-service (8081) + order-service (8082) + match-service (8083)；
+Plan §2.5 阶段 3 业务迁移时按域切分：
+- `/api/v1/auth/*` → 8081
+- `/api/v1/orders/*` → 8082
+- `/api/v1/match/*` → 8083
+
+### 43.4 验证截图
+
+`test-results/unified-app-spike-1-home.png`（30KB）：
+- 标题 "Doctors 统一 App"
+- 主卡片 "unified-app v2 spike" + "3 端合并 + 多角色 + 角色切换 demo"
+- SMS 登录表单：手机号（默认 13800138000）+ 验证码（6 位 mock code placeholder）+ 发验证码 + 登录按钮
+
+### 43.5 待办（Phase 3 业务迁移时清理）
+
+| 优先级 | 项 | 说明 |
+| ------ | ---- | ---- |
+| P1 | Phase 3 admin 域迁移 | 51 pages → unified-app/admin/ |
+| P1 | Phase 3 patient 域迁移 | 28 pages → unified-app/patient/ |
+| P1 | Phase 3 escort 域迁移 | 79 dart files → unified-app/escort/（Flutter→Vue 重写）|
+| P2 | uview-plus bug fix 或换 antd-mobile | 当前 spike 用原生元素 |
+| P2 | uni-app h5 button role 暴露 | 当前用 :text 匹配兜底 |
+| P3 | 旧 3 端 git mv 到 _archive_v1/ | Plan §4 Phase 4 收尾 |
+| P3 | Task 1.10 移除 v1 Claims.Role | Plan §4 Phase 4 收尾 |
+| P3 | admin POST /users/:id/roles 端点 | 当前 dev fake psql 直接 INSERT |
+
