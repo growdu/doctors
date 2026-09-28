@@ -1,0 +1,37 @@
+{
+  "easycom": {
+    "^u-(.*)": "uview-plus/components/u-$1/u-$1.vue"
+  },
+  "pages": [
+    {
+      "path": "pages/home/index",
+      "style": {
+        "navigationBarTitleText": "Doctors 统一 App"
+      }
+    },
+    {
+      "path": "pages/patient/index",
+      "style": {
+        "navigationBarTitleText": "患者域"
+      }
+    },
+    {
+      "path": "pages/escort/index",
+      "style": {
+        "navigationBarTitleText": "陪诊师域"
+      }
+    },
+    {
+      "path": "pages/admin/index",
+      "style": {
+        "navigationBarTitleText": "管理后台"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "Doctors",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F8F8F8"
+  }
+}

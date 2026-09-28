@@ -1,0 +1,10 @@
+/* uni-app 全局 SCSS 变量（覆盖 uView Plus 默认主题） */
+$uni-color-primary: #1677ff;
+$uni-color-success: #52c41a;
+$uni-color-warning: #faad14;
+$uni-color-error: #ff4d4f;
+
+/* uView Plus 自定义主题色同步 */
+$u-primary: $uni-color-primary;
+$u-primary-light: #4096ff;
+$u-primary-dark: #0958d9;

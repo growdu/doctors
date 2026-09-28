@@ -1,0 +1,52 @@
+{
+  "name": "Doctors Unified",
+  "appid": "__UNI__UNIFIED",
+  "description": "Doctors 统一 App（v2 unified-app）",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {},
+    "distribute": {
+      "android": {
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>"
+        ],
+        "minSdkVersion": 21,
+        "targetSdkVersion": 34,
+        "abiFilters": ["armeabi-v7a", "arm64-v8a"]
+      },
+      "ios": {},
+      "sdkConfigs": {}
+    }
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "wxPLACEHOLDER",
+    "setting": { "urlCheck": false },
+    "usingComponents": true
+  },
+  "h5": {
+    "title": "Doctors Unified",
+    "router": {
+      "mode": "history",
+      "base": "/"
+    },
+    "devServer": {
+      "port": 5174,
+      "disableHostCheck": false,
+      "https": false
+    }
+  },
+  "vueVersion": "3"
+}

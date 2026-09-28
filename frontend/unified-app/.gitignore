@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+unpackage/
+
+# Logs
+*.log
+
+# Cache
+.cache/
+.vite/
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# MSW worker
+public/mockServiceWorker.js
+
+# uni-app build artifacts
+*/node_modules/
+*/unpackage/
+*/dist/
