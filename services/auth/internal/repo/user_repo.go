@@ -121,11 +121,13 @@ func (r *UserRepo) AddRole(ctx context.Context, userID int64, role Role) (RolesS
 		UPDATE users
 		SET roles = (
 			SELECT jsonb_agg(DISTINCT v)
-			FROM jsonb_array_elements_text(
-				CASE WHEN jsonb_typeof(roles) = 'array' THEN roles ELSE '[]'::jsonb END
-			) AS v
-			UNION
-			SELECT $2::text
+			FROM (
+				SELECT jsonb_array_elements_text(
+					CASE WHEN jsonb_typeof(roles) = 'array' THEN roles ELSE '[]'::jsonb END
+				) AS v
+				UNION ALL
+				SELECT $2::text AS v
+			) AS combined
 		),
 		updated_at = NOW()
 		WHERE id = $1
