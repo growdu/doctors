@@ -31,6 +31,14 @@ const RoleKey = "role"
 // 不在白名单 → 403 + 业务码 11003（CodeAdminForbidden）。
 // Auth 中间件未先跑 → role 为空字符串 → 401（视为未登录）。
 func RoleAuth(allowedRoles ...string) gin.HandlerFunc {
+	return RoleAuthWithKey(RoleKey, allowedRoles...)
+}
+
+// RoleAuthWithKey 是 RoleAuth 的 ctx-key 可配置版本；用于各 service 自定义 ctx key
+// （如 order 用 "order_role"，match 用 "match_role"）。
+//
+// 优先级：v2 ClaimsFromCtx（与 RoleKey 无关）→ ctx[roleKey]。
+func RoleAuthWithKey(roleKey string, allowedRoles ...string) gin.HandlerFunc {
 	allowed := make(map[string]struct{}, len(allowedRoles))
 	for _, r := range allowedRoles {
 		allowed[r] = struct{}{}
@@ -44,7 +52,6 @@ func RoleAuth(allowedRoles ...string) gin.HandlerFunc {
 					return
 				}
 			}
-			// v2 token 没命中：回退 v1 字段再确认（极端情况 token v1 但 allowedRoles 含 v1 role）
 			if _, ok := allowed[cl.Role]; ok {
 				c.Next()
 				return
@@ -54,8 +61,8 @@ func RoleAuth(allowedRoles ...string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		// v1 fallback：ctx["role"]
-		role := c.GetString(RoleKey)
+		// v1 fallback：ctx[roleKey]
+		role := c.GetString(roleKey)
 		if role == "" {
 			httpx.Fail(c, int(errs.CodeUnauthorized), "missing role")
 			c.Abort()

@@ -17,6 +17,7 @@ import (
 	"github.com/growdu/doctors/services/order/internal/service"
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
+	sharedmw "github.com/growdu/doctors/shared/middleware"
 )
 
 // Handler 持有 service 引用。
@@ -37,16 +38,30 @@ func New(svc *service.Service) *Handler {
 //   - 新增 POST /orders/:id/select-escort（患者选陪诊师）
 //   - 新增 POST /orders/:id/confirm-accept（陪诊师 30s 内确认）
 //   - 新增 POST /orders/:id/reject-accept（陪诊师拒接或 scheduler 超时回退）
+//
+// v2（unified-app）：按角色分组挂 sharedmw.RoleAuth 守卫：
+//   - patientRoutes：Create / SelectEscort / Cancel（patient-only）
+//   - escortRoutes：ConfirmAccept / RejectAccept / Finish（escort-only）
+//   - 公共：List / Get（任意已登录用户；handler 内部按 patient_id 或 admin 视图过滤）
 func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	orders := r.Group("/orders")
-	orders.POST("", h.Create)
+
+	// patient-only 端点：兼职 escort 的用户切到 escort 后不能下新单
+	// v2：用 RoleAuthWithKey 适配 order 自己的 ctx key（middleware.RoleKey = "order_role"）
+	patientRoutes := orders.Group("", sharedmw.RoleAuthWithKey(middleware.RoleKey, "patient"))
+	patientRoutes.POST("", h.Create)
+	patientRoutes.POST("/:id/select-escort", h.SelectEscort)
+	patientRoutes.POST("/:id/cancel", h.Cancel)
+
+	// escort-only 端点：patient 不能 confirm-accept / finish
+	escortRoutes := orders.Group("", sharedmw.RoleAuthWithKey(middleware.RoleKey, "escort"))
+	escortRoutes.POST("/:id/confirm-accept", h.ConfirmAccept)
+	escortRoutes.POST("/:id/reject-accept", h.RejectAccept)
+	escortRoutes.POST("/:id/finish", h.Finish)
+
+	// 公共端点：List/Get 任意已登录用户均可（业务过滤由 handler 内部做）
 	orders.GET("", h.List)
 	orders.GET("/:id", h.Get)
-	orders.POST("/:id/select-escort", h.SelectEscort)
-	orders.POST("/:id/confirm-accept", h.ConfirmAccept)
-	orders.POST("/:id/reject-accept", h.RejectAccept)
-	orders.POST("/:id/cancel", h.Cancel)
-	orders.POST("/:id/finish", h.Finish)
 }
 
 // respondError 统一错误翻译。
