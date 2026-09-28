@@ -212,12 +212,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Setup pnpm (unified-app)
+      # unified-app 用 pnpm：pnpm-lock.yaml + @types/node 含 link: 协议（npm 不支持）
+      # Node 20 自带 corepack → corepack prepare pnpm@8 --activate 可用 pnpm
+      # - 不用 pnpm/action-setup@v4（实测有 PATH 问题，step 'Run lint/test' 1 秒内 fail）
+      - name: Enable pnpm via corepack (unified-app)
         if: matrix.setup == 'node-pnpm'
-        # unified-app 用 pnpm（pnpm-lock.yaml + @types/node 含 link: 协议），npm 不支持 link:
-        uses: pnpm/action-setup@v4
-        with:
-          version: 12.6.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
 
       - name: Setup Flutter
         if: matrix.setup == 'flutter'
