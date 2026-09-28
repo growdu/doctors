@@ -3327,3 +3327,174 @@ node /Users/growduduan/ai/doctors/node_modules/.pnpm/@playwright+test@1.48.0/nod
 | P2 | doctors root 残留 `node_modules/@playwright/` `package.json` `pnpm-lock.yaml`（git ignored 但未删除） | 后续一次性 `rm -rf` 清掉，避 rm 拦截风险用 `git rm --cached` |
 | P3 | @playwright/test 还没正式 link 到 admin-web 的 node_modules | 后续 v1.7 在 admin-web `pnpm add -D @playwright/test` 时避免 workspace root 污染 |
 
+## 40. 后端 P0 真跑通（PG + Redis + Kafka 端到端联通）
+
+**目标**：把 9/24 起的"后端骨架齐但从未真跑过"补齐 —— 12 个 migrations
+落库 + auth/order 真启 + 业务流（SMS 登录 → 下单）端到端跑通。这是 §6 plan
+阶段 4 「Task 4.6 端到端 smoke」的前置条件：没有真后端，前端 e2e 永远只能
+靠 MSW 接管。
+
+### 40.1 三段式 commit 表
+
+| Commit | Commit msg | 改动的文件 | 验证 |
+| ------ | ---------- | ---------- | ---- |
+| `4ddde67` | `feat(order): dev 装配 DOCTORS_DEV_FAKE_USER=1 走 fake lookup + seed 迁移落地` | `migrations/0015_dev_seed.{up,down}.sql`（新增，hospitals+packages 幂等 seed）<br>`services/order/cmd/main.go`（修 unwiredUsers.FindByID panic + 新增 devFakeUsers + 装配 env 切换）<br>`services/order/cmd/main_test.go`（加 3 个 test：TestUnwiredUsers_ReturnsSentinel + TestDevFakeUsers_ReturnsVerifiedPatient + TestDevFakeUsers_RejectsNonPositiveID） | `go test ./services/order/cmd/...` 1.813s pass；端到端下单成功 |
+| `b203265` | `chore(gitignore): 加 /cmd 防止 go build 不带 -o 时污染 root` | `.gitignore`（+1 行） | — |
+
+### 40.2 后端真跑通链路（auth → order 全栈）
+
+#### 步骤 1：docker compose 起 PG + Redis + Kafka
+
+```bash
+# 已运行 3 天（healthy）：doctors-postgres:5432 / doctors-redis:6379 / doctors-kafka:9092
+docker compose ps
+```
+
+#### 步骤 2：装 golang-migrate + 跑 12 个 migrations
+
+```bash
+brew install golang-migrate
+migrate -path migrations -database "postgres://doctors:doctors@127.0.0.1:5432/doctors?sslmode=disable" up
+# ⚠️ 中途遇到 0004 dirty=true（refund_policies 残留），force 4 + 重跑
+# ⚠️ force 后 0004 的 refunds 表 CREATE 部分被跳过，单独 psql 补建
+migrate -path migrations -database "..." force 4
+migrate -path migrations -database "..." up
+docker exec -i doctors-postgres psql -U doctors -d doctors <<< "
+CREATE TABLE refunds (...);   -- 补 0004 前段
+CREATE INDEX idx_refunds_order ...;
+"
+```
+
+落地结果：14 张业务表 + 1 张 schema_migrations（version=14 dirty=false），
+后跑 0015_dev_seed 增加 hospitals（3）+ packages（3），最终 version=15。
+
+#### 步骤 3：编译 + 启 auth-service
+
+```bash
+go build -o /tmp/auth-build ./services/auth/cmd
+/tmp/auth-build > /tmp/auth.log 2>&1 &
+# /readyz：postgres-main OK (12ms) + kafka-brokers OK (184µs)
+curl -s http://127.0.0.1:8081/readyz
+# {"healthy":true,"checks":[{...postgres-main ok...},{...kafka-brokers ok...}]}
+```
+
+#### 步骤 4：业务流（SMS 登录 → /me）
+
+```bash
+# SMS send
+curl -X POST http://127.0.0.1:8081/api/v1/auth/sms/send \
+  -H "Content-Type: application/json" -d '{"phone":"13900139005"}'
+# → auth.log: "[sms mock] phone=13900139005 code=074397"
+
+# Login with sms type
+curl -X POST http://127.0.0.1:8081/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"type":"sms","phone":"13900139005","code":"074397"}'
+# → {"code":0,"data":{"token":"eyJ...uid=7","user_id":7}}
+
+# /me
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/api/v1/users/me
+# → {"code":0,"data":{"id":7,"phone":"13900139005","real_name_verified":false,"role":"patient"}}
+```
+
+✅ PG 真写入 users 表（id=7），JWT 真签发（HS256 + payload 含 uid/role/exp）。
+
+#### 步骤 5：编译 + 启 order-service（DOCTORS_DEV_FAKE_USER=1）
+
+```bash
+go build -o /tmp/order-build ./services/order/cmd
+DOCTORS_DEV_FAKE_USER=1 /tmp/order-build > /tmp/order.log 2>&1 &
+# /readyz：postgres-main OK (7ms) + redis-main OK (3ms) + kafka-brokers OK (355µs)
+```
+
+#### 步骤 6：业务流（Create Order）
+
+```bash
+curl -X POST http://127.0.0.1:8082/api/v1/orders \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"package_id":4,"hospital_id":4,"service_start_at":"2026-10-01T10:00:00Z","amount":299.00,"address":"北京协和医院"}'
+# → {"code":0,"data":{"id":1,"order_no":"OF33CD5EA95EF4335","status":"created",...}}
+
+# DB 验证
+docker exec doctors-postgres psql ... -c "SELECT id,order_no,patient_id,hospital_id,package_id,status,amount FROM orders;"
+# → 1 | OF33CD5EA95EF4335 | 7 | 4 | 4 | created | 299.00
+```
+
+✅ Redis SETNX locker 启用 + Kafka publisher 启用 + 订单真写入 PG。
+
+### 40.3 设计决策
+
+#### 40.3.1 devFakeUsers 仅 dev 环境生效
+
+`unwiredUsers.FindByID` 原返回 `(nil, nil)`，触发 service.order_service.go:181
+的 `if !u.RealNameVerified` 触发 nil pointer dereference → POST /orders panic 500。
+修法分两步：
+  1. **修复 panic**：`unwiredUsers.FindByID` 改返回 sentinel `errUnwiredUsers`，
+     让 service.Create 走 `errs.CodeNotFound "patient not found"` 分支。
+     这条路径不再 panic，但业务流仍然报 12001（patient not found）。
+  2. **dev bypass**：新增 `devFakeUsers` struct，env `DOCTORS_DEV_FAKE_USER=1`
+     装配它。固定返回 `{ID, Role:"patient", RealNameVerified:true}`，
+     任意 uid 都视为已实名。生产环境不设 env，仍走 unwiredUsers 占位（返回
+     明确的 sentinel error，便于排查 user-service 接线问题）。
+
+接入 user-service gRPC stub / 本地直连后，devFakeUsers 会被移除，由真实
+实现替代（dev 模式可保留作为 demo 兜底）。
+
+#### 40.3.2 seed 迁移做幂等
+
+0015_dev_seed.up.sql 三层防护：
+  1. partial unique index `uniq_hospitals_name_seed`（覆盖 3 家 seed 医院，
+     不影响生产业务同名医院的非 seed 约束）
+  2. INSERT 用 `ON CONFLICT (name) WHERE name IN (...) DO NOTHING` 跳过重复
+  3. packages INSERT 用 `SELECT ... FROM hospitals WHERE name = ... AND
+     NOT EXISTS (SELECT 1 FROM packages WHERE name = ...)` 子查询，依赖
+     已 seed 的 hospitals.id + 防止重名套餐重复
+
+测试方法：清表后再跑 `migrate ... up`，数据库状态完全一致。
+dev 环境常见诉求（"清表 → 重 seed → 跑 smoke"）现可一键复原。
+
+#### 40.3.3 migrations 应用踩坑
+
+`migrate up` 中途遇到 `0004 dirty=true`：
+  - 原因：之前有人手动跑过 partial，留下 `refund_policies` 表但没跑完 0004。
+  - 第一次修复：`force 4 + up` 让 migrate 从 version 5 重跑，跳过 0004 后段。
+  - 副作用：`refunds` 表 + 2 个 index 没建上，单独 psql 补建。
+  - 教训：migrations 应该**完全自动 apply**（CI 跑），不能在 dev 手动半跑。
+
+后续 plan（v1.7）应把 `migrate up` 集成到 `make docker-up` 或 smoke-e2e.sh，
+避免再次半跑污染。
+
+### 40.4 当前后端服务状态
+
+| 服务 | 端口 | /healthz | /readyz | 业务验证 | 备注 |
+| ---- | ---- | -------- | ------- | -------- | ---- |
+| auth-service | 8081 | 200 | 200 (PG + Kafka) | ✅ Login JWT 签发 | dev 模式直连 PG |
+| order-service | 8082 | 200 | 200 (PG + Redis + Kafka) | ✅ CreateOrder 落库 | `DOCTORS_DEV_FAKE_USER=1` 注入 devFakeUsers |
+| match-service | 8083 | — | — | 未启 | 阶段 4 Task 4.1~4.6 待做 |
+| message/payment/review/sos/user/wallet/admin | 8084-8091 | — | — | 未启 | 11 service 骨架齐，业务流待 §35+ 集成 |
+
+### 40.5 与既有 §11 / §28 / §33 / §38 / §39 的衔接
+
+- §11：admin-web 骨架依赖后端 schema；现在后端真跑 + seed，admin-web 的 MSW
+  handlers 可以对照真后端做 1:1 行为对齐（之前是猜测）。
+- §28：生产 readiness 路径已覆盖前后端 smoke；本节是 dev 阶段真跑通，
+  smoke 之前没跑过是因为后端没启。
+- §33：smoke-e2e.sh 假设"服务已 build + up"，本节把"up"前置完成。
+  后续 v1.7 可在 smoke-e2e.sh 里加 `migrate up` 步骤。
+- §38：admin-web v1 完整化收官——前端业务可点穿；本节后端真跑 + seed 落地，
+  下一步把 admin-web 的 MSW handler 关掉（或双轨运行）走真后端。
+- §39：admin-web e2e 链路已通（MSW 接管）；下一步（v1.7）可加 e2e 验证
+  "前端 MSW off + 真后端 on" 路径，等同于真后端联调。
+
+### 40.6 后续会话（v1.7）可推进
+
+| 优先级 | 项 | 估时 |
+| ------ | ---- | ---- |
+| P1 | smoke-e2e.sh 加 `migrate up` 步骤 + 启 auth/order/match 三个服务 + curl 端到端 | 1 天 |
+| P1 | match-service 阶段 4 Task 4.1-4.6（Kafka 消费 + Redis 抢单池 + 候选计算） | 1 周 |
+| P1 | admin-web MSW 旁路 + 真后端联调（先 orders/users 两条路径） | 1 周 |
+| P2 | 11 服务 Dockerfile + docker-compose.deploy.yml 真跑（§23 已写但未验证） | 1-2 天 |
+| P2 | user-service gRPC stub 接入 order-service（替换 devFakeUsers） | 2 天 |
+| P3 | 删 root 残留 `node_modules/` `package.json` `pnpm-lock.yaml` `cmd` binary | 0.5h |
+| P3 | 32 个 vitest fail it 修复（§38.6 P1） | 长期 |
+
