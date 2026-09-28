@@ -3,4 +3,4 @@
 #   注意：pymdown-extensions 实际 PyPI 不存在 10.6.1（typo），需 10.7+
 mkdocs==1.6.1
 mkdocs-material==9.5.49
-pymdown-extensions==10.7.1
+pymdown-extensions==12.1
