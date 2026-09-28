@@ -9,6 +9,8 @@ package repo
 
 import (
 	"context"
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -25,11 +27,52 @@ const (
 	RoleAdmin   Role = "admin"
 )
 
+// RolesSlice 是用户多角色数组（v2 unified-app），实现 sql.Scanner / driver.Valuer
+//
+//	适配 pgx 读写 JSONB 列（users.roles）。
+type RolesSlice []string
+
+// Value 实现 driver.Valuer；空切片存为 "[]"（与列 default 一致）。
+func (r RolesSlice) Value() (driver.Value, error) {
+	if r == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal([]string(r))
+}
+
+// Scan 实现 sql.Scanner；从 JSONB 解析到 []string。
+func (r *RolesSlice) Scan(src any) error {
+	if src == nil {
+		*r = nil
+		return nil
+	}
+	var b []byte
+	switch v := src.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return fmt.Errorf("repo: RolesSlice.Scan unsupported src type %T", src)
+	}
+	if len(b) == 0 {
+		*r = nil
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(b, &out); err != nil {
+		return fmt.Errorf("repo: RolesSlice.Scan unmarshal: %w", err)
+	}
+	*r = out
+	return nil
+}
+
 // User 映射 users 表行。
 type User struct {
 	ID               int64
 	Phone            string
 	Role             Role
+	Roles            RolesSlice // v2：多角色并发（兼职 patient+escort）
 	Nickname         *string
 	AvatarURL        *string
 	RealNameVerified bool
@@ -55,14 +98,47 @@ func NewUserRepo(pool *pgxpool.Pool) *UserRepo {
 }
 
 // Create 插入新用户；ID / Status 由 DB 默认填入并回写到 u。
+// v2：roles 字段如果非空写入 JSONB；列 DEFAULT '[]' 保证 nil 也安全。
 func (r *UserRepo) Create(ctx context.Context, u *User) error {
+	roles := u.Roles
+	if roles == nil {
+		roles = RolesSlice{string(u.Role)}
+	}
 	const q = `
-		INSERT INTO users (phone, role, nickname, avatar_url, wx_unionid, wx_openid_mini, wx_openid_app)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO users (phone, role, roles, nickname, avatar_url, wx_unionid, wx_openid_mini, wx_openid_app)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, status`
 	return r.pool.QueryRow(ctx, q,
-		u.Phone, u.Role, u.Nickname, u.AvatarURL, u.WxUnionID, u.WxOpenIDMini, u.WxOpenIDApp,
+		u.Phone, u.Role, roles, u.Nickname, u.AvatarURL, u.WxUnionID, u.WxOpenIDMini, u.WxOpenIDApp,
 	).Scan(&u.ID, &u.Status)
+}
+
+// AddRole 给用户追加一个角色（v2 multi-role）；不重复添加。
+//
+//	若新角色已存在则 no-op；成功写入后从 DB 拉回最新 roles 给调用方同步本地缓存。
+func (r *UserRepo) AddRole(ctx context.Context, userID int64, role Role) (RolesSlice, error) {
+	const q = `
+		UPDATE users
+		SET roles = (
+			SELECT jsonb_agg(DISTINCT v)
+			FROM jsonb_array_elements_text(
+				CASE WHEN jsonb_typeof(roles) = 'array' THEN roles ELSE '[]'::jsonb END
+			) AS v
+			UNION
+			SELECT $2::text
+		),
+		updated_at = NOW()
+		WHERE id = $1
+		RETURNING roles`
+	var out RolesSlice
+	err := r.pool.QueryRow(ctx, q, userID, string(role)).Scan(&out)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("user repo: add role: %w", err)
+	}
+	return out, nil
 }
 
 // FindByPhone 按手机号查找；未命中 ErrUserNotFound。
@@ -101,7 +177,7 @@ func (r *UserRepo) UpdateRealName(ctx context.Context, id int64, hash, tail stri
 
 // baseSelect 是 SELECT 子句，WHERE 由调用方追加。
 const baseSelect = `
-	SELECT id, phone, role, nickname, avatar_url, real_name_verified,
+	SELECT id, phone, role, roles, nickname, avatar_url, real_name_verified,
 	       id_card_hash, id_card_tail, wx_unionid, wx_openid_mini, wx_openid_app, status
 	FROM users`
 
@@ -118,7 +194,7 @@ func (r *UserRepo) scanOne(row pgx.Row) (*User, error) {
 		openidApp   *string
 	)
 	err := row.Scan(
-		&u.ID, &u.Phone, &u.Role, &nickname, &avatarURL, &u.RealNameVerified,
+		&u.ID, &u.Phone, &u.Role, &u.Roles, &nickname, &avatarURL, &u.RealNameVerified,
 		&idHash, &idTail, &unionid, &openidMini, &openidApp, &u.Status,
 	)
 	if err != nil {
