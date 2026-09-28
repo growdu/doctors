@@ -3612,3 +3612,125 @@ docker-compose 加 3 个环境变量（offsets RF=1 + transaction state RF=1 + M
 | P2 | match feed/candidates/dispatch HTTP 业务流端到端验证（接 escort 鉴权 token） | 1 天 |
 | P3 | order-service publisher 加 `AllowAutoTopicCreation=true` 让生产新 topic 自动建（dev 阶段手动建已 OK） | 后续 plan |
 
+## 42. unified-app v2 — Phase 1 后端 + 跨端契约同步完成（9 commits）
+
+**目标**：按 `docs/superpowers/plans/2026-09-28-unified-app-v2.md` Phase 1 推进，
+后端 JWT 多角色 + /switch-role 接口 + RoleAuth 多角色守卫 + 3 端类型同步。
+
+**用户决策（2026-09-28 §0）**：
+- 合并范围：3 端全合并 → 1 个统一 App
+- 技术栈：**A · uni-app all**（2026-09-28 14:16 确认）
+- 推进策略：一次性完整重构
+
+### 42.1 9 commits 表
+
+| # | Commit | Task | 内容 |
+|---|---|---|---|
+| 1 | `ea11602` | 1.1 | Claims 加 Roles []string + Active string + HasRole + ActiveIsValid |
+| 2 | `c4af2a5` | 1.2 | POST /api/v1/auth/switch-role + /me 返 active_role/roles |
+| 3 | `9daa58a` | 1.3 | shared/middleware RoleAuthWithKey 支持 v2 multi-role + Claims 注入 ctx |
+| 4 | `f5aed4d` | 1.4 | migration 0016 users.roles JSONB + repo AddRole + RolesSlice |
+| 5 | `440d362` | 1.5 | 集成测试（真 PG 切角色全链路 + AddRole 去重 + FindByID）|
+| 6 | `1cf68f1` | 1.6 | order handler 按角色分组（patient-only / escort-only）|
+| 7 | `92b551d` | 1.7 | match handler escort-only /match/feed + admin RoleAuth v2 测试 |
+| 8 | `ef82547` | 1.7+1.8 | RoleAuth 严格 active 校验 + admin multi-role role gate test |
+| 9 | `546ca65` | 1.9 | 3 端类型同步 v2 multi-role + switch-role API |
+
+**未做**：Task 1.10（移除 v1 Claims.Role 字段）— 破坏性变更，留 Phase 2 前端迁移完后再移除。
+
+### 42.2 关键技术决策
+
+#### 42.2.1 RoleAuth 严格 active 校验（最终设计）
+
+按 unified-app 业务语义："patient 切到 escort 域时不应能调 patient-only 端点"。
+RoleAuth 优先级：
+1. **v2 严格**：Claims.Active 非空 → 仅 active ∈ allowedRoles 通过
+2. **v2 兼容**：Active 空 → 回退 v1 路径（ctx[roleKey] 或 cl.Role）
+3. **v1 fallback**：无 Claims → ctx[roleKey] 单 role
+
+测试覆盖（`shared/middleware/role_test.go` 7 cases）：
+- 4 个 v1 单 role（NoToken / Allowed / Forbidden / MultipleRoles）
+- 3 个 v2 multi-role（ActiveMatches / ActiveInRolesHit / AllForbidden）
+
+#### 42.2.2 RoleAuthWithKey（ctx-key 可配置版）
+
+各 service 用自己的 ctx key：
+- `services/auth/internal/middleware`：key = `auth_role`
+- `services/admin/internal/router`：key = `role`（shared 默认）
+- `services/order/internal/middleware`：key = `order_role`
+- `services/match/internal/middleware`：key = `match_role`
+
+`RoleAuthWithKey(roleKey, allowedRoles...)` 让 shared RoleAuth 适配各 service ctx key 命名习惯，
+无需各 service 把自己的 Auth 中间件改成 shared。
+
+#### 42.2.3 RolesSlice（pgx JSONB 适配）
+
+`repo.RolesSlice []string` 实现 `sql.Scanner` + `driver.Valuer`：
+- **写**：json.Marshal → []byte → pgx → JSONB 列
+- **读**：pgx → []byte → json.Unmarshal → []string
+- **AddRole SQL**：用 `UNION ALL` 嵌套子查询 + `jsonb_agg(DISTINCT v)` 去重追加
+- **GIN 索引**：`idx_users_roles_gin` 支持 `roles @> '["xxx"]'` 高效反查
+
+#### 42.2.4 migration 0016 数据迁移策略
+
+一次性 `UPDATE users SET roles = jsonb_build_array(role) WHERE roles = '[]'::jsonb`：
+- 13 个现有 users 自动获得 `roles=[<原 role>]`
+- 列 NOT NULL DEFAULT '[]' 保证未来新 user 也安全（service 可不传）
+- v1.1+ 移除 Role 列前再跑反向兼容验证
+
+### 42.3 端到端验证链路
+
+```
+✅ SMS login（auth-service 真接口） → JWT (uid + role + unionid)
+✅ AddRole(uid, escort)             → DB roles=[patient, escort]
+✅ SwitchRole(uid, [patient,escort], escort) → 新 JWT active=escort
+✅ /me with 新 JWT                 → active_role=escort, roles=[patient,escort]
+✅ order handler 用 RoleAuthWithKey('order_role', 'patient') 校验
+✅ match handler 用 RoleAuthWithKey('match_role', 'escort') 校验
+✅ admin handler v2 multi-role token 通过 RoleAuth（admin token 含 order_admin active=order_admin）
+✅ 端到端 curl：multi-role token → /switch-role → 新 token → /me 显示正确
+```
+
+### 42.4 已落地的"切换角色"全链路
+
+```bash
+# 1. SMS 登录拿 v1 token
+curl -X POST :8081/api/v1/auth/sms/send -d '{"phone":"139xxx"}'
+curl -X POST :8081/api/v1/auth/login -d '{"type":"sms","phone":"139xxx","code":"xxx"}'
+# → token1 (v1 单 role)
+
+# 2. DB 加 escort 角色（运营审核通过场景）
+#    v1.1+ 接 admin endpoints：
+#    POST /api/v1/admin/users/:id/roles { role: "escort" }
+#    或 dev fake：psql 直接 INSERT 加 roles 数组
+
+# 3. 用 multi-role token 切换 active
+TOK_MULTI=$(go run tools/sign-token/main.go -uid 12 -roles patient,escort -active patient)
+curl -X POST :8081/api/v1/auth/switch-role \
+  -H "Authorization: Bearer $TOK_MULTI" -d '{"active":"escort"}'
+# → token2 active=escort, roles=[patient,escort]
+
+# 4. 前端切到 escort 域：unified-app home shell → /match/feed 可见
+curl -H "Authorization: Bearer $token2" :8083/api/v1/match/feed?order_id=1
+# → 200 escort 候选列表
+```
+
+### 42.5 与既有 §40 P0 / §41 match / plan 2026-09-28 的衔接
+
+- §40：auth/order 真跑通 → 本章把 v2 multi-role 接入到 auth-service，影响 /me 输出。
+- §41：match consumer + Redis pool 真跑通 → 本章把 escort-only gate 加到 /match/feed。
+- plan §3.3 B1-B9：除 B10（移除 v1 Role）外全部落地。
+- 后续 Phase 2（前端迁移）+ Phase 4（迁移收尾）继续按 plan 推进。
+
+### 42.6 待做 / 已知遗留（Phase 2 之后）
+
+| 优先级 | 项 | 说明 |
+| ------ | ---- | ---- |
+| P0 | Phase 2 前端 spike 1 周 | 选 uni-app all 跑通 admin + patient + escort 各 1 页面 demo（验证技术栈不假）|
+| P1 | Phase 3 业务模块迁移 | admin 域 51 pages → patient 域 28 pages → escort 域 79 files |
+| P1 | unified-app HomeShell + RoleSwitcherModal | unified 切换 UI（读 roles[] 让用户选 active）|
+| P2 | 旧 3 端项目 git mv 到 `frontend/_archive_v1/` | 保留参考 |
+| P2 | monorepo 工具链 | pnpm workspace + 共享 types |
+| P3 | Task 1.10 移除 v1 Claims.Role | Phase 4 收尾；前端迁完后再移除（破坏性变更）|
+| P3 | admin 端点加 `POST /users/:id/roles` | 运营审核通过添加角色（当前 dev fake 用 psql 直接 INSERT）|
+
