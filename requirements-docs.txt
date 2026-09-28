@@ -1,5 +1,6 @@
 # GitHub Pages 构建依赖（CI 用）
 # 与 dev.md §10.x 文档规范一致：mkdocs-material 9.x + Mermaid 支持
+#   注意：pymdown-extensions 实际 PyPI 不存在 10.6.1（typo），需 10.7+
 mkdocs==1.6.1
 mkdocs-material==9.5.49
-pymdown-extensions==10.6.1
+pymdown-extensions==10.7.1
