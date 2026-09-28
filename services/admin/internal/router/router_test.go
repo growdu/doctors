@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -66,6 +67,60 @@ func signToken(t *testing.T, uid int64, role string) string {
 	})
 	require.NoError(t, err)
 	return tok
+}
+
+// signTokenMultiRoles 签 v2 multi-role token（active 必填；用于测试 RoleAuth v2 路径）。
+func signTokenMultiRoles(t *testing.T, uid int64, roles []string, active string) string {
+	t.Helper()
+	now := time.Now()
+	tok, err := authpkg.Sign(testSecret, authpkg.Claims{
+		UserID:  uid,
+		Roles:   roles,
+		Active:  active,
+		Role:    active, // v1 兼容
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+	})
+	require.NoError(t, err)
+	return tok
+}
+
+// TestV2_MultiRole_OrderAdminOK 验证 v2 multi-role token 含 order_admin 命中 RoleAuth。
+func TestV2_MultiRole_OrderAdminOK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.New(stubAdminSvc{})
+	r := New(h, testSecret, nil)
+	// 用户同时是 patient + order_admin，active=order_admin
+	tok := signTokenMultiRoles(t, 1, []string{"patient", "order_admin"}, "order_admin")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/123/force-cancel",
+		bytes.NewBufferString(`{"reason":"e2e v2 multi-role"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 0, resp.Code, resp.Message)
+}
+
+// TestV2_MultiRole_ActiveWrongForbidden 验证 v2 multi-role token active 不命中 → 403。
+func TestV2_MultiRole_ActiveWrongForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.New(stubAdminSvc{})
+	r := New(h, testSecret, nil)
+	// token 含 super_admin 但 active=patient；调 force-cancel（要 super_admin/order_admin）应 403
+	tok := signTokenMultiRoles(t, 1, []string{"patient", "super_admin"}, "patient")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/123/force-cancel",
+		bytes.NewBufferString(`{"reason":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.NotEqual(t, 0, resp.Code, "active=patient 不在白名单应失败")
 }
 
 // TestHealthz 验证 /healthz 不挂 auth。

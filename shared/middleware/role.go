@@ -37,27 +37,32 @@ func RoleAuth(allowedRoles ...string) gin.HandlerFunc {
 // RoleAuthWithKey 是 RoleAuth 的 ctx-key 可配置版本；用于各 service 自定义 ctx key
 // （如 order 用 "order_role"，match 用 "match_role"）。
 //
-// 优先级：v2 ClaimsFromCtx（与 RoleKey 无关）→ ctx[roleKey]。
+// 严格 active 校验：
+//   - v2 Claims.Active 非空：active ∈ allowedRoles 才通过（防 token 含多 role 但 active 不匹配）
+//   - v2 Claims.Active 空：回退 v1 路径（ctx[roleKey]）兼容老客户端
+//   - 没有 Claims：ctx[roleKey] 单 role 路径（v1 token）
+//
+// 业务含义：unified-app 患者切到 escort 域时，token 含 escort 但 active=escort，
+// 调 patient-only 端点应 403（即使 roles 数组含 patient）。
 func RoleAuthWithKey(roleKey string, allowedRoles ...string) gin.HandlerFunc {
 	allowed := make(map[string]struct{}, len(allowedRoles))
 	for _, r := range allowedRoles {
 		allowed[r] = struct{}{}
 	}
 	return func(c *gin.Context) {
-		// v2 优先：Claims.HasRole
+		// v2 优先：active 严格校验
 		if cl := ClaimsFromCtx(c); cl != nil {
-			for _, r := range allowedRoles {
-				if cl.HasRole(r) {
-					c.Next()
-					return
-				}
+			active := cl.Active
+			if active == "" {
+				// v1 fallback：token 没设 active，用 cl.Role
+				active = cl.Role
 			}
-			if _, ok := allowed[cl.Role]; ok {
+			if _, ok := allowed[active]; ok {
 				c.Next()
 				return
 			}
 			httpx.Fail(c, int(errs.CodeAdminForbidden),
-				"active role not in allowlist")
+				"active role "+active+" not in allowlist")
 			c.Abort()
 			return
 		}
