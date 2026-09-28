@@ -109,7 +109,15 @@ func main() {
 		defer func() { _ = pubCloser.Close() }()
 	}
 
-	svc := service.New(orderRepo, unwiredUsers{}).
+	// user lookup 装配：env DOCTORS_DEV_FAKE_USER=1 → devFakeUsers（任意 uid 都视为 verified patient）；
+	// 否则走 unwiredUsers 占位（返回 sentinel errUnwiredUsers，让 service.Create 报 patient not found）。
+	var userLookup service.UserLookup = unwiredUsers{}
+	if os.Getenv("DOCTORS_DEV_FAKE_USER") == "1" {
+		logger.L().Warn("order-service: DOCTORS_DEV_FAKE_USER=1; using devFakeUsers (user lookup bypassed)")
+		userLookup = devFakeUsers{}
+	}
+
+	svc := service.New(orderRepo, userLookup).
 		WithLocker(locker).
 		WithPublisher(publisher)
 	h := handler.New(svc)
@@ -226,12 +234,37 @@ func parseLevel(s string) zapcore.Level {
 	}
 }
 
-// unwiredUsers 是 UserLookup 占位实现；任何调用返回 nil。
-// 接 DB 后会被 auth.UserRepo 替换（本地直连或 gRPC）。
+// unwiredUsers 是 UserLookup 占位实现；返回 sentinel error 让 service.Create
+//
+//	走 "patient not found" 分支（errs.CodeNotFound），避免 nil pointer panic。
+//
+// 接 user-service gRPC stub / 本地直连后会被替换为真实实现。
 type unwiredUsers struct{}
 
 func (unwiredUsers) FindByID(ctx context.Context, id int64) (*service.UserSnapshot, error) {
-	return nil, nil
+	return nil, errUnwiredUsers
+}
+
+var errUnwiredUsers = errOrderSentinel("order: user lookup not wired (configure user-service gRPC or dev fake adapter to enable)")
+
+// devFakeUsers 是 dev 环境接入 user lookup 的简易实现：固定返回一个
+//
+//	"全部 verified" 的患者快照，便于本地端到端跑通 CreateOrder 业务流。
+//
+// 启用方式：环境变量 DOCTORS_DEV_FAKE_USER=1（main 在装配时检查）。
+//
+//	接入 user-service 后会移除本类型，由真实 gRPC stub 替代。
+type devFakeUsers struct{}
+
+func (devFakeUsers) FindByID(ctx context.Context, id int64) (*service.UserSnapshot, error) {
+	if id <= 0 {
+		return nil, errUnwiredUsers
+	}
+	return &service.UserSnapshot{
+		ID:               id,
+		Role:             "patient",
+		RealNameVerified: true,
+	}, nil
 }
 
 // nilOrderRepo 是为了让 main 在 DSN 缺失时仍能编译 / 启动；任何方法被调用

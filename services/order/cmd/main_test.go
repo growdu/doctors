@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/growdu/doctors/services/order/internal/events"
 	"github.com/growdu/doctors/services/order/internal/repo"
@@ -93,4 +94,41 @@ func TestBuildPublisher_NonEmptyBrokersReturnsKafka(t *testing.T) {
 	assert.True(t, ok, "非空 brokers 应返回 *events.KafkaPublisher")
 	// KafkaPublisher 的 Close 应不 panic（writer 底层会触发连接，但单元测试不实际连 broker）
 	assert.NotPanics(t, func() { _ = pub.Close() }, "KafkaPublisher.Close 不应 panic")
+}
+
+// TestUnwiredUsers_ReturnsSentinel 验证 dev 占位 UserLookup 返回 sentinel error
+//
+//	而非 (nil, nil)，让 service.Create 走 "patient not found" 分支而不是 nil pointer panic。
+//
+// 背景：原实现返回 (nil, nil)，service.order_service.go:181 直接读 u.RealNameVerified
+//
+//	触发 nil pointer dereference，导致 POST /api/v1/orders panic 500。
+func TestUnwiredUsers_ReturnsSentinel(t *testing.T) {
+	var u unwiredUsers
+	got, err := u.FindByID(context.Background(), 42)
+	assert.Nil(t, got, "unwiredUsers 不应返回 *UserSnapshot")
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, errUnwiredUsers), "应返回 sentinel errUnwiredUsers 便于上层判断")
+	assert.True(t, strings.Contains(err.Error(), "user lookup"),
+		"sentinel error 应提示 user lookup 配置缺失")
+}
+// TestDevFakeUsers_ReturnsVerifiedPatient 验证 dev fake 在 DOCTORS_DEV_FAKE_USER=1 时返回 verified patient。
+func TestDevFakeUsers_ReturnsVerifiedPatient(t *testing.T) {
+	var u devFakeUsers
+	got, err := u.FindByID(context.Background(), 42)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, int64(42), got.ID)
+	assert.Equal(t, "patient", got.Role)
+	assert.True(t, got.RealNameVerified, "devFakeUsers 应一律视为已实名")
+}
+
+// TestDevFakeUsers_RejectsNonPositiveID 验证 id <= 0 时返回 sentinel error（与 unwiredUsers 一致）。
+func TestDevFakeUsers_RejectsNonPositiveID(t *testing.T) {
+	var u devFakeUsers
+	for _, id := range []int64{0, -1, -100} {
+		got, err := u.FindByID(context.Background(), id)
+		assert.Nil(t, got)
+		assert.True(t, errors.Is(err, errUnwiredUsers), "id=%d 应返回 sentinel errUnwiredUsers", id)
+	}
 }
