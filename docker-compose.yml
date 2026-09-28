@@ -53,6 +53,11 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       # 关闭自动创建 topic 由代码显式控制
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 单 broker 集群必须显式设 1，否则 __consumer_offsets 默认 RF=3 会卡住
+      # Group Coordinator Not Available 直到手动建 topic。
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       # 集群标识
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     volumes:
