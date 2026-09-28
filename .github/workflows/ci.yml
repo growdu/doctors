@@ -198,8 +198,8 @@ jobs:
             command: flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings
           - name: unified-app
             directory: frontend/unified-app
-            setup: node
-            command: npm install --no-audit --no-fund && npm run typecheck && npm run build:h5
+            setup: node-pnpm
+            command: pnpm install --no-audit --no-fund && pnpm typecheck && pnpm build:h5
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -207,10 +207,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Node
-        if: matrix.setup == 'node'
+        if: matrix.setup == 'node' || matrix.setup == 'node-pnpm'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm (unified-app)
+        if: matrix.setup == 'node-pnpm'
+        # unified-app 用 pnpm（pnpm-lock.yaml + @types/node 含 link: 协议），npm 不支持 link:
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
 
       - name: Setup Flutter
         if: matrix.setup == 'flutter'
