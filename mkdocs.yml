@@ -122,6 +122,8 @@ nav:
           - patient-miniapp setup: superpowers/plans/2026-09-24-patient-miniapp-setup.md
           - escort-app setup: superpowers/plans/2026-09-24-escort-app-setup.md
           - admin-web setup: superpowers/plans/2026-09-24-admin-web-setup.md
+      - v2 重构:
+          - unified-app v2 (3 端合并): superpowers/plans/2026-09-28-unified-app-v2.md
   - 图纸:
       - 架构图导览: diagrams/README.md
       - 图纸样式指南: diagrams/style-guide.md
