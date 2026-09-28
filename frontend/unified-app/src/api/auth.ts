@@ -11,7 +11,6 @@ import { request } from './client';
 import type {
   LoginResponse,
   MeResponse,
-  SwitchRoleRequest,
   SwitchRoleResponse,
 } from '@/types/auth';
 
@@ -30,8 +29,11 @@ export async function loginByPhone(phone: string, code: string): Promise<LoginRe
 }
 
 export async function switchActiveRole(active: string): Promise<SwitchRoleResponse> {
-  const req: SwitchRoleRequest = { active };
-  return request({ url: `${AUTH_BASE}/switch-role`, method: 'POST', data: req });
+  return request({
+    url: `${AUTH_BASE}/switch-role`,
+    method: 'POST',
+    data: { active } as unknown as Record<string, unknown>,
+  });
 }
 
 export async function fetchMe(): Promise<MeResponse> {
