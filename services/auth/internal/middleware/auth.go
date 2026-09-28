@@ -2,6 +2,9 @@
 //
 // Auth 用 Authorization: Bearer <jwt> 解析 token，把 user_id 写入 gin.Context。
 // 缺失 / 失效一律 401，业务码 11001。
+//
+// v2（unified-app）：额外把完整 *auth.Claims 写入 ctx，便于 handler 读 roles/active。
+// 保留 UserIDKey / RoleKey（v1 单 role 兼容），老代码不变。
 package middleware
 
 import (
@@ -17,8 +20,10 @@ import (
 const (
 	// UserIDKey 是 gin.Context 里 user_id 的 key。
 	UserIDKey = "auth_user_id"
-	// RoleKey 是 gin.Context 里 role 的 key。
+	// RoleKey 是 gin.Context 里 role 的 key（v1 兼容）。
 	RoleKey = "auth_role"
+	// ClaimsKey 是 gin.Context 里 *auth.Claims 的 key（v2 多角色）。
+	ClaimsKey = "auth_claims"
 )
 
 // Auth 校验 Bearer JWT；通过则把 claim 写入 ctx。
@@ -39,8 +44,21 @@ func Auth(secret string) gin.HandlerFunc {
 		}
 		c.Set(UserIDKey, claims.UserID)
 		c.Set(RoleKey, claims.Role)
+		c.Set(ClaimsKey, claims) // v2：完整 claims 注入 ctx
 		c.Next()
 	}
+}
+
+// Claims 从 ctx 读取 *auth.Claims（v2 多角色场景）。
+//
+//	缺失返回 nil；调用方需 nil-check。
+func Claims(c *gin.Context) *authpkg.Claims {
+	v, ok := c.Get(ClaimsKey)
+	if !ok {
+		return nil
+	}
+	cl, _ := v.(*authpkg.Claims)
+	return cl
 }
 
 // UserID 从 ctx 读取 user_id；缺失返回 0。

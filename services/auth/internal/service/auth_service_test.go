@@ -270,3 +270,57 @@ func TestMe_NotFound(t *testing.T) {
 
 // ensure jwt import is used.
 var _ = jwt.NewNumericDate
+
+// TestSwitchRole_HappyPath 验证多角色用户切到 escort 后新 token 的 active 字段正确。
+func TestSwitchRole_HappyPath(t *testing.T) {
+	svc, _ := newService()
+	require.NoError(t, svc.SendSMS(context.Background(), "13800139000"))
+	sender := svc.sms.(*fakeSMS)
+	_, uid, err := svc.LoginBySMS(context.Background(), "13800139000", sender.codes["13800139000"])
+	require.NoError(t, err)
+
+	// 模拟 DB 中 user 已加 escort 角色（v2 multi-role）
+	tok, err := svc.SwitchRole(context.Background(), uid, []string{"patient", "escort"}, "escort")
+	require.NoError(t, err)
+	require.NotEmpty(t, tok)
+
+	claims, err := authpkg.Parse("test-secret", tok)
+	require.NoError(t, err)
+	assert.Equal(t, uid, claims.UserID)
+	assert.Equal(t, []string{"patient", "escort"}, claims.Roles)
+	assert.Equal(t, "escort", claims.Active)
+	assert.Equal(t, "escort", claims.Role, "v1 兼容字段取 active")
+}
+
+// TestSwitchRole_ActiveNotInRoles 验证 active 不在 roles 列表时拒绝。
+func TestSwitchRole_ActiveNotInRoles(t *testing.T) {
+	svc, _ := newService()
+	require.NoError(t, svc.SendSMS(context.Background(), "13800139001"))
+	sender := svc.sms.(*fakeSMS)
+	_, uid, err := svc.LoginBySMS(context.Background(), "13800139001", sender.codes["13800139001"])
+	require.NoError(t, err)
+
+	_, err = svc.SwitchRole(context.Background(), uid, []string{"patient"}, "admin")
+	assert.Error(t, err, "active='admin' 不在 roles 中应失败")
+}
+
+// TestSwitchRole_EmptyActive 验证空 active 拒绝。
+func TestSwitchRole_EmptyActive(t *testing.T) {
+	svc, _ := newService()
+	_, err := svc.SwitchRole(context.Background(), 1, []string{"patient"}, "")
+	assert.Error(t, err)
+}
+
+// TestSwitchRole_ZeroUserID 验证零值 user_id 拒绝。
+func TestSwitchRole_ZeroUserID(t *testing.T) {
+	svc, _ := newService()
+	_, err := svc.SwitchRole(context.Background(), 0, []string{"patient"}, "patient")
+	assert.Error(t, err)
+}
+
+// TestSwitchRole_UserNotFound 验证 DB 无该 user 时返 404。
+func TestSwitchRole_UserNotFound(t *testing.T) {
+	svc, _ := newService()
+	_, err := svc.SwitchRole(context.Background(), 99999, []string{"patient"}, "patient")
+	assert.Error(t, err)
+}

@@ -163,6 +163,55 @@ func (s *Service) Refresh(ctx context.Context, token string) (string, error) {
 	return s.signToken(claims.UserID, claims.Role, &claims.UnionID)
 }
 
+// SwitchRole 切换当前激活角色（v2 unified-app）。
+//
+//	校验 active ∈ roles（前端必须先把角色加到 user.roles 才能切）
+//	返回新 token，active 字段更新；roles/uid/unionid 保持。
+func (s *Service) SwitchRole(ctx context.Context, userID int64, roles []string, active string) (string, error) {
+	if userID == 0 {
+		return "", errs.New(errs.CodeParamInvalid, "user_id required")
+	}
+	if active == "" {
+		return "", errs.New(errs.CodeParamInvalid, "active required")
+	}
+	// 校验 active ∈ roles
+	ok := false
+	for _, r := range roles {
+		if r == active {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return "", errs.New(errs.CodeParamInvalid, "active not in user's roles")
+	}
+	// 从 DB 取 unionid（保持 token 携带）
+	u, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		if isNotFound(err) {
+			return "", errs.New(errs.CodeNotFound, "user not found")
+		}
+		return "", errs.Wrap(errs.CodeInternal, "find user", err)
+	}
+	unionid := ""
+	if u.UnionID != nil {
+		unionid = *u.UnionID
+	}
+	now := time.Now()
+	claims := authpkg.Claims{
+		UserID:  userID,
+		Roles:   roles,
+		Active:  active,
+		Role:    active, // v1 兼容：取 active
+		UnionID: unionid,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.jwtTTL)),
+		},
+	}
+	return authpkg.Sign(s.jwtSecret, claims)
+}
+
 // RealNameAuth 实名认证；写入哈希 + 末四位，不存明文。
 func (s *Service) RealNameAuth(ctx context.Context, userID int64, name, idCard string) error {
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(idCard) == "" {

@@ -33,6 +33,7 @@ func (h *Handler) RegisterRoutes(r gin.IRouter, jwtSecret string) {
 	auth.POST("/sms/send", h.SendSMS)
 	auth.POST("/login", h.Login)
 	auth.POST("/refresh", h.Refresh)
+	auth.POST("/switch-role", middleware.Auth(jwtSecret), h.SwitchRole)
 
 	users := v1.Group("/users", middleware.Auth(jwtSecret))
 	users.POST("/real-name/auth", h.RealNameAuth)
@@ -124,6 +125,48 @@ func (h *Handler) Refresh(c *gin.Context) {
 	httpx.OK(c, gin.H{"token": tok})
 }
 
+type switchRoleReq struct {
+	// Active 是用户想切换到的角色（必须在 token roles 中）。
+	Active string `json:"active" binding:"required"`
+}
+
+// SwitchRole POST /api/v1/auth/switch-role
+//
+// v2（unified-app）：已登录用户切换当前激活角色，返回新 token。
+// 前端切换后用新 token 替换旧 token 并跳对应域路由。
+//
+//	- 401：缺失 / 失效 token
+//	- 400：active 为空 / 不在用户 roles 中
+//	- 200：{ token: "new-jwt", user_id, active, roles }
+func (h *Handler) SwitchRole(c *gin.Context) {
+	cl := middleware.Claims(c)
+	if cl == nil {
+		respondError(c, errs.New(errs.CodeUnauthorized, "no claims in ctx"))
+		return
+	}
+	var req switchRoleReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, errs.New(errs.CodeParamInvalid, err.Error()))
+		return
+	}
+	// 用 ctx 里的 roles（v2）或回退到 v1 单 Role
+	roles := cl.Roles
+	if len(roles) == 0 {
+		roles = []string{cl.Role}
+	}
+	tok, err := h.svc.SwitchRole(c.Request.Context(), cl.UserID, roles, req.Active)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	httpx.OK(c, gin.H{
+		"token":   tok,
+		"user_id": cl.UserID,
+		"active":  req.Active,
+		"roles":   roles,
+	})
+}
+
 type realNameReq struct {
 	Name   string `json:"name" binding:"required"`
 	IDCard string `json:"id_card" binding:"required"`
@@ -160,10 +203,32 @@ func (h *Handler) Me(c *gin.Context) {
 		respondError(c, err)
 		return
 	}
+	// v2（unified-app）：从 token claims 拿 active role + roles，
+	// 让前端能区分"当前激活角色"和"用户所有角色"。
+	cl := middleware.Claims(c)
+	activeRole := ""
+	roles := []string{}
+	if cl != nil {
+		if cl.Active != "" {
+			activeRole = cl.Active
+		} else {
+			activeRole = cl.Role
+		}
+		if len(cl.Roles) > 0 {
+			roles = cl.Roles
+		} else {
+			roles = []string{cl.Role}
+		}
+	} else {
+		activeRole = u.Role
+		roles = []string{u.Role}
+	}
 	httpx.OK(c, gin.H{
 		"id":                 u.ID,
 		"phone":              u.Phone,
-		"role":               u.Role,
+		"role":               activeRole, // v2 取 active（向后兼容 v1 客户端）
+		"active_role":        activeRole,
+		"roles":              roles,
 		"real_name_verified": u.RealNameVerified,
 	})
 }

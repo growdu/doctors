@@ -186,3 +186,81 @@ func signTestToken(t *testing.T, uid int64, role string) (string, error) {
 		},
 	})
 }
+
+// signTestTokenMulti 签多角色 token（v2）。
+func signTestTokenMulti(t *testing.T, uid int64, roles []string, active string) (string, error) {
+	t.Helper()
+	now := time.Now()
+	return authpkg.Sign(testJWTSecret, authpkg.Claims{
+		UserID:  uid,
+		Roles:   roles,
+		Active:  active,
+		Role:    active, // v1 兼容
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(testJWTTTL)),
+		},
+	})
+}
+
+// TestSwitchRole_OK 验证多角色 token 切换 active 成功。
+func TestSwitchRole_OK(t *testing.T) {
+	tok, err := signTestTokenMulti(t, 100, []string{"patient", "escort"}, "patient")
+	require.NoError(t, err)
+	r := newTestServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/switch-role",
+		bytes.NewBufferString(`{"active":"escort"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 0, resp.Code, resp.Message)
+	assert.NotEmpty(t, resp.Data["token"], "应返回新 token")
+	assert.Equal(t, "escort", resp.Data["active"])
+	assert.EqualValues(t, 100, resp.Data["user_id"])
+	roles, _ := resp.Data["roles"].([]any)
+	assert.Len(t, roles, 2)
+}
+
+// TestSwitchRole_RequiresAuth 验证无 token 必须 401。
+func TestSwitchRole_RequiresAuth(t *testing.T) {
+	r := newTestServer()
+	resp := doRequest(t, r, http.MethodPost, "/api/v1/auth/switch-role",
+		map[string]string{"active": "escort"})
+	assert.NotEqual(t, 0, resp.Code, "无 token 业务码应 != 0")
+}
+
+// TestSwitchRole_ActiveNotInRoles 验证 active 不在 roles 中返 400。
+func TestSwitchRole_ActiveNotInRoles(t *testing.T) {
+	tok, err := signTestTokenMulti(t, 100, []string{"patient"}, "patient")
+	require.NoError(t, err)
+	r := newTestServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/switch-role",
+		bytes.NewBufferString(`{"active":"admin"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.NotEqual(t, 0, resp.Code, "active 不在 roles 应失败")
+	assert.Contains(t, resp.Message, "active")
+}
+
+// TestSwitchRole_MissingActive 验证缺 active 字段返 400。
+func TestSwitchRole_MissingActive(t *testing.T) {
+	tok, err := signTestTokenMulti(t, 100, []string{"patient", "escort"}, "patient")
+	require.NoError(t, err)
+	r := newTestServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/switch-role",
+		bytes.NewBufferString(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.NotEqual(t, 0, resp.Code)
+}
