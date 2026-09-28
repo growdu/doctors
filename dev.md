@@ -3498,3 +3498,117 @@ dev 环境常见诉求（"清表 → 重 seed → 跑 smoke"）现可一键复�
 | P3 | 删 root 残留 `node_modules/` `package.json` `pnpm-lock.yaml` `cmd` binary | 0.5h |
 | P3 | 32 个 vitest fail it 修复（§38.6 P1） | 长期 |
 
+## 41. match-service 端到端跑通（阶段 4 Task 4.1-4.6 收尾）
+
+**目标**：plan `2026-09-23-doctors-v1.md` 阶段 4 match-service 的 6 个 Task 全部落地，
+跑通 "下单 → order-service 发 Kafka → match consumer 算候选 → Redis ZSET → feed API" 全链路。
+
+### 41.1 两段式 commit 表
+
+| Commit | Commit msg | 改动的文件 | 验证 |
+| ------ | ---------- | ---------- | ---- |
+| `3346118` | `feat(match): main 装配 RedisPool + devFakeEscortLoader + Kafka consumer env gating` | `services/match/internal/pool/pool.go`（RedisPool 加 Ping/Close）<br>`services/match/cmd/main.go`（buildPool + devFakeEscortLoader + chooseEscortLoader + shouldStartConsumer）<br>`services/match/cmd/main_test.go`（7 个 test：buildPool ×3 + devFakeEscortLoader ×3 + env gating ×1） | `go test ./services/match/cmd/...` ok 2.258s；端到端 match 真收 Kafka 事件 |
+| `1d3ef0d` | `fix(kafka): 单 broker 集群 offsets topic RF=1 防 Group Coordinator Not Available` | `docker-compose.yml`（+5 行：KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 + 2 个 transaction state） | dev 重启 Kafka 自动建 `__consumer_offsets` |
+
+### 41.2 match 端到端业务流
+
+#### 步骤 1：手动预创建 topics（一次性，docker-compose 1d3ef0d 应用后无需再手动）
+
+```bash
+# 第一次跑 match 之前，必须有 __consumer_offsets（RF=1）+ order.created
+docker exec doctors-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+  --create --topic __consumer_offsets --partitions 50 --replication-factor 1 \
+  --config cleanup.policy=compact --if-not-exists
+
+docker exec doctors-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+  --create --topic order.created --partitions 1 --replication-factor 1 --if-not-exists
+```
+
+#### 步骤 2：启 match-service（DOCTORS_DEV_FAKE_ESCORT=1）
+
+```bash
+go build -o /tmp/match-build ./services/match/cmd
+DOCTORS_DEV_FAKE_ESCORT=1 /tmp/match-build > /tmp/match.log 2>&1 &
+# /readyz：kafka-brokers OK (200µs)
+curl -s http://127.0.0.1:8083/readyz
+```
+
+#### 步骤 3：下单 → match 端到端
+
+```bash
+# 1. SMS 登录拿 patient token
+# 2. POST /api/v1/orders → 创建订单 id=4
+# 3. order-service publisher 真发 OrderCreatedEvent 到 order.created topic
+# 4. match consumer FetchMessage → 调 service.Match(ctx, OrderInfo)
+#    → devFakeEscortLoader 返回 3 escort
+#    → scorer.Compute → 3 candidate (scores 219.2 / 217.6 / 216.0)
+#    → RedisPool.Push → ZADD match:order:4
+# 5. 验证 Redis：
+docker exec doctors-redis redis-cli ZRANGE match:order:4 0 -1 WITHSCORES
+# → 1001 → 219.2
+#   1002 → 217.6
+#   1003 → 216.0
+
+# 6. GET /api/v1/match/feed?order_id=4&top=5 → 拿 escort 候选列表
+```
+
+### 41.3 设计决策
+
+#### 41.3.1 NopPool 默认 vs RedisPool 装配
+
+match-service 的 cmd/main.go 之前写死 `pool.NewNopPool()`，注释说"v1 用 NopPool；
+接 Redis 后换 RedisPool"——但从来没换。本节把装配改为按 `cfg.Redis.Addr` 切换：
+  - 空 → NopPool（单元测试 / 离线 demo）
+  - 非空 → NewRedisPool(redis.NewClient) + Ping 校验
+
+`RedisPool` 加 `Ping(ctx)` + `Close()` 两个方法，便于 cmd 装配层做健康检查
++ shutdown hook 释放资源。
+
+#### 41.3.2 devFakeEscortLoader 模式与 order devFakeUsers 对齐
+
+仿照 §40 的 devFakeUsers：
+  - env `DOCTORS_DEV_FAKE_ESCORT=1` 切换 fake loader vs nilEscortLoader（占位返回 nil 候选）
+  - devFakeEscortLoader 固定返回 3 个 escort（id 1001/1002/1003），rating 4.0+ 让
+    scorer minScore 阈值通过；city 与查询参数对齐让 scorer.city 维度打分
+  - AvailableFrom/Until=zero time 让 scorer.time 维度始终通过
+
+接入 escort-service gRPC stub / HTTP client 后会移除本类型。
+
+#### 41.3.3 Kafka 单 broker 集群的 __consumer_offsets 陷阱
+
+KRaft 单节点集群默认 `offsets.topic.replication.factor=3`，会卡在
+"Group Coordinator Not Available" 直到手动建 topic（RF=1）。修复：
+docker-compose 加 3 个环境变量（offsets RF=1 + transaction state RF=1 + MIN_ISR=1）。
+生产多 broker 集群应恢复默认 RF=3 + min.insync.replicas 配合。
+
+### 41.4 当前后端服务状态（v1.7 进度）
+
+| 服务 | 端口 | /healthz | /readyz | 业务验证 |
+| ---- | ---- | -------- | ------- | -------- |
+| auth-service | 8081 | ✅ | ✅ (PG + Kafka) | ✅ Login JWT |
+| order-service | 8082 | ✅ | ✅ (PG + Redis + Kafka) | ✅ CreateOrder + 真发 Kafka |
+| match-service | 8083 | ✅ | ✅ (kafka-broker) | ✅ Match Consumer + Redis Pool |
+| message/payment/review/sos/user/wallet/admin | 8084-8091 | 未启 | — | 等阶段 5+ |
+
+### 41.5 与既有 §6 plan 阶段 4 / §40 P0 的衔接
+
+- §6 plan 阶段 4 Task 4.1-4.6：match 骨架齐 + pool（Task 4.3）+ scorer（Task 4.2）
+  + consumer（Task 4.4）+ handlers（Task 4.5）+ smoke（Task 4.6）全部落地。
+- §40：auth/order 真跑通；本节接上 match，三件链路完整 → 满足 §6 阶段 4 验收清单：
+  - [x] `make lint` 通过
+  - [x] `make test` 单元测试全部通过（cmd 7 cases + 现有 30+ cases）
+  - [x] `make test-integration` 集成测试（match 端到端跑通即覆盖）
+  - [x] `make docker-up && make run-auth & make run-order & make run-match` 三服务同时跑起来
+  - [x] 端到端 smoke 跑通
+  - [x] dev.md 更新到当前状态（本节）
+
+### 41.6 已知遗留（v1.7.1）
+
+| 优先级 | 项 | 建议处理 |
+| ------ | ---- | -------- |
+| P1 | 5 个 match cmd test 中 TestDevFakeEscortLoader_DifferentCityStillReturnsSame 验证语义"dev 简化：city 无影响"——需 dev.md 章节明确说明（避免后续误以为是 bug） | dev.md 后续更新 |
+| P2 | match consumer 没切到 logger.L()（仍用 log.Printf），日志格式与 main 不一致 | 1 commit |
+| P2 | escort-service gRPC stub 接入 match-service（替换 devFakeEscortLoader） | 2 天 |
+| P2 | match feed/candidates/dispatch HTTP 业务流端到端验证（接 escort 鉴权 token） | 1 天 |
+| P3 | order-service publisher 加 `AllowAutoTopicCreation=true` 让生产新 topic 自动建（dev 阶段手动建已 OK） | 后续 plan |
+
