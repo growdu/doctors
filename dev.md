@@ -3924,3 +3924,62 @@ dev.md 267KB / 3823 行 / 44 章节：作为单页挂 mkdocs 会让首次加载 
 | P2 | ops/secrets.md 锚点修复 | 8 处 warning 当前不阻塞 pages 部署（--strict 但 warning 不 fail） |
 | P3 | patient-miniapp e2e (Web/H5 段) | 复用 admin-web 的 playwright 模板，跳过 app-plus native 段 |
 | P3 | mkdocs 增量 build 缓存 | 当前每次全量 build 5s，可接受；pages 部署节奏不需要增量 |
+
+## 44.2.1 修复 commit（2026-09-28 后续）
+
+§44 推进后用户反馈 GitHub Pages 仍 404、CI 仍失败。排查后定位 3 个 root cause：
+
+| Commit | Root cause | 修法 |
+| ------ | ---- | ---- |
+| `5c10747` | requirements-docs.txt 锁 `pymdown-extensions==10.6.1`（PyPI 不存在）→ pip install fail → Pages build 跳过 → 404 | `10.6.1` → `10.7.1`（实际版本列表首个带 .1 patch） |
+| `a73a13c` | unified-app CI 用 `npm install`，但项目用 pnpm（pnpm-lock.yaml）；@types/node 含 `link:@types/@babel/code-frame` 协议 npm 不支持 → EUNSUPPORTEDPROTOCOL | matrix 加 `setup: node-pnpm` 分支 + pnpm/action-setup@v4 + 命令 `pnpm install && pnpm typecheck && pnpm build:h5` |
+| `ab3f8db` | (a) pnpm install 不支持 `--no-audit --no-fund`（npm 专属 flag）→ Unknown options; (b) home/index.vue line 122 `@click="typeof uni !== 'undefined' ? uni.navigateTo(...)"` 在 vue-tsc 模板上下文 vue-tsc 不识别 `uni` 全局 | (a) 命令去掉 npm flag；(b) 抽 `goTo(path)` 方法替代 inline expression |
+| `4d90c33` | pnpm/action-setup@v4 在 matrix 条件 if 分支加 PATH，但后续 default 步骤继承不到（实测 step 6 1 秒内 fail）| 改用 Node 20 内建 corepack：`corepack enable` + `corepack prepare pnpm@8.15.9 --activate` |
+
+### 验证（CI #28 vs CI #16）
+
+| Job | CI #16 (修复前) | CI #28 (修复后) |
+| --- | --- | --- |
+| **docs-build (mkdocs --strict)** | (不存在) | **✅ success** |
+| **frontend-lint (unified-app)** | (不存在) | **✅ success** |
+| **Pages workflow** | #6 failure | **#7 success**（已部署 https://growdu.github.io/doctors/） |
+| frontend-lint (admin-web) | failure | failure（pre-existing） |
+| frontend-lint (patient-miniapp) | failure | failure（pre-existing） |
+| frontend-lint (escort-app) | failure | failure（pre-existing） |
+| backend-lint | failure | failure（pre-existing） |
+| backend-test (order / match) | failure | failure（pre-existing） |
+| docker-build 大多数 | failure | failure（pre-existing） |
+| 9 个 backend-test（auth/admin/user/sos/escort/message/review/payment/wallet） | success | success |
+
+### 仍 fail 的 job 分析
+
+CI #16 即已 fail 的 19 个 job（与本次无关）：
+- admin-web / patient-miniapp / escort-app lint：npm/pnpm/Flutter 安装链路差异
+- backend-lint：golangci-lint v1.61.0 vs 项目实际 linter rule 不匹配
+- backend-test order/match：测试依赖 PG/Redis/Kafka 真跑（本地 dev fake mode 不全）
+- docker-build 大多数：Dockerfile 多阶段 + cache-from 兼容性问题
+
+### 设计决策 44.6.4
+
+**Pages 404 vs build fail 顺序**：
+- 改 pages.yml 用 mkdocs --strict 后，第一跑 Pages #6 在「Install mkdocs-material」fail
+- 本地 venv 验证才发现 pymdown-extensions 版本 typo
+- dev.md §44.6.1 已写「mkdocs --strict 是 0-tolerance 防线」，但本地从未真跑过（vite-plugin-uni vue-tsc ESM 修复后忘了回归 mkdocs build）
+- 教训：commit 一个完整的 CI 配置后必须真跑一次验证（不能信任「pyyaml 通过」=「CI 通过」）
+
+**unified-app CI 设计**：
+- matrix.setup 双值 `node` / `node-pnpm`：清晰区分两类前端包管理器
+- corepack 优于 pnpm/action-setup：避免 step 上下文 PATH 继承问题（CI runner 与本地 dev 环境的行为差异）
+- pnpm 8.15.9 是 admin-web 已锁定的兼容版本（packageManager 字段）
+
+### 待办 §44.7（更新）
+
+| 优先级 | 项 | 说明 |
+| ------ | ---- | ---- |
+| P1 | admin-web/patient-miniapp CI 改 pnpm | 同 §44.6.4 教训：link: 协议；admin-web 已 packageManager: pnpm@12.6.0 |
+| P1 | docker-build 修复 | 14 镜像 11 fail；当前 PR fix 需要 cache-from 兼容 |
+| P1 | backend-test order/match 修复 | 测试依赖 PG/Redis/Kafka 真跑链路 |
+| P2 | e2e in CI (admin-web Playwright) | dev.md §44.7 旧条目 |
+| P2 | ops/secrets.md 锚点修复 | dev.md §44.7 旧条目 |
+| P2 | patient-miniapp e2e (Web/H5 段) | dev.md §44.7 旧条目 |
+| P3 | mkdocs 增量 build 缓存 | dev.md §44.7 旧条目 |
