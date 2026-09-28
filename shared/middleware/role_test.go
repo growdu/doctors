@@ -34,6 +34,24 @@ func signTokenWithRole(t *testing.T, uid int64, role string) string {
 	return tok
 }
 
+// signTokenMultiRoles 签 v2 multi-role token（roles + active）。
+func signTokenMultiRoles(t *testing.T, uid int64, roles []string, active string) string {
+	t.Helper()
+	now := time.Now()
+	tok, err := authpkg.Sign(roleSecret, authpkg.Claims{
+		UserID:  uid,
+		Roles:   roles,
+		Active:  active,
+		Role:    active, // v1 兼容
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+	})
+	require.NoError(t, err)
+	return tok
+}
+
 // TestRoleAuth_NoToken 验证无 token → 401。
 func TestRoleAuth_NoToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -98,4 +116,58 @@ func TestRoleAuth_MultipleRoles(t *testing.T) {
 	var resp httpx.Resp[map[string]any]
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, 0, resp.Code)
+}
+
+// TestRoleAuth_V2MultiRole_ActiveMatches 验证 v2 multi-role token 用 active 命中白名单。
+func TestRoleAuth_V2MultiRole_ActiveMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/p", Auth(roleSecret, "uid", "role"), RoleAuth("escort"), func(c *gin.Context) {
+		httpx.OK[any](c, gin.H{"hit": true})
+	})
+	tok := signTokenMultiRoles(t, 100, []string{"patient", "escort"}, "escort")
+	req := httptest.NewRequest(http.MethodGet, "/p", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 0, resp.Code, resp.Message)
+}
+
+// TestRoleAuth_V2MultiRole_ActiveInRolesHit 验证 active 不在白名单但 roles 数组有命中。
+//
+//	白名单 ["patient"]；token roles=[patient, escort], active=escort
+//	应通过（roles 命中 patient）。
+func TestRoleAuth_V2MultiRole_ActiveInRolesHit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/p", Auth(roleSecret, "uid", "role"), RoleAuth("patient"), func(c *gin.Context) {
+		httpx.OK[any](c, nil)
+	})
+	tok := signTokenMultiRoles(t, 100, []string{"patient", "escort"}, "escort")
+	req := httptest.NewRequest(http.MethodGet, "/p", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 0, resp.Code)
+}
+
+// TestRoleAuth_V2MultiRole_AllForbidden 验证 v2 token 的 active 和 roles 都无命中 → 403。
+func TestRoleAuth_V2MultiRole_AllForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/p", Auth(roleSecret, "uid", "role"), RoleAuth("super_admin"), func(c *gin.Context) {
+		httpx.OK[any](c, nil)
+	})
+	tok := signTokenMultiRoles(t, 100, []string{"patient", "escort"}, "patient")
+	req := httptest.NewRequest(http.MethodGet, "/p", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp httpx.Resp[map[string]any]
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, int(errs.CodeAdminForbidden), resp.Code)
 }
