@@ -55,3 +55,4 @@ __pycache__/
 /pnpm-lock.yaml
 /test-results/
 /playwright-report/
+/cmd
