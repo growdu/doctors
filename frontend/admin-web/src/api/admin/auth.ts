@@ -28,6 +28,40 @@ export interface LoginResponseBody {
 }
 
 /**
+ * v2（unified-app）多角色切换响应。
+ * POST /api/v1/auth/switch-role 返回：data 含新 token + 当前 active + 用户全部 roles。
+ */
+export interface SwitchRoleResponseBody {
+  code: number;
+  data: {
+    token: string;
+    user_id: number;
+    active: string;
+    /** 用户所有角色（兼职场景如 ["patient", "escort"]）*/
+    roles: string[];
+  };
+  trace_id?: string;
+}
+
+/**
+ * v2 /me 响应额外返回 active_role + roles（v1 仅 role 单值）。
+ */
+export interface MeResponseBody {
+  code: number;
+  data: {
+    id: number;
+    phone: string;
+    role: string;
+    /** v2 当前激活角色（前端按此切域 UI）*/
+    active_role: string;
+    /** v2 用户所有角色*/
+    roles: string[];
+    real_name_verified: boolean;
+  };
+  trace_id?: string;
+}
+
+/**
  * 调用后端登录接口；返回 token + user。
  *
  * 当前为 mock：直接在本地构造 user + fake token。

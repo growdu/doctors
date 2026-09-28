@@ -113,6 +113,27 @@ export function fetchMe() {
 }
 
 /**
+ * v2（unified-app）多角色切换。
+ * POST /api/v1/auth/switch-role { active } → 新 token + active + roles。
+ *   - patient 切 escort：unified frontend 接单池可见
+ *   - escort 切 patient：unified frontend 下单流程可见
+ * 注：Bearer token 仍在 Authorization header（call site 透传）。
+ *
+ * @param {{ active: string }} payload
+ * @returns {Promise<{ token: string, user_id: number, active: string, roles: string[] }>}
+ */
+export function switchActiveRole(payload) {
+  if (!payload || !payload.active) {
+    return Promise.reject(new Error('switchActiveRole: active is required'));
+  }
+  return request({
+    url: '/auth/switch-role',
+    method: 'POST',
+    data: { active: payload.active },
+  });
+}
+
+/**
  * 提交实名认证（v1 不接 OCR，客户端传身份证号 + 姓名）。
  *
  * @param {{ name: string, id_card: string }} payload

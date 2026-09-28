@@ -15,6 +15,12 @@ class Profile {
   final String role;
   final String nickname;
 
+  /// v2（unified-app）：用户所有角色（兼职场景 [patient, escort]）。
+  final List<String> roles;
+
+  /// v2（unified-app）：当前激活角色（前端按此切域 UI）。
+  final String activeRole;
+
   /// 头像 URL（可空；为 null 时显示默认头像）。
   final String? avatarUrl;
 
@@ -29,6 +35,8 @@ class Profile {
     required this.phone,
     required this.role,
     required this.nickname,
+    this.roles = const [],
+    this.activeRole = '',
     this.avatarUrl,
     required this.realNameVerified,
     required this.approved,
@@ -39,6 +47,10 @@ class Profile {
         phone: j['phone'] as String,
         role: j['role'] as String,
         nickname: (j['nickname'] as String?) ?? '',
+        // v2 多角色：优先读 roles 数组；空数组 fallback 到 [role]（v1 兼容）
+        roles: (j['roles'] as List?)?.map((e) => e as String).toList() ??
+            [j['role'] as String],
+        activeRole: (j['active_role'] as String?) ?? (j['role'] as String),
         avatarUrl: j['avatar_url'] as String?,
         realNameVerified: (j['real_name_verified'] as bool?) ?? false,
         approved: (j['approved'] as bool?) ?? false,
@@ -49,6 +61,8 @@ class Profile {
         'phone': phone,
         'role': role,
         'nickname': nickname,
+        'roles': roles,
+        'active_role': activeRole,
         if (avatarUrl != null) 'avatar_url': avatarUrl,
         'real_name_verified': realNameVerified,
         'approved': approved,
