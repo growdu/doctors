@@ -173,8 +173,9 @@ jobs:
         run: docker image inspect doctors/${{ matrix.image }}:ci-${{ github.sha }} > /dev/null
 
   # ========================================================================
-  # 3) frontend-lint — matrix 3 端（admin-web + patient-miniapp + escort-app）
-  #    每端约定不同：ESLint / Jest / flutter analyze；统一 working-directory。
+  # 3) frontend-lint — matrix 4 端（admin-web + patient-miniapp + escort-app + unified-app）
+  #    每端约定不同：ESLint / Jest / flutter analyze / vue-tsc + uni build；统一 working-directory。
+  #    unified-app（v2 重构）走 typecheck + build:h5 双校验，单测/e2e 后续 plan 落地。
   # ========================================================================
   frontend-lint:
     name: frontend-lint (${{ matrix.name }})
@@ -195,6 +196,10 @@ jobs:
             directory: frontend/escort-app
             setup: flutter
             command: flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings
+          - name: unified-app
+            directory: frontend/unified-app
+            setup: node
+            command: npm install --no-audit --no-fund && npm run typecheck && npm run build:h5
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -239,3 +244,27 @@ jobs:
 
       - name: Run golangci-lint
         run: golangci-lint run --timeout=5m ./...
+
+  # ========================================================================
+  # 5) docs-build — mkdocs --strict 验证文档站可构建
+  #    防止 nav 漏挂文件 / 锚点失效 / Markdown 语法错误导致 pages.yml 部署挂掉。
+  #    与 pages.yml 的 build job 复用同一 requirements-docs.txt。
+  # ========================================================================
+  docs-build:
+    name: docs-build (mkdocs --strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install mkdocs-material
+        run: pip install -r requirements-docs.txt
+
+      - name: mkdocs build --strict
+        run: mkdocs build --strict --clean
