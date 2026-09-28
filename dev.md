@@ -3821,3 +3821,106 @@ Plan §2.5 阶段 3 业务迁移时按域切分：
 | P3 | Task 1.10 移除 v1 Claims.Role | Plan §4 Phase 4 收尾 |
 | P3 | admin POST /users/:id/roles 端点 | 当前 dev fake psql 直接 INSERT |
 
+## 44. CI + GitHub Pages 完善（2026-09-28）
+
+会话目标：把 dev.md / specs / plans 部署到 GitHub Pages，并补全 CI 对 unified-app + docs 的覆盖。
+
+### 44.1 现状分析（v1 部署 bug）
+
+`.github/workflows/pages.yml`（旧版）：
+- 直接 upload `docs/` 目录到 actions/upload-pages-artifact
+- 等于把 `docs/index.md` + `docs/superpowers/**/*.md` 当裸 markdown 上传
+- GitHub Pages 默认 Jekyll 渲染（无 mkdocs-material 主题）：
+  - 搜索 / 标签页 / 暗色模式 / 代码复制按钮全部失效
+  - 只有 docs/ 内容能访问；README.md / dev.md 触发路径写了但没上传
+
+### 44.2 改造（3 commits）
+
+| Commit | 概要 | 文件 |
+| ------ | ---- | ---- |
+| `fdddcd8` | chore(mkdocs): nav 增补 v2 重构章节 + unified-app v2 plan 入口 | mkdocs.yml |
+| `b68728a` | ci(pages): 改造 pages.yml 用 mkdocs-material 构建 + 部署 site/ | .github/workflows/pages.yml |
+| `9ed0478` | ci: 补 unified-app 到 frontend-lint matrix + 新增 docs-build 验证 job | .github/workflows/ci.yml |
+
+### 44.3 pages.yml 改造要点
+
+```yaml
+# 旧：直接 upload docs/
+- uses: actions/upload-pages-artifact@v3
+  with:
+    path: docs/
+
+# 新：mkdocs build --strict → site/
+- uses: actions/setup-python@v5
+  with:
+    python-version: '3.12'
+    cache: pip
+    cache-dependency-path: requirements-docs.txt
+- run: pip install -r requirements-docs.txt
+- run: mkdocs build --strict --clean
+- uses: actions/upload-pages-artifact@v3
+  with:
+    path: site/
+```
+
+要点：
+- `--strict`：broken nav / missing anchor 即 build 失败；强制 docs 维护纪律
+- artifact path 改 `site/`（mkdocs 完整静态站，含 search/ + assets/ + 暗色模式 + 代码复制）
+- trigger paths 增 `mkdocs.yml` + `requirements-docs.txt` + `pages.yml` 自身
+
+### 44.4 ci.yml 改造要点
+
+frontend-lint matrix（3 → 4 端）：
+- 新增 unified-app：npm install + typecheck (vue-tsc --noEmit) + build:h5
+  - 覆盖 §43 spike 已验证的 vue-tsc 0 错误 + h5 构建成功（dist/build/h5/ 212KB）
+  - 单测/e2e 在 Phase 3 业务迁移时再加
+
+docs-build（新 job）：
+- 与 pages.yml build job 复用 requirements-docs.txt（version 锁一致）
+- mkdocs --strict 失败即红，与 pages 部署解耦：docs 改动可直接在 PR 看到，不需等 push 到 main
+
+当前 ci.yml 5 jobs：backend-test / docker-build / frontend-lint / backend-lint / docs-build。
+
+### 44.5 验证
+
+本地验证：
+- `mkdocs build --strict --clean` → 5.06s，warning 1 条（ops/secrets.md 锚点，与本次无关）
+- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → 5 jobs, frontend-lint 4 端
+- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/pages.yml'))"` → 2 jobs, build steps 6
+
+CI 验证（push 到 main 后）：
+- pages.yml build job 跑通 → deploy 到 https://growdu.github.io/doctors/
+- ci.yml docs-build job 跑通
+- ci.yml frontend-lint unified-app job 跑 typecheck + build:h5
+
+### 44.6 设计决策
+
+#### 44.6.1 mkdocs 严格模式
+
+mkdocs 默认 build 是 lenient（warning 不 fail）。`--strict` 把以下情况升级为 error：
+- nav 引用了不存在的文件
+- 文件引用了不存在的 anchor
+- Markdown 内部链接目标失效
+
+当前 warning 仅 ops/secrets.md 一处（8 处锚点），其余 17 个 plan / 6 个 spec / 9 个业务文档全部 OK。
+保留 `--strict` 是正确选择：这是 0-tolerance 防线，后续 plan 落地后强制 nav / anchor 维护纪律。
+
+#### 44.6.2 为什么 docs-build 与 pages.yml build 拆两个 job
+
+- pages.yml build 是 deployment 步骤（OIDC + upload artifact）；CI 任何改动都会触发
+- docs-build 是「文档可构建」信号，与 deployment 解耦
+- 解耦后 docs/** 改动的 PR 在 ci.yml 就能拦截，不必等 push 到 main + Pages 部署
+
+#### 44.6.3 不在 mkdocs nav 暴露 dev.md
+
+dev.md 267KB / 3823 行 / 44 章节：作为单页挂 mkdocs 会让首次加载 100+ 秒。
+当前策略：index.md 加 GitHub raw 链接，dev.md 留仓库本地（PR review 溯源友好）。
+
+### 44.7 待办
+
+| 优先级 | 项 | 说明 |
+| ------ | ---- | ---- |
+| P2 | e2e in CI (admin-web Playwright) | 需要装 playwright browsers + webServer；unified-app e2e 需要 auth-service 真跑，复杂度高 |
+| P2 | ops/secrets.md 锚点修复 | 8 处 warning 当前不阻塞 pages 部署（--strict 但 warning 不 fail） |
+| P3 | patient-miniapp e2e (Web/H5 段) | 复用 admin-web 的 playwright 模板，跳过 app-plus native 段 |
+| P3 | mkdocs 增量 build 缓存 | 当前每次全量 build 5s，可接受；pages 部署节奏不需要增量 |
