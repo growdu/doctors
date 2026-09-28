@@ -11,6 +11,7 @@ import (
 	"github.com/growdu/doctors/services/match/internal/service"
 	"github.com/growdu/doctors/shared/errs"
 	"github.com/growdu/doctors/shared/httpx"
+	sharedmw "github.com/growdu/doctors/shared/middleware"
 )
 
 // Handler 持有 service 引用。
@@ -24,11 +25,22 @@ func New(svc *service.Service) *Handler {
 }
 
 // RegisterRoutes 把 match 路由挂到 RouterGroup（Auth 已在 group 上挂好）。
+//
+// v2（unified-app）：按角色分组挂 RoleAuthWithKey：
+//   - /match/feed：escort-only（陪诊师抢单池拉取）
+//   - /match/candidates：escort 或 super_admin（陪诊师 + admin 都能查某订单的候选）
+//   - /match/dispatch：super_admin / order_admin（运维调度）
 func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	m := r.Group("/match")
-	m.GET("/feed", h.Feed)
-	m.POST("/candidates", h.Candidates)
-	m.POST("/dispatch", h.Dispatch)
+
+	// escort-only：feed 拉抢单池
+	escortRoutes := m.Group("", sharedmw.RoleAuthWithKey(middleware.RoleKey, "escort"))
+	escortRoutes.GET("/feed", h.Feed)
+
+	// 跨角色：candidates + dispatch
+	multiRoutes := m.Group("", sharedmw.RoleAuthWithKey(middleware.RoleKey, "escort", "super_admin", "order_admin"))
+	multiRoutes.POST("/candidates", h.Candidates)
+	multiRoutes.POST("/dispatch", h.Dispatch)
 }
 
 func respondError(c *gin.Context, err error) {
