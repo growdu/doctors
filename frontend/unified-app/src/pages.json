@@ -170,6 +170,18 @@
       "style": {
         "navigationBarTitleText": "客服与帮助"
       }
+    },
+    {
+      "path": "pages/patient/order/candidates/index",
+      "style": {
+        "navigationBarTitleText": "选择陪诊师"
+      }
+    },
+    {
+      "path": "pages/patient/order/create",
+      "style": {
+        "navigationBarTitleText": "确认下单"
+      }
     }
   ],
   "globalStyle": {
