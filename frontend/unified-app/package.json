@@ -11,7 +11,11 @@
     "build:h5": "uni build",
     "build:mp-weixin": "uni build -p mp-weixin",
     "build:app": "uni build -p app",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4030620241128001",
@@ -30,10 +34,14 @@
     "@dcloudio/vite-plugin-uni": "3.0.0-4030620241128001",
     "@types/node": "^20.16.5",
     "@vitejs/plugin-vue": "^5.1.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "@vue/runtime-core": "^3.4.21",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^25.0.1",
     "sass": "^1.77.0",
     "typescript": "^5.5.4",
     "vite": "^5.4.0",
+    "vitest": "^2.1.9",
     "vue-tsc": "^2.1.6"
   }
 }
