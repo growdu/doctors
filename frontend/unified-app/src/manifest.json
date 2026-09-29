@@ -26,7 +26,47 @@
         "targetSdkVersion": 34,
         "abiFilters": ["armeabi-v7a", "arm64-v8a"]
       },
-      "ios": {},
+      "ios": {
+        "appid": "com.growdu.doctors",
+        "idfa": false,
+        "requiredDeviceCapabilities": ["arm64"],
+        "icons": {
+          "app": "static/icons/ios/app.png",
+          "app@2x": "static/icons/ios/app@2x.png",
+          "app@3x": "static/icons/ios/app@3x.png",
+          "spotlight": "static/icons/ios/spotlight.png",
+          "spotlight@2x": "static/icons/ios/spotlight@2x.png",
+          "settings": "static/icons/ios/settings.png",
+          "settings@2x": "static/icons/ios/settings@2x.png",
+          "settings@3x": "static/icons/ios/settings@3x.png",
+          "notification": "static/icons/ios/notification.png",
+          "notification@2x": "static/icons/ios/notification@2x.png",
+          "notification@3x": "static/icons/ios/notification@3x.png"
+        },
+        "infoPlist": {
+          "NSAppTransportSecurity": {
+            "NSAllowsArbitraryLoads": true,
+            "NSAllowsLocalNetworking": true,
+            "NSExceptionDomains": {
+              "localhost": {
+                "NSExceptionAllowsInsecureHTTPLoads": true,
+                "NSIncludesSubdomains": true
+              },
+              "127.0.0.1": {
+                "NSExceptionAllowsInsecureHTTPLoads": true
+              }
+            }
+          },
+          "LSRequiresIPhoneOS": true,
+          "UILaunchStoryboardName": "LaunchScreen",
+          "CFBundleDisplayName": "Doctors",
+          "UIRequiredDeviceCapabilities": ["arm64"],
+          "UISupportedInterfaceOrientations": [
+            "UIInterfaceOrientationPortrait"
+          ],
+          "UIBackgroundModes": []
+        }
+      },
       "sdkConfigs": {}
     }
   },
