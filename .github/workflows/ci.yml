@@ -50,7 +50,7 @@ jobs:
           - wallet
           - admin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:
@@ -136,7 +136,7 @@ jobs:
             dockerfile: frontend/unified-app/Dockerfile
             build_args: ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
         with:
@@ -185,7 +185,7 @@ jobs:
       run:
         working-directory: ${{ matrix.directory }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         if: matrix.setup == 'node' || matrix.setup == 'node-pnpm'
@@ -219,7 +219,7 @@ jobs:
     name: backend-lint (golangci-lint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:
@@ -244,7 +244,7 @@ jobs:
     name: docs-build (mkdocs --strict)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python
         uses: actions/setup-python@v5
