@@ -206,6 +206,24 @@
       "style": {
         "navigationBarTitleText": "我的订单"
       }
+    },
+    {
+      "path": "pages/admin/dashboard/index",
+      "style": {
+        "navigationBarTitleText": "仪表盘"
+      }
+    },
+    {
+      "path": "pages/admin/dashboard/detail",
+      "style": {
+        "navigationBarTitleText": "仪表盘详情"
+      }
+    },
+    {
+      "path": "pages/admin/login/index",
+      "style": {
+        "navigationBarTitleText": "Admin 登录"
+      }
     }
   ],
   "globalStyle": {
