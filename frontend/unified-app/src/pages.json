@@ -338,6 +338,24 @@
       "style": {
         "navigationBarTitleText": "站内信管理"
       }
+    },
+    {
+      "path": "pages/admin/reviews/index",
+      "style": {
+        "navigationBarTitleText": "评价管理"
+      }
+    },
+    {
+      "path": "pages/admin/sos/index",
+      "style": {
+        "navigationBarTitleText": "SOS 管理"
+      }
+    },
+    {
+      "path": "pages/admin/settings/index",
+      "style": {
+        "navigationBarTitleText": "系统设置"
+      }
     }
   ],
   "globalStyle": {
