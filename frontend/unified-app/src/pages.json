@@ -404,6 +404,30 @@
       "style": {
         "navigationBarTitleText": "培训记录"
       }
+    },
+    {
+      "path": "pages/escort/checkin/index",
+      "style": {
+        "navigationBarTitleText": "订单签到"
+      }
+    },
+    {
+      "path": "pages/escort/checkout/index",
+      "style": {
+        "navigationBarTitleText": "订单签出"
+      }
+    },
+    {
+      "path": "pages/escort/message/list",
+      "style": {
+        "navigationBarTitleText": "消息列表"
+      }
+    },
+    {
+      "path": "pages/escort/message/chat",
+      "style": {
+        "navigationBarTitleText": "消息详情"
+      }
     }
   ],
   "globalStyle": {
