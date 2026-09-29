@@ -189,7 +189,7 @@ jobs:
 
       - name: Setup Node
         if: matrix.setup == 'node' || matrix.setup == 'node-pnpm'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
