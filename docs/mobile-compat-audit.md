@@ -65,14 +65,16 @@ uni.* API 总调用点：148
 
 ## 2. 实施批次
 
-### 批 1：基础设施（条件编译 + 抽象层）
+> **进度状态（2026-09-29 更新）**：批 1-4 代码全部完成（含 22 spec cases 验证），批 5 实际构建未跑（依赖微信开发者工具 CLI + HBuilderX 离线打包环境），改为 `mobile-integration.spec.ts` 跨模块静态分析 spec 替代。
+
+### 批 1：基础设施（条件编译 + 抽象层）✅ 已完成
 - 修 App.vue 的 `document.*` → `// #ifdef H5`
 - 修 main.ts：h5 用 SSR，app 用非 SSR
 - 修 patient/settings：localStorage fallback uni API
 - 新建 `src/utils/storage.ts`：抽象 set/get/remove
 - 重构 auth.ts、settings/index.vue 使用 utils/storage.ts
 
-### 批 2：manifest.json 补全
+### 批 2：manifest.json 补全 ✅ 已完成（2a + 2b 两个 commit）
 - 真实 appid 占位说明（README 标注待替换）
 - ios distribute：bundleId、version、requiredDeviceCapabilities、infoPlist NSAppTransportSecurity
 - app-plus icons + splash（5+ 图标尺寸）
@@ -80,7 +82,7 @@ uni.* API 总调用点：148
 - app-plus modules: Push、Share、OAuth（可选）
 - requiredPrivateInfos（定位 / 通讯录）
 
-### 批 3：pages.json 移动端配置
+### 批 3：pages.json 移动端配置 ✅ 已完成（3a + 3b 两个 commit）
 - top-level conditionCompile（mp-weixin / app-plus / h5 条件块）
 - tabBar 配置（移动端底栏）
 - 关键页 `style.navigationStyle: custom`（沉浸式）
@@ -88,17 +90,32 @@ uni.* API 总调用点：148
 - 关键页 `style.app-plus.titleNView`（原生导航栏配置）
 - 关键页 mp-weixin `disableScroll: true`
 
-### 批 4：移动端特有 page / 组件
+### 批 4：移动端特有 page / 组件 ✅ 已完成（4a + 4b + 4c + 4d 四个 commit）
 - `src/pages/patient/order/share.vue`：分享订单详情给陪诊师（app-plus + mp-weixin）
 - `src/utils/share.ts`：uni.share API + h5 navigator.share fallback
 - `src/utils/callPhone.ts`：uni.makePhoneCall + h5 tel: link
 - SOS trigger 加「一键拨号 120」按钮
 
-### 批 5：构建验证
-- `pnpm build:mp-weixin`：确认能编译出 `dist/build/mp-weixin/`
-- `pnpm build:app`：确认能生成 `dist/build/app-plus/`
-- 检查生成的 manifest.json / app.json 是否正确
+### 批 5：构建验证 ⚠️ 代码层完成（mobile-integration.spec.ts 12 cases）；实际 build 待外部工具
+
+**已完成**：
+- `src/utils/mobile-integration.spec.ts`：12 个跨模块静态验证 case
+  - 各 utils 模块导出完整性（share / share.mp-weixin / callPhone / storage 4 模块）
+  - 页面正确引用 utils（source grep）
+  - web-only 残留清理（auth.ts 不再有 typeof localStorage/window/document）
+  - App.vue `#ifdef H5` 包裹 `document.*` 验证
+  - manifest.json / pages.json 路径前缀一致性
+
+**未完成（依赖外部工具链，不在本机）**：
+- `pnpm build:mp-weixin`：需要微信开发者工具 CLI（未安装）
+- `pnpm build:app`：需要 HBuilderX 离线打包 + Android SDK（未安装）
 - 不实际跑 HBuilderX 离线打包（需要 macOS + Xcode + Android SDK）
+
+**图标资源待补（PNG 文件）**：
+- `static/icons/ios/*.png`（11 个 iOS 图标尺寸）
+- `static/icons/android/ic_app_*.png`（6 个 DPI）
+- `static/icons/tabbar/*.png`（8 个 tabBar 图标）
+- 设计师出图后直接放进 `frontend/unified-app/src/static/icons/`，无需改配置（路径已在 manifest.json / pages.json 引用）
 
 ---
 
