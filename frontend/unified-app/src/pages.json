@@ -392,6 +392,18 @@
       "style": {
         "navigationBarTitleText": "提现申请"
       }
+    },
+    {
+      "path": "pages/escort/availability/index",
+      "style": {
+        "navigationBarTitleText": "空余时段"
+      }
+    },
+    {
+      "path": "pages/escort/training/index",
+      "style": {
+        "navigationBarTitleText": "培训记录"
+      }
     }
   ],
   "globalStyle": {
