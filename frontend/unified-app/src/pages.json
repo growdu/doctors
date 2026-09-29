@@ -302,6 +302,12 @@
       "style": {
         "navigationBarTitleText": "工单管理"
       }
+    },
+    {
+      "path": "pages/admin/finance/index",
+      "style": {
+        "navigationBarTitleText": "财务管理"
+      }
     }
   ],
   "globalStyle": {
