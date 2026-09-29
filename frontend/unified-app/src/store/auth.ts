@@ -22,6 +22,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { MeResponse, Role } from '@/types/auth';
 import { fetchMe, loginByPhone, sendSmsCode, switchActiveRole } from '@/api/auth';
+import { storage } from '@/utils/storage';
 
 const STORAGE_KEY = 'unified.auth';
 
@@ -31,28 +32,15 @@ interface PersistedAuth {
 }
 
 function readPersisted(): PersistedAuth | null {
-  try {
-    const raw = typeof uni !== 'undefined'
-      ? uni.getStorageSync(STORAGE_KEY)
-      : localStorage.getItem(STORAGE_KEY);
-    if (typeof raw === 'string' && raw) return JSON.parse(raw) as PersistedAuth;
-  } catch { /* noop */ }
-  return null;
+  return storage.getJSON<PersistedAuth>(STORAGE_KEY);
 }
 
-function writePersisted(data: PersistedAuth) {
-  const raw = JSON.stringify(data);
-  try {
-    if (typeof uni !== 'undefined') uni.setStorageSync(STORAGE_KEY, raw);
-    else localStorage.setItem(STORAGE_KEY, raw);
-  } catch { /* noop */ }
+function writePersisted(data: PersistedAuth): void {
+  storage.setItem(STORAGE_KEY, data);
 }
 
-function clearPersisted() {
-  try {
-    if (typeof uni !== 'undefined') uni.removeStorageSync(STORAGE_KEY);
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch { /* noop */ }
+function clearPersisted(): void {
+  storage.removeItem(STORAGE_KEY);
 }
 
 function reLaunchHome() {

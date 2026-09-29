@@ -12,6 +12,7 @@
  */
 import { ref, onMounted } from 'vue';
 import { useAuthStore } from '@/store/auth';
+import { storage } from '@/utils/storage';
 import UiCard from '@/components/shared/UiCard.vue';
 import UiButton from '@/components/shared/UiButton.vue';
 import UiModal from '@/components/shared/UiModal.vue';
@@ -33,30 +34,21 @@ interface StoredSettings {
 }
 
 function loadSettings() {
-  try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
-    if (raw) {
-      const s = JSON.parse(raw) as StoredSettings;
-      notifyEnabled.value = s.notifyEnabled;
-      theme.value = s.theme;
-      language.value = s.language;
-    }
-  } catch {
-    // ignore
+  const s = storage.getJSON<StoredSettings>(STORAGE_KEY);
+  if (s) {
+    notifyEnabled.value = s.notifyEnabled;
+    theme.value = s.theme;
+    language.value = s.language;
   }
 }
 
 function saveSettings() {
-  try {
-    const s: StoredSettings = {
-      notifyEnabled: notifyEnabled.value,
-      theme: theme.value,
-      language: language.value,
-    };
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(s));
-  } catch {
-    // ignore
-  }
+  const s: StoredSettings = {
+    notifyEnabled: notifyEnabled.value,
+    theme: theme.value,
+    language: language.value,
+  };
+  storage.setItem(STORAGE_KEY, s);
 }
 
 function onNotifyToggle(e: any) {
