@@ -320,6 +320,12 @@
       "style": {
         "navigationBarTitleText": "审计管理"
       }
+    },
+    {
+      "path": "pages/admin/profile/index",
+      "style": {
+        "navigationBarTitleText": "个人中心"
+      }
     }
   ],
   "globalStyle": {
