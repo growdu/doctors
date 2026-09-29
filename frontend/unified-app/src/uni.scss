@@ -1,10 +1,26 @@
-/* uni-app 全局 SCSS 变量（覆盖 uView Plus 默认主题） */
-$uni-color-primary: #1677ff;
-$uni-color-success: #52c41a;
-$uni-color-warning: #faad14;
-$uni-color-error: #ff4d4f;
+/**
+ * uni-app 全局 SCSS 入口（v2 unified-app）。
+ *
+ * 装配链：
+ *   - tokens.scss：design tokens（颜色/间距/字号/圆角/阴影/断点/动画，TS 同步源 src/styles/tokens.ts）
+ *   - global.scss：reset + 工具类 + 通用语义类
+ *   - uni-app 主题色：与 uView Plus 对齐（$uni-color-* 系列）
+ *
+ * 注意：uni-app 在 h5 模式下会读 uni.scss 自动注入到每个 .vue；
+ * 小程序 / app 模式通过条件编译引入。
+ *
+ * 对应：plan 2026-09-28-unified-app-v2.md Phase 3 §0.1
+ */
+@import './styles/tokens.scss';
+@import './styles/global.scss';
 
-/* uView Plus 自定义主题色同步 */
+/* uni-app 主题色（与 uView Plus 兼容；Phase 3 业务迁移时启用 uView Plus） */
+$uni-color-primary: $ui-color-primary;
+$uni-color-success: $ui-color-success;
+$uni-color-warning: $ui-color-warning;
+$uni-color-error: $ui-color-error;
+
+/* uView Plus 自定义主题色同步（保留兼容性） */
 $u-primary: $uni-color-primary;
-$u-primary-light: #4096ff;
-$u-primary-dark: #0958d9;
+$u-primary-light: $ui-color-primary-hover;
+$u-primary-dark: $ui-color-primary-active;

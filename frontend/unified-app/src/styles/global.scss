@@ -1,0 +1,131 @@
+/**
+ * unified-app v2 全局基础样式。
+ *
+ * 设计原则：
+ *   - reset + base：覆盖 uni-app 默认 + 浏览器默认
+ *   - 工具类（utilities）：.ui-mt-{n} / .ui-p-{n} / .ui-text-{kind} 等
+ *   - safe-area：自动适配刘海屏 / 底部小横条
+ *
+ * 所有 token 引用 src/styles/tokens.scss（与 tokens.ts 同步，由 sync 测试保证）。
+ */
+
+@import './tokens.scss';
+
+/* ── reset ──────────────────────────────────────────────────────── */
+page {
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  font-size: $ui-font-base;
+  line-height: $ui-line-height-base;
+  color: $ui-color-text-primary;
+  background-color: $ui-color-bg-base;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ── 基础元素 ──────────────────────────────────────────────────── */
+button {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* ── 通用语义类（业务页面用） ─────────────────────────────────── */
+.ui-page {
+  padding: $ui-space-base;
+  min-height: 100vh;
+  background-color: $ui-color-bg-base;
+}
+
+.ui-card {
+  background-color: $ui-color-bg-card;
+  border-radius: $ui-radius-md;
+  padding: $ui-space-base;
+  margin-bottom: $ui-space-md;
+  box-shadow: $ui-shadow-sm;
+}
+
+.ui-title {
+  font-size: $ui-font-lg;
+  font-weight: $ui-font-weight-semibold;
+  color: $ui-color-text-primary;
+  margin-bottom: $ui-space-sm;
+}
+
+.ui-subtitle {
+  font-size: $ui-font-base;
+  color: $ui-color-text-secondary;
+  margin-bottom: $ui-space-xs;
+}
+
+.ui-muted {
+  color: $ui-color-text-disabled;
+  font-size: $ui-font-sm;
+}
+
+/* ── 间距工具类 ───────────────────────────────────────────────── */
+@each $name, $value in (
+  xxs: $ui-space-xxs,
+  xs: $ui-space-xs,
+  sm: $ui-space-sm,
+  md: $ui-space-md,
+  base: $ui-space-base,
+  lg: $ui-space-lg,
+  xl: $ui-space-xl,
+  xxl: $ui-space-xxl,
+) {
+  .ui-mt-#{$name} { margin-top: $value !important; }
+  .ui-mb-#{$name} { margin-bottom: $value !important; }
+  .ui-ml-#{$name} { margin-left: $value !important; }
+  .ui-mr-#{$name} { margin-right: $value !important; }
+  .ui-p-#{$name}  { padding: $value !important; }
+  .ui-px-#{$name} { padding-left: $value !important; padding-right: $value !important; }
+  .ui-py-#{$name} { padding-top: $value !important; padding-bottom: $value !important; }
+}
+
+/* ── 文字工具类 ───────────────────────────────────────────────── */
+.ui-text-primary { color: $ui-color-primary !important; }
+.ui-text-success { color: $ui-color-success !important; }
+.ui-text-warning { color: $ui-color-warning !important; }
+.ui-text-error   { color: $ui-color-error !important; }
+.ui-text-muted   { color: $ui-color-text-secondary !important; }
+
+.ui-text-xs   { font-size: $ui-font-xs !important; }
+.ui-text-sm   { font-size: $ui-font-sm !important; }
+.ui-text-base { font-size: $ui-font-base !important; }
+.ui-text-lg   { font-size: $ui-font-lg !important; }
+.ui-text-xl   { font-size: $ui-font-xl !important; }
+.ui-text-xxl  { font-size: $ui-font-xxl !important; }
+
+.ui-text-bold     { font-weight: $ui-font-weight-bold !important; }
+.ui-text-semibold { font-weight: $ui-font-weight-semibold !important; }
+.ui-text-center   { text-align: center !important; }
+.ui-text-right    { text-align: right !important; }
+
+/* ── 布局工具类 ───────────────────────────────────────────────── */
+.ui-flex { display: flex !important; }
+.ui-flex-col { display: flex !important; flex-direction: column !important; }
+.ui-flex-row { display: flex !important; flex-direction: row !important; }
+.ui-flex-center { display: flex !important; align-items: center !important; justify-content: center !important; }
+.ui-flex-between { display: flex !important; align-items: center !important; justify-content: space-between !important; }
+.ui-gap-sm { gap: $ui-space-sm !important; }
+.ui-gap-md { gap: $ui-space-md !important; }
+.ui-gap-base { gap: $ui-space-base !important; }
+.ui-w-full { width: 100% !important; }
+.ui-h-full { height: 100% !important; }

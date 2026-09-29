@@ -16,23 +16,6 @@ onLaunch(() => {
 </script>
 
 <style lang="scss">
+/* 全局样式已迁移至 src/styles/global.scss（Phase 3.0.1 design tokens） */
 @import '@/uni.scss';
-
-/* 全局 box-sizing + safe-area */
-page {
-  box-sizing: border-box;
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-/* 统一应用强调色 */
-.ui-page { padding: 16px; }
-.ui-card {
-  background: #fff;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-.ui-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-.ui-subtitle { font-size: 14px; color: #666; }
 </style>

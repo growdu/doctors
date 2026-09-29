@@ -1,0 +1,91 @@
+/**
+ * unified-app v2 设计 tokens · SCSS 副本（与 tokens.ts 同步）。
+ *
+ * 设计原则：
+ *   - 单一真相源：tokens.ts（TypeScript 常量）
+ *   - SCSS 副本用于嵌套规则（@media query 断点计算、keyframes 等）
+ *   - tokens-sync.spec.ts 自动验证 SCSS 变量值与 TS 常量一致
+ *
+ * ⚠️ 修改本文件时必须同步修改 tokens.ts！sync 失败 → test 红
+ *
+ * 对应：plan 2026-09-28-unified-app-v2.md Phase 3 §0.1
+ */
+
+// ── 颜色 ──────────────────────────────────────────────────────────
+$ui-color-primary: #1677ff;
+$ui-color-primary-hover: #4096ff;
+$ui-color-primary-active: #0958d9;
+$ui-color-success: #52c41a;
+$ui-color-warning: #faad14;
+$ui-color-error: #ff4d4f;
+$ui-color-info: #1677ff;
+
+$ui-color-text-primary: rgba(0, 0, 0, 0.88);
+$ui-color-text-secondary: rgba(0, 0, 0, 0.65);
+$ui-color-text-disabled: rgba(0, 0, 0, 0.45);
+$ui-color-text-inverse: #ffffff;
+
+$ui-color-bg-base: #f8f8f8;
+$ui-color-bg-card: #ffffff;
+$ui-color-bg-hover: #f5f5f5;
+$ui-color-bg-mask: rgba(0, 0, 0, 0.5);
+
+$ui-color-border: #e8e8e8;
+$ui-color-border-light: #f0f0f0;
+$ui-color-divider: #f0f0f0;
+
+// ── 间距（4px 步进，编译期可用 calc / @media）────────────────────
+$ui-space-xxs: 2px;
+$ui-space-xs: 4px;
+$ui-space-sm: 8px;
+$ui-space-md: 12px;
+$ui-space-base: 16px;
+$ui-space-lg: 20px;
+$ui-space-xl: 24px;
+$ui-space-xxl: 32px;
+
+// ── 字号 ───────────────────────────────────────────────────────────
+$ui-font-xs: 12px;
+$ui-font-sm: 13px;
+$ui-font-base: 14px;
+$ui-font-md: 15px;
+$ui-font-lg: 16px;
+$ui-font-xl: 18px;
+$ui-font-xxl: 20px;
+$ui-font-display: 24px;
+
+$ui-font-weight-regular: 400;
+$ui-font-weight-medium: 500;
+$ui-font-weight-semibold: 600;
+$ui-font-weight-bold: 700;
+
+$ui-line-height-tight: 1.2;
+$ui-line-height-base: 1.5;
+$ui-line-height-loose: 1.8;
+
+// ── 圆角 ───────────────────────────────────────────────────────────
+$ui-radius-sm: 4px;
+$ui-radius-md: 8px;
+$ui-radius-lg: 12px;
+$ui-radius-pill: 9999px;
+
+// ── 阴影 ───────────────────────────────────────────────────────────
+$ui-shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.04);
+$ui-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+$ui-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+// ── z-index ────────────────────────────────────────────────────────
+$ui-z-base: 1;
+$ui-z-sticky: 100;
+$ui-z-modal: 1000;
+$ui-z-toast: 2000;
+
+// ── 断点（用于 @media 嵌套）──────────────────────────────────────
+$ui-breakpoint-mobile: 320px;
+$ui-breakpoint-tablet: 768px;
+$ui-breakpoint-desktop: 1024px;
+
+// ── 动画时长 ───────────────────────────────────────────────────────
+$ui-duration-fast: 120ms;
+$ui-duration-normal: 240ms;
+$ui-duration-slow: 360ms;
