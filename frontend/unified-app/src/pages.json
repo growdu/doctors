@@ -6,7 +6,7 @@
     {
       "path": "pages/home/index",
       "style": {
-        "navigationBarTitleText": "Doctors 统一 App"
+        "navigationBarTitleText": "Doctors"
       }
     },
     {
@@ -25,6 +25,18 @@
       "path": "pages/admin/index",
       "style": {
         "navigationBarTitleText": "管理后台"
+      }
+    },
+    {
+      "path": "pages/patient/address/list",
+      "style": {
+        "navigationBarTitleText": "地址管理"
+      }
+    },
+    {
+      "path": "pages/patient/address/edit",
+      "style": {
+        "navigationBarTitleText": "地址"
       }
     }
   ],
