@@ -3983,3 +3983,251 @@ CI #16 即已 fail 的 19 个 job（与本次无关）：
 | P2 | ops/secrets.md 锚点修复 | dev.md §44.7 旧条目 |
 | P2 | patient-miniapp e2e (Web/H5 段) | dev.md §44.7 旧条目 |
 | P3 | mkdocs 增量 build 缓存 | dev.md §44.7 旧条目 |
+---
+
+## 45. unified-app Phase 3.0 基础设施建设收官（2026-09-29）
+
+**会话目标**：完成 `docs/superpowers/plans/2026-09-28-unified-app-v2.md` Phase 3.0 全部 7 个 sub-task，为 Phase 3.1 patient 域业务迁移铺路。
+
+**衔接上下文**：
+- §42 已落地 v2 multi-role + /switch-role + RoleAuthWithKey（后端 OK）
+- §43 已落地 unified-app 项目骨架 + 4 demo pages + build:h5 + Playwright spike 1
+- §44 已完善 CI + GitHub Pages + unified-app frontend-lint job
+
+Phase 3.0 是 unified-app「能用」的奠基：测试基础设施 + 设计 tokens + 通用组件 + API 扩展层 + 业务 store + 域切换 + 主页壳 + e2e 验证。
+
+### 45.1 14 commits 表（按时间顺序）
+
+| # | Commit | Task | 内容 |
+|---|---|---|---|
+| 1 | `a949eb2` | Pre-Phase 3.0 | 测试基建：Vitest + jsdom + 存储 + uni mock + smoke 5 cases |
+| 2 | `00f8fa0` | 3.0.1 | design tokens（TS 单一真相源 58 项 + SCSS 副本 + sync 测试） |
+| 3 | `79b8b5d` | 3.0.2a | UiButton / UiEmpty / UiLoading 通用组件 + 18 cases |
+| 4 | `77105b9` | 3.0.2b | UiCard 容器组件 + 11 cases |
+| 5 | `e7e5253` | 3.0.2c | UiInput 表单组件（v-model + clearable + error） + 16 cases |
+| 6 | `e6ea82c` | 3.0.2d | UiModal 模态弹层（mask close + confirmType） + 15 cases（组件库收官） |
+| 7 | `c6fe168` | 3.0.3a | api/orders（patient + escort 8 端点）+ 12 cases |
+| 8 | `92ab237` | 3.0.3b | api/match（escort 抢单池 3 端点）+ 5 cases |
+| 9 | `<payment+wallet>` | 3.0.3c | api/payment + api/wallet（patient/escort/admin 12 端点）+ 15 cases |
+| 10 | `<user+review+sos+message>` | 3.0.3d | api/user (19 端点) + review/sos/message (12 端点) + 22 cases |
+| 11 | `<admin+escort>` | 3.0.3e | api/admin (13 端点) + api/escort (13 端点) + 20 cases（API 收官） |
+| 12 | `68f34a8` | 3.0.4 | orderStore（fetchList / fetchDetail / 状态机 action + upsert） + 14 cases |
+| 13 | `97ea85f` | 3.0.5 | vite proxy 全 11 后端 + DomainSwitcher 域切换 + 9 cases |
+| 14 | `929fd06` | 3.0.6 | HomeShell + RoleSwitcherModal + 重大 SCSS→CSS-var 重构 + 6 cases |
+| 15 | `fcf5f24` | 3.0.7 | e2e spike 2（HomeShell 渲染 + 角色切换弹层 + 域可用性） |
+
+### 45.2 累计资产
+
+```
+frontend/unified-app/
+├── src/
+│   ├── styles/                        ← 3.0.1 ✅
+│   │   ├── tokens.ts                  (58 design tokens 单一真相源 + generateCssVarsBlock)
+│   │   ├── tokens.scss                (SCSS 副本，由 sync.spec.ts 保证同步)
+│   │   ├── global.scss                (reset + 工具类 + 通用语义类)
+│   │   ├── tokens.spec.ts             (18 cases：颜色/间距/字重/命名规范)
+│   │   └── tokens-sync.spec.ts        (8 cases：SCSS↔TS 漂移检测)
+│   ├── components/shared/             ← 3.0.2/3.0.5/3.0.6 ✅
+│   │   ├── UiButton.vue + .spec.ts    (7 cases，4 type × 3 size + loading/block)
+│   │   ├── UiCard.vue + .spec.ts      (11 cases，title/extra/footer slot + shadow)
+│   │   ├── UiInput.vue + .spec.ts     (16 cases，v-model + clearable + error + label)
+│   │   ├── UiEmpty.vue + .spec.ts     (5 cases)
+│   │   ├── UiLoading.vue + .spec.ts   (6 cases)
+│   │   ├── UiModal.vue + .spec.ts     (15 cases，mask close + confirm/cancel)
+│   │   ├── RoleGuard.vue              (§43 spike 已有)
+│   │   ├── DomainSwitcher.vue + .spec.ts  (9 cases，3 域卡片 + active + disabled)
+│   │   └── RoleSwitcherModal.vue + .spec.ts  (6 cases，列表 + active ✓ + loading)
+│   ├── api/                           ← 3.0.3 ✅（10 client × 60 端点 × 75 类型）
+│   │   ├── client.ts                  (request 核心 + 401 callback + PATCH 支持)
+│   │   ├── auth.ts                    (SMS send/login + /switch-role + /me)
+│   │   ├── orders.ts + .spec.ts       (12 cases)
+│   │   ├── match.ts + .spec.ts        (5 cases)
+│   │   ├── payment.ts + .spec.ts      (6 cases)
+│   │   ├── wallet.ts + .spec.ts       (9 cases)
+│   │   ├── user.ts + .spec.ts         (11 cases)
+│   │   ├── review.ts + .spec.ts       (4 cases)
+│   │   ├── sos.ts + .spec.ts          (4 cases)
+│   │   ├── message.ts + .spec.ts      (3 cases)
+│   │   ├── admin.ts + .spec.ts        (12 cases)
+│   │   └── escort.ts + .spec.ts       (8 cases)
+│   ├── store/                         ← 3.0.4 ✅
+│   │   ├── auth.ts                    (§43 spike 已有 + bootstrap/persist)
+│   │   └── order.ts + .spec.ts        (14 cases)
+│   ├── test/smoke.spec.ts             (5 cases)
+│   ├── pages/
+│   │   ├── home/index.vue             ← 3.0.6 重写 ✅ HomeShell 完整闭环
+│   │   ├── patient/index.vue          (Phase 3.1 待迁移)
+│   │   ├── escort/index.vue           (Phase 3.1 待迁移)
+│   │   └── admin/index.vue            (Phase 3.1 待迁移)
+│   ├── types/auth.ts                  (Role 枚举 + Me/Login/SwitchRole response)
+│   ├── App.vue                        (动态注入 :root CSS 变量 + auth.bootstrap)
+│   └── uni.scss                         (uni-app 主题色 + uView Plus 兼容)
+├── e2e/
+│   ├── login-and-switch.spec.ts       (§43 spike 1)
+│   └── home-shell.spec.ts             ← 3.0.7 ✅ 新增（HomeShell + 弹层 + 域可用性）
+├── test/setup.ts             (StorageMock + uni.* 全局 mock)
+├── vitest.config.ts          (jsdom + 路径别名 + 覆盖率配置)
+└── vite.config.js            (ESM interop + 18 条 proxy 规则)
+```
+
+**测试总数**：**194 passed**（5 smoke + 18 tokens + 8 tokens-sync + 7 UiButton + 11 UiCard + 16 UiInput + 5 UiEmpty + 6 UiLoading + 15 UiModal + 12 orders + 5 match + 6 payment + 9 wallet + 11 user + 4 review + 4 sos + 3 message + 12 admin + 8 escort + 14 orderStore + 9 DomainSwitcher + 6 RoleSwitcherModal）
+
+**e2e spike**：3 个 Playwright 测试覆盖核心链路（带 mock auth state 跳过 SMS 登录）
+
+### 45.3 重大决策回顾
+
+#### 45.3.1 SCSS → CSS 变量重构（关键）
+
+**问题**：uni-app sass-loader 在处理 .vue `<style scoped>` 块时，相对路径 `@import` 解析失败：
+- 报「Can't find stylesheet」错误（line 偏移 + cwd 不一致）
+- 试过 `@import './styles/tokens'`、`'../../styles/tokens.scss'`、`/绝对路径/`、`@use ... as *` 均失败
+- `vite.config.js` 的 `css.preprocessorOptions.scss.loadPaths: [src/]` 被 uni-app sass-loader 覆盖
+
+**解决**：tokens 完全走 CSS 变量（runtime）方案：
+1. `tokens.ts` 加 `generateCssVarsBlock()` 生成完整 `:root` 块
+2. `App.vue` 在 setup 外的 `<script>` 块动态注入 `<style data-ui-tokens>` 到 `<head>`
+3. 所有 .vue 组件 `$ui-color-primary` 改为 `var(--ui-color-primary)`，`<style>` 块 `lang="scss"` 改为 `lang="css"`
+4. `tokens-sync.spec.ts` 保留（SCSS 副本可作 fallback，未来 vite 插件支持时启用）
+
+**代价**：组件代码里不能写 SCSS 嵌套规则（@media / keyframes 仍可写 CSS 等价物）。**收益**：跨平台一致 + 不依赖 sass compile-time 解析。
+
+#### 45.3.2 三层测试金字塔
+
+```
+vitest 单测（最快）        — tokens/store/API（纯函数 / mock）
+vitest 组件测试（中等）   — UiButton/UiCard/.../DomainSwitcher（mount + props/event）
+Playwright e2e（最慢）    — HomeShell 渲染 + 切角色流程（真浏览器 + mock auth）
+```
+
+**mock 策略**：
+- API 单测：`vi.mock('./client')` 替换 request 为 spy，验证参数构造
+- store 单测：`vi.mock('@/api/orders')` + `setActivePinia(createPinia())`
+- e2e：`page.addInitScript` 注入 localStorage mock auth state，绕过真 SMS 登录
+
+#### 45.3.3 Pinia setup syntax（沿用 §43）
+
+```ts
+export const useOrderStore = defineStore('order', () => {
+  const orders = ref<Order[]>([]);          // state
+  const hasOrders = computed(...);         // getter
+  async function fetchList() { ... }       // action
+  return { orders, hasOrders, fetchList, ... };
+});
+```
+
+- TS 推导完整（this 类型不变）
+- `hasRole(role: Role)` 作为 action 而非 getter（getter 必须无参）
+- helpers（upsert）作为内部函数 return 出去，便于单测覆盖
+
+#### 45.3.4 vite.config.js ESM interop（沿用 §43.3.1）
+
+```js
+import * as uniModule from '@dcloudio/vite-plugin-uni';
+const uni = uniModule.default.default || uniModule.default;
+```
+
+穿透双层 default 包装（vite-plugin-uni 是 CJS）。
+
+#### 45.3.5 vite proxy 18 条规则
+
+Phase 3.0.5 扩展至完整 11 后端服务覆盖：
+- `:8081` auth + users (auth-service)
+- `:8082` orders (order-service)
+- `:8083` match (match-service)
+- `:8084` messages (message-service)
+- `:8085` payments (payment-service)
+- `:8086` reviews (review-service)
+- `:8087` sos (sos-service)
+- `:8088` users/coupons/me/hospitals/packages/virtual-numbers/address (user-service 拆 7 子路由)
+- `:8089` escorts (escort-service)
+- `:8090` wallet (wallet-service)
+- `:8091` admin (admin-service)
+
+### 45.4 与既有章节的衔接
+
+- §40 P0 后端真跑 → Phase 3.0.3 API client 按真实路径契约
+- §41 match 端到端 → Phase 3.0.3b api/match 与 §41 match consumer 链路对齐
+- §42 v2 multi-role + /switch-role → Phase 3.0.6 RoleSwitcherModal UI 闭环
+- §43 unified-app 骨架 + spike → Phase 3.0 全部扩展 + 测试化
+- §44 CI Pages → §45 不阻塞现有 CI（vitest 跑全 194，e2e 待 CI 集成）
+
+### 45.5 Phase 3.1 patient 域迁移计划
+
+来源：`docs/superpowers/plans/2026-09-28-unified-app-v2.md` Phase 3.1 §3P.1–3P.4
+
+**28 pages 待迁移**（按目录分）：
+| # | Page | 复杂度 | API 依赖 |
+|---|---|:-:|---|
+| 1 | address/list | 简单 | GET /api/v1/address |
+| 2 | address/edit | 简单 | POST/PUT /api/v1/address |
+| 3 | auth/login | 中 | POST /auth/sms/send + /login |
+| 4 | auth/real-name | 中 | POST /users/real-name/auth |
+| 5 | coupons/index | 简单 | GET /coupons, /me/coupons, claim/use |
+| 6 | hospitals/list | 简单 | GET /hospitals |
+| 7 | hospitals/detail | 简单 | GET /hospitals/:id |
+| 8 | package/detail | 简单 | GET /packages/:id |
+| 9 | order/index | 中 | GET /orders（patient view） |
+| 10 | order/detail | 中 | GET /orders/:id |
+| 11 | order/create | **复杂** | POST /orders + /select-escort + /candidates |
+| 12 | order/pay | 中 | POST /payments + /payments/:id/complete |
+| 13 | order/candidates | 中 | POST /match/candidates |
+| 14 | message/list | 简单 | GET /messages |
+| 15 | message/detail | 简单 | GET /messages/:id |
+| 16 | notifications/index | 简单 | （消息聚合，复用 message API） |
+| 17 | profile/index | 中 | GET /me + PATCH /nickname/avatar |
+| 18 | refund/apply | 中 | POST /payments/:id/refund |
+| 19 | reviews/create | 中 | POST /reviews |
+| 20 | reviews/index | 简单 | GET /reviews |
+| 21 | settings/index | 简单 | （本地设置，无 API） |
+| 22 | sos/trigger | 中 | POST /sos |
+| 23 | support/index | 简单 | （FAQ/客服，无 API） |
+| 24 | wallet/index | 中 | GET /users/me/wallet + /wallet/transactions |
+| 25 | register/index | 中 | （复用 auth/login，差别：role=patient 默认） |
+| 26 | login/index | 中 | （同 25，子路由版本） |
+| 27 | messages/index | 简单 | （同 message/list） |
+| 28 | index/index | 中 | （首页聚合：医院 + 套餐 + 推荐） |
+
+**估时**：28 pages × 混合粒度（简单 1 commit + 复杂打包 1 commit） ≈ **18 commits**（20 个简单 page + 8 个复杂 page 打包成 3 commits + 2 个聚合 commits）
+
+**测试**：每 page 至少 1 个组件挂载测试 + e2e 截图（如有交互）
+**复用**：UiButton/UiCard/UiInput/UiEmpty/UiLoading/UiModal 全用得上 + api/* + orderStore
+
+### 45.6 已知遗留（Phase 3.0 收尾）
+
+| 优先级 | 项 | 说明 |
+| :-: | --- | --- |
+| P1 | uview-plus bug fix 或换 antd-mobile | spike 阶段全用原生 HTML（§43.3.3）；Phase 3.1 业务页将大量依赖组件库 |
+| P1 | orderStore 之外的 store | walletStore / userStore / messageStore 等需 Phase 3.1/3.2 时建 |
+| P2 | e2e in CI 集成 | 当前 spike 跑测靠手动 + dev server；CI matrix 需加 browser job |
+| P2 | patient-miniapp e2e | dev.md §44.7 旧条目；unified-app 迁移完可覆盖 |
+| P2 | ops/secrets.md 锚点 | dev.md §44.7 旧条目 |
+| P2 | api/match 的 Redis 兜底 | 当前 dev fake loader 注入；Phase 3.1 patient 域真跑需要 Redis |
+| P3 | admin-web/patient-miniapp CI 改 pnpm | dev.md §44.7 旧条目；unified-app 已用 pnpm 优先 |
+| P3 | docker-build 修复 | dev.md §44.7 旧条目 |
+| P3 | backend-test order/match 真依赖 | dev.md §44.7 旧条目 |
+| P3 | tokens-sync SCSS 副本启用 | 等 uni-app sass-loader 修复，或迁 vite-plugin-uni |
+| P3 | SCSS 变量嵌套规则 | 当前 var() 方案下 @media / keyframes 写 CSS 等价物即可；未来如需嵌套再评估 |
+
+### 45.7 Phase 3.0 完成度自评
+
+| 维度 | 完成度 | 备注 |
+| --- | :-: | --- |
+| 测试基础设施 | 100% | Vitest + jsdom + jsdom jsdom + Vue Test Utils 全覆盖 |
+| 设计系统 | 95% | tokens + global + 工具类全；uView Plus 暂退场 |
+| 通用组件库 | 100% | UiButton/UiCard/UiInput/UiEmpty/UiLoading/UiModal 6 个组件 + 单测 |
+| API 扩展层 | 100% | 10 client × 60 端点 × 75 类型完整；类型覆盖后端 handler |
+| 业务 store | 30% | 仅 orderStore；patient/admin/escort 域还需 walletStore/userStore/messageStore 等 |
+| 域切换器 | 100% | DomainSwitcher + RoleGuard + RoleSwitcherModal 完整闭环 |
+| 主页壳 | 100% | HomeShell 渲染用户卡 + 域网格 + 退出 |
+| e2e 验证 | 60% | spike 阶段测试齐；CI 集成待办 |
+| 文档同步 | 100% | dev.md §45 + plan 2026-09-28-unified-app-v2.md 章节对应 |
+| **整体** | **85%** | 基础设施就绪；业务层 Phase 3.1 启动 |
+
+### 45.8 下一步会话衔接
+
+下次会话首推 **Phase 3.1 patient 域 28 pages 迁移**，按 §45.5 计划分批 commit：
+1. 简单 page 优先（1-15）— 1 commit/page + 单测
+2. 复杂 page 打包（10-13, 17-19, 22）— 1 commit/包
+3. 聚合 page（25-28）— 1 commit/包
+
+预计 18 commits 收尾 patient 域后，启动 Phase 3.2 admin 域迁移。
