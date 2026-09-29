@@ -80,6 +80,12 @@
       "style": {
         "navigationBarTitleText": "消息详情"
       }
+    },
+    {
+      "path": "pages/patient/profile/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
     }
   ],
   "globalStyle": {
