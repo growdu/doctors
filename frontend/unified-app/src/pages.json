@@ -380,6 +380,18 @@
       "style": {
         "navigationBarTitleText": "个人中心"
       }
+    },
+    {
+      "path": "pages/escort/wallet/index",
+      "style": {
+        "navigationBarTitleText": "我的钱包"
+      }
+    },
+    {
+      "path": "pages/escort/wallet/withdraw",
+      "style": {
+        "navigationBarTitleText": "提现申请"
+      }
     }
   ],
   "globalStyle": {
