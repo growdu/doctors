@@ -453,5 +453,37 @@
     "navigationBarTitleText": "Doctors",
     "navigationBarBackgroundColor": "#FFFFFF",
     "backgroundColor": "#F8F8F8"
+  },
+  "tabBar": {
+    "color": "#7A7E83",
+    "selectedColor": "#1296db",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/patient/index/index",
+        "text": "首页",
+        "iconPath": "static/icons/tabbar/patient-home.png",
+        "selectedIconPath": "static/icons/tabbar/patient-home-active.png"
+      },
+      {
+        "pagePath": "pages/patient/orders/index/index",
+        "text": "订单",
+        "iconPath": "static/icons/tabbar/patient-orders.png",
+        "selectedIconPath": "static/icons/tabbar/patient-orders-active.png"
+      },
+      {
+        "pagePath": "pages/patient/messages/index/index",
+        "text": "消息",
+        "iconPath": "static/icons/tabbar/patient-msg.png",
+        "selectedIconPath": "static/icons/tabbar/patient-msg-active.png"
+      },
+      {
+        "pagePath": "pages/patient/profile/index",
+        "text": "我的",
+        "iconPath": "static/icons/tabbar/patient-me.png",
+        "selectedIconPath": "static/icons/tabbar/patient-me-active.png"
+      }
+    ]
   }
 }
