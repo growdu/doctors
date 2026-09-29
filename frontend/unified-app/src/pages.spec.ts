@@ -72,3 +72,43 @@ describe('pages.json · 路由完整性', () => {
     expect(new Set(paths).size).toBe(paths.length);
   });
 });
+
+describe('pages.json · 关键页移动端样式（mobile batch 3b）', () => {
+  const findPage = (path: string) =>
+    (pagesJson.pages as Array<{ path: string; style?: Record<string, unknown> }>).find((p) => p.path === path);
+
+  it('patient/order/list: enablePullDownRefresh（订单下拉刷新）', () => {
+    const style = findPage('pages/patient/order/list')?.style;
+    expect(style?.enablePullDownRefresh).toBe(true);
+  });
+
+  it('patient/message/list: enablePullDownRefresh（消息下拉刷新）', () => {
+    const style = findPage('pages/patient/message/list')?.style;
+    expect(style?.enablePullDownRefresh).toBe(true);
+  });
+
+  it('patient/wallet/index: enablePullDownRefresh（钱包下拉刷新）', () => {
+    const style = findPage('pages/patient/wallet/index')?.style;
+    expect(style?.enablePullDownRefresh).toBe(true);
+  });
+
+  it('patient/sos/trigger: navigationStyle = custom（紧急页全屏）+ 红底色', () => {
+    const style = findPage('pages/patient/sos/trigger')?.style;
+    expect(style?.navigationStyle).toBe('custom');
+    expect(style?.backgroundColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
+  });
+
+  it('escort/invitations/index: enablePullDownRefresh + app-plus.titleNView.buttons（抢单池）', () => {
+    const style = findPage('pages/escort/invitations/index')?.style as Record<string, unknown> & {
+      'app-plus'?: { titleNView?: { buttons?: unknown[] } };
+    };
+    expect(style?.enablePullDownRefresh).toBe(true);
+    expect(Array.isArray(style?.['app-plus']?.titleNView?.buttons)).toBe(true);
+    expect((style?.['app-plus']?.titleNView?.buttons ?? []).length).toBeGreaterThan(0);
+  });
+
+  it('escort/orders/index: enablePullDownRefresh（任务列表）', () => {
+    const style = findPage('pages/escort/orders/index')?.style;
+    expect(style?.enablePullDownRefresh).toBe(true);
+  });
+});

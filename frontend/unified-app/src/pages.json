@@ -60,7 +60,9 @@
     {
       "path": "pages/patient/order/list",
       "style": {
-        "navigationBarTitleText": "我的订单"
+        "navigationBarTitleText": "我的订单",
+        "enablePullDownRefresh": true,
+        "backgroundColor": "#F8F8F8"
       }
     },
     {
@@ -72,7 +74,8 @@
     {
       "path": "pages/patient/message/list",
       "style": {
-        "navigationBarTitleText": "消息中心"
+        "navigationBarTitleText": "消息中心",
+        "enablePullDownRefresh": true
       }
     },
     {
@@ -90,7 +93,8 @@
     {
       "path": "pages/patient/wallet/index",
       "style": {
-        "navigationBarTitleText": "我的钱包"
+        "navigationBarTitleText": "我的钱包",
+        "enablePullDownRefresh": true
       }
     },
     {
@@ -120,7 +124,9 @@
     {
       "path": "pages/patient/sos/trigger",
       "style": {
-        "navigationBarTitleText": "紧急联系"
+        "navigationBarTitleText": "紧急联系",
+        "navigationStyle": "custom",
+        "backgroundColor": "#FF4D4F"
       }
     },
     {
@@ -360,13 +366,26 @@
     {
       "path": "pages/escort/invitations/index",
       "style": {
-        "navigationBarTitleText": "抢单池"
+        "navigationBarTitleText": "抢单池",
+        "enablePullDownRefresh": true,
+        "app-plus": {
+          "titleNView": {
+            "buttons": [
+              {
+                "type": "menu",
+                "text": "\u66f4\u591a",
+                "fontSize": "14"
+              }
+            ]
+          }
+        }
       }
     },
     {
       "path": "pages/escort/orders/index",
       "style": {
-        "navigationBarTitleText": "我的任务"
+        "navigationBarTitleText": "我的任务",
+        "enablePullDownRefresh": true
       }
     },
     {
