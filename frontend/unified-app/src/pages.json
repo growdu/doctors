@@ -224,6 +224,24 @@
       "style": {
         "navigationBarTitleText": "Admin 登录"
       }
+    },
+    {
+      "path": "pages/admin/orders/index",
+      "style": {
+        "navigationBarTitleText": "订单概览"
+      }
+    },
+    {
+      "path": "pages/admin/orders/list",
+      "style": {
+        "navigationBarTitleText": "订单列表"
+      }
+    },
+    {
+      "path": "pages/admin/orders/detail",
+      "style": {
+        "navigationBarTitleText": "订单详情"
+      }
     }
   ],
   "globalStyle": {
