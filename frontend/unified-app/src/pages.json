@@ -278,6 +278,24 @@
       "style": {
         "navigationBarTitleText": "退款详情"
       }
+    },
+    {
+      "path": "pages/admin/users/index",
+      "style": {
+        "navigationBarTitleText": "用户管理"
+      }
+    },
+    {
+      "path": "pages/admin/hospitals/index",
+      "style": {
+        "navigationBarTitleText": "医院管理"
+      }
+    },
+    {
+      "path": "pages/admin/packages/index",
+      "style": {
+        "navigationBarTitleText": "套餐管理"
+      }
     }
   ],
   "globalStyle": {
