@@ -40,3 +40,12 @@ export async function fetchMe(): Promise<MeResponse> {
   // /api/v1/users/me 在 auth-service 内
   return request({ url: '/api/v1/users/me' });
 }
+
+/** 实名认证（auth-service 内） */
+export async function realNameAuth(name: string, idCard: string): Promise<{ ok: true }> {
+  return request({
+    url: '/api/v1/users/real-name/auth',
+    method: 'POST',
+    data: { name, id_card: idCard },
+  });
+}
