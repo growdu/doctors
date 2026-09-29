@@ -98,6 +98,24 @@
       "style": {
         "navigationBarTitleText": "设置"
       }
+    },
+    {
+      "path": "pages/patient/order/pay",
+      "style": {
+        "navigationBarTitleText": "支付"
+      }
+    },
+    {
+      "path": "pages/patient/reviews/create",
+      "style": {
+        "navigationBarTitleText": "评价"
+      }
+    },
+    {
+      "path": "pages/patient/reviews/index",
+      "style": {
+        "navigationBarTitleText": "我的评价"
+      }
     }
   ],
   "globalStyle": {
