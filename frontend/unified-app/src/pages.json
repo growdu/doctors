@@ -242,6 +242,24 @@
       "style": {
         "navigationBarTitleText": "订单详情"
       }
+    },
+    {
+      "path": "pages/admin/escorts/index",
+      "style": {
+        "navigationBarTitleText": "陪诊师管理"
+      }
+    },
+    {
+      "path": "pages/admin/escorts/pending-audit",
+      "style": {
+        "navigationBarTitleText": "陪诊师审核"
+      }
+    },
+    {
+      "path": "pages/admin/escorts/detail",
+      "style": {
+        "navigationBarTitleText": "陪诊师详情"
+      }
     }
   ],
   "globalStyle": {
