@@ -428,6 +428,24 @@
       "style": {
         "navigationBarTitleText": "消息详情"
       }
+    },
+    {
+      "path": "pages/escort/splash",
+      "style": {
+        "navigationBarTitleText": "陪诊师启动"
+      }
+    },
+    {
+      "path": "pages/escort/login",
+      "style": {
+        "navigationBarTitleText": "陪诊师登录"
+      }
+    },
+    {
+      "path": "pages/escort/audit-pending",
+      "style": {
+        "navigationBarTitleText": "审核中"
+      }
     }
   ],
   "globalStyle": {
