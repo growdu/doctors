@@ -260,6 +260,24 @@
       "style": {
         "navigationBarTitleText": "陪诊师详情"
       }
+    },
+    {
+      "path": "pages/admin/refunds/index",
+      "style": {
+        "navigationBarTitleText": "退款管理"
+      }
+    },
+    {
+      "path": "pages/admin/refunds/list",
+      "style": {
+        "navigationBarTitleText": "退款列表"
+      }
+    },
+    {
+      "path": "pages/admin/refunds/detail",
+      "style": {
+        "navigationBarTitleText": "退款详情"
+      }
     }
   ],
   "globalStyle": {

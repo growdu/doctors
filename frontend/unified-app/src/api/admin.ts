@@ -160,10 +160,11 @@ export async function listRefunds(query: { status?: 'pending' | 'approved' | 're
   return request({ url, baseURL: ADMIN_BASE_URL });
 }
 
-export async function approveRefund(refundId: number): Promise<Refund> {
+export async function approveRefund(refundId: number, note?: string): Promise<Refund> {
   return request({
     url: `/api/v1/admin/refunds/${refundId}/approve`,
     method: 'POST',
+    data: note ? { note } : {},
     baseURL: ADMIN_BASE_URL,
   });
 }

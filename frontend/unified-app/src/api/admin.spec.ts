@@ -74,6 +74,11 @@ describe('api/admin · refunds', () => {
     expect(requestSpy.mock.calls[0]![0].url).toBe('/api/v1/admin/refunds/99/approve');
   });
 
+  it('approveRefund 可选附 note', async () => {
+    await approveRefund(99, '已联系财务，全额退款');
+    expect(requestSpy.mock.calls[0]![0].data).toEqual({ note: '已联系财务，全额退款' });
+  });
+
   it('rejectRefund POSTs reason', async () => {
     await rejectRefund(99, '不在退款范围');
     expect(requestSpy.mock.calls[0]![0].data).toEqual({ reason: '不在退款范围' });
