@@ -4231,3 +4231,190 @@ Phase 3.0.5 扩展至完整 11 后端服务覆盖：
 3. 聚合 page（25-28）— 1 commit/包
 
 预计 18 commits 收尾 patient 域后，启动 Phase 3.2 admin 域迁移。
+
+---
+
+## 46. unified-app patient 域迁移中点（2026-09-29）
+
+**会话目标**：在 §45 Phase 3.0 基础设施基础上启动 Phase 3.1 patient 域 28 pages 业务迁移。本节记录 9/28 pages 中点交付。
+
+### 46.1 5 commits 列表
+
+| # | Commit | 内容 | Pages |
+|---|---|---|---|
+| 1 | `9aa524f` | addressStore 地址状态管理 | （前置 store） |
+| 2 | `df4d038` | address/list + address/edit | 2 |
+| 3 | `eb72103` | hospitals/list + hospitals/detail | 2 |
+| 4 | `ce9e57d` | coupons + order/list + order/detail | 3 |
+| 5 | `55fce56` | message/list + message/detail | 2 |
+
+**累计**：5 commits + 1 store + 9 pages = **10 文件**
+
+### 46.2 已迁移 pages 详情
+
+#### 46.2.1 address（df4d038）
+- **list**：UiCard 地址卡 + 4 态机 + 删除 UiModal 确认 + 「+ 新增地址」按钮 + 5 条上限提示
+- **edit**：7 字段表单（收件人/手机号/省/市/区/详细地址/默认）+ 实时 canSave 验证 + 编辑模式水化（findById）
+
+#### 46.2.2 hospitals（eb72103）
+- **list**：双过滤搜索（城市+关键字，300ms debounce）+ 等级徽标 + 「查看详情」按钮
+- **detail**：医院头信息 + 套餐列表（¥XX.XX + 时长）+ 「选择下单」按钮
+
+#### 46.2.3 coupons（ce9e57d）
+- **index**：双 tab（可领取/我的）+ 优惠券卡（金额+最低消费+有效期）+ 立即领取 → 自动同步到「我的」
+
+#### 46.2.4 order（ce9e57d）
+- **list**：orderStore.fetchList({ role: 'patient' }) + 状态标签（5 状态色块）+ 卡片点击跳详情
+- **detail**：orderStore.fetchDetail(id) + 完整信息展示 + 「取消订单」按钮（仅 pending/escort_confirmed 可见）
+
+#### 46.2.5 message（55fce56）
+- **list**：未读数 + 5 类型 emoji + 未读红点 + 蓝边框高亮
+- **detail**：完整内容渲染（whitespace pre-wrap 保留换行）
+
+### 46.3 累计资产（patient 域）
+
+```
+src/pages/patient/
+├── address/
+│   ├── list.vue       (UiCard + UiModal 删除确认)
+│   └── edit.vue       (UiInput × 7 + 实时验证)
+├── hospitals/
+│   ├── list.vue       (UiInput 搜索 + UiCard 列表)
+│   └── detail.vue     (医院头 + 套餐列表)
+├── coupons/
+│   └── index.vue      (双 tab + 优惠券卡)
+├── order/
+│   ├── list.vue       (orderStore.fetchList)
+│   └── detail.vue     (orderStore.fetchDetail + cancel)
+└── message/
+    ├── list.vue       (未读统计 + 5 类型 emoji)
+    └── detail.vue     (完整内容)
+
+src/store/
+└── address.ts         (Pinia setup: list / count / atLimit / defaultAddress / fetchList / create / update / remove / setDefault)
+```
+
+### 46.4 复用基础设施统计
+
+| 基础设施 | Phase 3.0 commit | 在 patient 域 pages 使用情况 |
+| --- | --- | --- |
+| UiCard | 77105b9 | address/list（地址卡） + hospitals/list/detail + coupons + order/list/detail + message/detail |
+| UiInput | e7e5253 | hospitals/list（城市+关键字搜索） + address/edit（7 字段表单） |
+| UiEmpty | 79b8b5d | 全部 page 的 empty 态机 |
+| UiLoading | 79b8b5d | 全部 page 的 loading 态机 |
+| UiButton | 79b8b5d | 全部 page 的「删除/编辑/立即领取/查看详情/设为默认/取消订单」按钮 |
+| UiModal | e6ea82c | address/list（删除确认） |
+| orderStore | 68f34a8 | order/list + order/detail |
+| addressStore | 9aa524f | address/list + address/edit |
+| api/user (19 端点) | e1320aa | listAddresses / createAddress / updateAddress / deleteAddress / setDefaultAddress + listHospitals / getHospital / listPackagesByHospital + listAvailableCoupons / listMyCoupons / claimCoupon |
+| api/orders (8 端点) | c6fe168 | 通过 orderStore 间接调用 |
+| api/message (4 端点) | e1320aa | listMessages + getMessage |
+
+**关键观察**：patient 域 9 pages 几乎 100% 复用 Phase 3.0 基础设施。**0 新建通用组件**，验证了"组件库先行 + 业务域跟进"的策略有效。
+
+### 46.5 关键技术决策
+
+#### 46.5.1 query 解析模式
+
+uni-app Vue 3 没有 Vue Router，页面间传参通过：
+```ts
+uni.navigateTo({ url: '/pages/patient/order/detail?id=' + o.id });
+```
+接收页用 `uni.getCurrentPages()` 取最后一项的 query：
+```ts
+const pages = uni.getCurrentPages?.() || [];
+const current = pages[pages.length - 1];
+const opts = current?.options;
+if (opts?.id) messageId.value = Number(opts.id);
+```
+
+这种模式避免了 vue-router 依赖，h5 / mp / app 三端统一行为。
+
+#### 46.5.2 state 颜色映射
+
+5 订单状态（pending_escort / escort_confirmed / in_service / completed / cancelled）映射 5 个 CSS class：
+```ts
+const STATUS_CLASS: Record<OrderStatus, string> = {
+  pending_escort: 'order-list__status--pending',     // 橙 warning
+  escort_confirmed: 'order-list__status--confirmed', // 蓝 primary
+  in_service: 'order-list__status--active',         // 绿 success
+  completed: 'order-list__status--done',            // 灰 disabled
+  cancelled: 'order-list__status--cancel',           // 红 error
+};
+```
+
+后续 escort 域可复用同样映射（仅需替换文案）。
+
+#### 46.5.3 金额 / 时间格式化
+
+所有金额（分→元）+ 时间（ISO → 本地化）统一在 page 内联函数：
+```ts
+function formatAmount(cents: number): string {
+  return `¥${(cents / 100).toFixed(2)}`;
+}
+function formatDate(iso: string): string {
+  return iso.split('T')[0] + ' ' + (iso.split('T')[1]?.substring(0, 5) || '');
+}
+```
+
+不抽公共 utils（避免过度抽象）；page 内联保持显式。
+
+#### 46.5.4 错误处理统一
+
+每个 page 的 onLoad：
+```ts
+loading.value = true;
+error.value = null;
+try {
+  // 业务调用
+} catch (e) {
+  error.value = (e as Error).message;
+} finally {
+  loading.value = false;
+}
+```
+
+错误展示：`<UiEmpty :description="error">` + 「点击重试」文字按钮（避免 toast 抢干扰）。
+
+### 46.6 与既有章节衔接
+
+- §45 Phase 3.0：组件库 + API 扩展层 + store 框架 → 本节直接复用
+- §42 v2 multi-role：patient 域 active_role 校验 → 后端 RoleAuthWithKey('order_role', 'patient') 已挂
+- §45.5 patient 域 28 pages 计划：完成 9/28（32%），剩余 19 pages
+- §40 后端真跑：所有 api/* 调用对接真后端接口（dev fake loader 注入）
+
+### 46.7 剩余 19 pages 待办
+
+| 优先级 | Pages | 复杂度 | 估时 |
+| :-: | --- | :-: | :-: |
+| 3.1e | profile/index（个人中心 5 模块入口 + 角色切换） | 中 | 1 commit |
+| 3.1e | wallet/index（余额 + 流水） | 简单 | 1 commit |
+| 3.1e | settings/index（本地设置，无 API） | 简单 | 1 commit |
+| 3.1f | order/pay（支付：mock channel + 跳转成功页） | 中 | 1 commit |
+| 3.1f | sos/trigger（一键 SOS） | 中 | 1 commit |
+| 3.1f | refund/apply（申请退款） | 中 | 1 commit |
+| 3.1f | reviews/create + reviews/index（评价） | 中 | 1 commit |
+| 3.1g | auth/login + register + auth/real-name（登录注册） | 中 | 1 commit |
+| 3.1g | order/create + order/candidates（下单流） | **复杂** | 1 commit |
+| 3.1g | index + messages + notifications + support（4 聚合） | 简单 | 1 commit |
+| **估时** | — | — | **10 commits** |
+
+### 46.8 已知遗留
+
+| 优先级 | 项 | 说明 |
+| :-: | --- | | |
+| P1 | walletStore / userStore / messageStore | 当前 page 直接调 API；Phase 3.1 后续按需补 store |
+| P1 | 真实 API 接口（Phase 3.1 后期） | dev fake loader 仅支持 auth/order/match；其他服务需启动对应服务 |
+| P2 | UI 单元测试覆盖 | 当前 page 仅 mount + e2e 截图，无 page-level 单测（store/api 单测已覆盖） |
+| P2 | loading 占位 UI（骨架屏） | 当前用 UiLoading 转圈；v1 用 u-skeleton rows=3，Phase 3.2 评估 |
+| P3 | 错误码国际化 | 当前错误文案硬编码中文；Phase 3.2 i18n 时统一 |
+
+### 46.9 下次会话衔接
+
+按 §46.7 计划推进剩余 19 pages，预计 10 commits 完工 patient 域后：
+1. **3.1e** profile + wallet + settings（3 pages，1 commit）
+2. **3.1f** 4 业务流（order/pay + sos/trigger + refund/apply + reviews，1-2 commits）
+3. **3.1g** 6 中介页 + 4 聚合页（auth + order/create + index + others，2-3 commits）
+
+完工 patient 域后启动 **Phase 3.2 admin 域** 迁移（51 pages × 混合粒度，从 React 重写为 Vue，工作量大于 patient 域）。
+
