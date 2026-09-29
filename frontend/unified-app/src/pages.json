@@ -356,6 +356,30 @@
       "style": {
         "navigationBarTitleText": "系统设置"
       }
+    },
+    {
+      "path": "pages/escort/invitations/index",
+      "style": {
+        "navigationBarTitleText": "抢单池"
+      }
+    },
+    {
+      "path": "pages/escort/orders/index",
+      "style": {
+        "navigationBarTitleText": "我的任务"
+      }
+    },
+    {
+      "path": "pages/escort/order-detail",
+      "style": {
+        "navigationBarTitleText": "任务详情"
+      }
+    },
+    {
+      "path": "pages/escort/profile/index",
+      "style": {
+        "navigationBarTitleText": "个人中心"
+      }
     }
   ],
   "globalStyle": {
