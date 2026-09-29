@@ -4418,3 +4418,103 @@ try {
 
 完工 patient 域后启动 **Phase 3.2 admin 域** 迁移（51 pages × 混合粒度，从 React 重写为 Vue，工作量大于 patient 域）。
 
+
+---
+
+## §46 后续更新：patient + admin + escort 3 域全部完工
+
+> **更新日期**：2026-09-29
+> **覆盖范围**：Phase 3.1 patient 域完工 + Phase 3.2 admin 域完工 + Phase 3.3 escort 域完工
+> **触发会话**：本会话累计 16 个 commits（从 3.2b 起延续）
+
+### §46.A 累计 commits 清单（3 域全部完工）
+
+按时间顺序（patient 完工沿用 §46.1 之前的所有 commits）：
+
+#### Phase 3.2 admin 域（11 commits）
+
+| Commit | 内容 |
+| --- | --- |
+| `650211a` | admin orders（index + list + detail + force-cancel） |
+| `0556f07` | admin escorts（index + pending-audit + detail） |
+| `9083f7b` | admin refunds（index + list + detail + approve/reject） |
+| `bb3ab7d` | admin users + hospitals + packages（3 page） |
+| `0c17f6a` | admin work-orders（list + create） |
+| `33d41b5` | admin finance（overview + billings） |
+| `3a53767` | admin reports + audit（2 page） |
+| `550dc0d` | admin profile（基于 authStore） |
+| `61e9942` | admin coupons + messages（占位 + patient 跳转） |
+| `ce30ae2` | admin reviews + sos + settings（占位 + patient 跳转） |
+
+#### Phase 3.3 escort 域（5 commits）
+
+| Commit | 内容 |
+| --- | --- |
+| `5030799` | escort 首批 5 page（home + invitations + orders + order-detail + profile） |
+| `1b0ac66` | escort wallet（index + withdraw） |
+| `ce248f5` | escort availability + training（2 page） |
+| `5f400c1` | escort checkin + checkout + message（list + chat） |
+| `c046df9` | escort splash + login + audit-pending（启动 + 登录 + 审核） |
+
+### §46.B 3 域 pages 总量
+
+| 域 | page 数 | 主要来源 |
+| --- | --- | --- |
+| patient | 28 | patient-miniapp v1 Vue |
+| admin | 26 | admin-web v1 React 重写 |
+| escort | 16 | escort-app v1 Flutter 重写 |
+| 共享 home | 1 | DomainSwitcher + RoleSwitcherModal |
+| **合计** | **71** | 1 个 codebase / 1 个 build:h5 目标 |
+
+### §46.C 累计测试与质量
+
+- **tests**：205 → **487 passed**（+282 cases）
+- **typecheck**：0 errors
+- **build:h5**：DONE（每次 commit 持续全绿）
+- **新增 API 调用**：escort 域新增 `getEscortWallet` / `requestWithdrawal` / `listMyAvailabilities` / `addAvailability` / `removeAvailability` / `listTrainings` 调用，但端点已在 `@/api/escort.ts` 暴露
+- **共享组件复用率**：0 新建通用组件（patient/admin/escort 三域 100% 复用 §45 通用组件库）
+
+### §46.D 关键技术决策（3 域累计）
+
+1. **SCSS → CSS var 重构（Phase 3.0）**：发现 uni-app sass-loader 在 `.vue` scoped style 中 `@import` 相对路径解析失败（line 偏移 + cwd 不一致），弃用 SCSS tokens，改用运行时 CSS 变量。tokens.ts 加 `generateCssVarsBlock()`，App.vue 在 setup 外动态注入 `:root` 块，组件 `var()` 直接引用。
+2. **混合测试金字塔**：vitest 单测（最快）→ Vue Test Utils 组件测试（中等）→ Playwright e2e（最慢）；e2e 不阻塞 build。
+3. **Mock 策略**：API 单测用 `vi.mock('./client')` 替换 request spy；store 单测 `vi.mock('@/api/...')` + `setActivePinia(createPinia())`；e2e 用 `page.addInitScript` 注入 mock auth state。
+4. **Pinia setup syntax**：hasRole(role) 作为 action 而非 getter（getter 必须无参）。
+5. **uni-app query 解析模式**：`uni.getCurrentPages()` 取最后一项 options，h5/mp/app 三端一致。
+6. **v2 alias 路由策略**：v1 patient-miniapp 嵌套深度 3 路径保留为 alias page，内 reLaunch 到统一主路由。
+7. **组件库先行 + 业务域跟进**：patient/admin/escort 三域 100% 复用 Phase 3.0 组件库，**0 新建通用组件**，策略有效。
+8. **admin 域占位 + patient 跳转**：v2 admin-service 未暴露 coupons/messages/reviews/sos/settings 端点时，诚实地以占位页 + 跳转 patient 域对应页呈现数据，不假装有功能。
+10. **escort 域 checkin 用 updateLocation 模拟**：v2 order-service 未暴露 checkin 端点，语义对齐「陪诊师到达患者地点」复用 updateLocation。
+11. **escort 域 audit-pending 用前端 mock 倒计时**：后端暂无 escort 审核状态查询端点，前端 mock 24h 倒计时。
+12. **vue-tsc 严格性**：每次新增 page 后必跑 typecheck；nextjs 中 `<button type="button">` 等细节需保持一致。
+13. **测试 setValue 穿透**：UiInput 内部 textarea/input 是真表单元素，jsdom 下 `<view>` 不能 setValue，需 `find('[data-testid="ui-input-textarea"]')` 透到真表单元素。
+14. **千分位格式化**：金额从 `toFixed(2)` 升级到 `toLocaleString('zh-CN', { min/max: 2 })` — 千分位 + 强制两位小数。
+
+### §46.E Phase 3 整体完成度
+
+| 子阶段 | pages | 状态 |
+| --- | --- | --- |
+| 3.0 基础设施 | 8 通用组件 + 10 API client + tokens + orderStore + e2e spike 2 | ✅ 100% |
+| 3.1 patient 域 | 28 pages + 4 alias | ✅ 100% |
+| 3.2 admin 域 | 26 pages（admin-web v1 React 重写） | ✅ 100% |
+| 3.3 escort 域 | 16 pages（escort-app v1 Flutter 重写） | ✅ 100% |
+| 4.1 v1 归档 | 3 个 v1 frontend → `_archive_v1/` | ✅ 完成 |
+| 4.3 CI 改 pnpm | ci.yml + docker-compose + run-tests.sh 同步 | ✅ 完成 |
+| 4.4 dev.md §46 | 本节（patient + admin + escort 3 域完工） | ✅ 完成 |
+
+### §46.F 剩余 Phase 4 项
+
+- **4.2** 统一 pnpm workspace + 共享 types（v1 各 app 独立 node_modules，v2 unified-app 已统一；workspace 配置文件可选）
+- **4.5** 新 spec unified-app-design.md（架构决策 + 端能力矩阵）
+- **4.6** v2.0.0 release tag + release note
+
+### §46.G 已知遗留
+
+| 优先级 | 项 | 说明 |
+| --- | --- | --- |
+| P1 | escrow domain checkin / audit-status 端点 | escort 域 checkin 和 audit-pending 用前端 mock；后端需补端点 |
+| P1 | message 1:1 chat 端点 | escort/message/chat 仅展示通知详情，v2 message-service 暂未实现 1:1 chat |
+| P2 | admin 域 coupons/messages/reviews/sos/settings CRUD | 5 个 admin 页是占位，需后端补端点 |
+| P2 | walletStore / userStore / messageStore | page 直接调 API；按需补 store |
+| P3 | 错误码国际化 | 错误文案硬编码中文；i18n 时统一 |
+
