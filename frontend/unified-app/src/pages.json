@@ -116,6 +116,18 @@
       "style": {
         "navigationBarTitleText": "我的评价"
       }
+    },
+    {
+      "path": "pages/patient/sos/trigger",
+      "style": {
+        "navigationBarTitleText": "紧急联系"
+      }
+    },
+    {
+      "path": "pages/patient/refund/apply",
+      "style": {
+        "navigationBarTitleText": "申请退款"
+      }
     }
   ],
   "globalStyle": {
