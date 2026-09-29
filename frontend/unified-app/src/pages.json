@@ -296,6 +296,12 @@
       "style": {
         "navigationBarTitleText": "套餐管理"
       }
+    },
+    {
+      "path": "pages/admin/work-orders/index",
+      "style": {
+        "navigationBarTitleText": "工单管理"
+      }
     }
   ],
   "globalStyle": {
