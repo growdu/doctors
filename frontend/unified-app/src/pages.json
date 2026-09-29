@@ -326,6 +326,18 @@
       "style": {
         "navigationBarTitleText": "个人中心"
       }
+    },
+    {
+      "path": "pages/admin/coupons/index",
+      "style": {
+        "navigationBarTitleText": "优惠券管理"
+      }
+    },
+    {
+      "path": "pages/admin/messages/index",
+      "style": {
+        "navigationBarTitleText": "站内信管理"
+      }
     }
   ],
   "globalStyle": {
