@@ -146,6 +146,30 @@
       "style": {
         "navigationBarTitleText": "实名认证"
       }
+    },
+    {
+      "path": "pages/patient/index/index",
+      "style": {
+        "navigationBarTitleText": "首页"
+      }
+    },
+    {
+      "path": "pages/patient/messages/index",
+      "style": {
+        "navigationBarTitleText": "消息"
+      }
+    },
+    {
+      "path": "pages/patient/notifications/index",
+      "style": {
+        "navigationBarTitleText": "通知"
+      }
+    },
+    {
+      "path": "pages/patient/support/index",
+      "style": {
+        "navigationBarTitleText": "客服与帮助"
+      }
     }
   ],
   "globalStyle": {
