@@ -10,13 +10,17 @@
  * 设计要点：
  *   - 危险视觉：红色头部 + 大按钮
  *   - 30s 防重复触发（前端兜底；后端有频率去重）
+ *   - 紧急热线一键拨号：callPhone(SOS_HOTLINE)（h5 tel: / app-plus uni.makePhoneCall）
  */
 import { ref, onMounted } from 'vue';
 import { raiseSos } from '@/api/sos';
+import { callPhone } from '@/utils/callPhone';
 import UiInput from '@/components/shared/UiInput.vue';
 import UiCard from '@/components/shared/UiCard.vue';
 import UiButton from '@/components/shared/UiButton.vue';
 import UiEmpty from '@/components/shared/UiEmpty.vue';
+
+const SOS_HOTLINE = '400-123-4567';
 
 const orderId = ref<number | null>(null);
 const reason = ref('');
@@ -48,6 +52,13 @@ function onPickLocation() {
         // 用户取消选点
       },
     });
+  }
+}
+
+async function onCallHotline() {
+  const r = await callPhone(SOS_HOTLINE);
+  if (!r.ok && r.errMsg !== 'user-cancelled' && typeof uni !== 'undefined') {
+    uni.showToast({ title: '拨号失败，请手动拨打', icon: 'none' });
   }
 }
 
@@ -107,6 +118,22 @@ onMounted(parseQuery);
         <text class="sos-trigger__warning-text">
           请只在真正紧急时使用。频繁误报可能影响您的信用。
         </text>
+      </view>
+
+      <!-- 紧急热线一键拨号（移动端优先 h5 tel: / app-plus uni.makePhoneCall） -->
+      <view class="sos-trigger__hotline" data-testid="sos-hotline-block">
+        <text class="sos-trigger__hotline-label">24h 紧急热线</text>
+        <view class="sos-trigger__hotline-row">
+          <text class="sos-trigger__hotline-number">{{ SOS_HOTLINE }}</text>
+          <UiButton
+            type="danger"
+            size="sm"
+            data-testid="sos-call-hotline-btn"
+            @click="onCallHotline"
+          >
+            📞 一键拨打
+          </UiButton>
+        </view>
       </view>
 
       <UiCard title="紧急联系">
@@ -174,6 +201,33 @@ onMounted(parseQuery);
   font-size: var(--ui-font-sm);
   flex: 1;
   ;
+}
+
+.sos-trigger__hotline {
+  background: var(--ui-color-error);
+  color: var(--ui-color-text-inverse);
+  padding: var(--ui-space-md);
+  border-radius: var(--ui-radius-md);
+  margin-bottom: var(--ui-space-md);
+}
+
+.sos-trigger__hotline-label {
+  font-size: var(--ui-font-sm);
+  display: block;
+  margin-bottom: var(--ui-space-xs);
+}
+
+.sos-trigger__hotline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-md);
+}
+
+.sos-trigger__hotline-number {
+  font-size: var(--ui-font-lg);
+  font-weight: 600;
+  letter-spacing: 1px;
 }
 
 .sos-trigger__field {
