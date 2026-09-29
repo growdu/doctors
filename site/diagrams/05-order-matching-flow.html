@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>陪诊师平台 · 订单匹配数据流</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafbfc; --paper-2:#ffffff;
+    --ink:#1f3a4d; --muted:#6b8294; --soft:#97a7b6;
+    --rule:#e5eaf0; --rule-solid:#cdd7e0;
+    --accent:#1a8f7a; --accent-tint:rgba(26,143,122,0.10);
+    --accent-deep:#0f6b5a; --link:#2e5aa8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Geist','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 32px;}
+  .eyebrow{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:36px;line-height:1.2;margin:0 0 8px;color:var(--ink);letter-spacing:.005em}
+  .subtitle{font-family:'Geist',sans-serif;font-size:14px;color:var(--muted);margin-bottom:32px;max-width:820px;line-height:1.6}
+  .diagram{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:24px;overflow-x:auto}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule);font-family:'Geist Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px}
+  .legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid var(--rule-solid)}
+  .legend-swatch.step{background:#ffffff;border-color:var(--ink)}
+  .legend-swatch.focal{background:var(--accent-tint);border-color:var(--accent)}
+  .legend-swatch.store{background:rgba(31,58,77,0.05);border-color:var(--muted)}
+  .colophon{margin-top:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--soft);letter-spacing:.06em;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DIAGRAM · 05 / DATA FLOW</p>
+  <h1>订单匹配核心数据流</h1>
+  <p class="subtitle">从"用户支付成功"到"陪诊师接单"的完整数据流；包含订单服务、MQ、Redis 抢单池、推送、虚拟号五大关键节点。</p>
+
+  <div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 720" role="img" aria-labelledby="df05-title df05-desc">
+<title id="df05-title">订单匹配数据流</title>
+<desc id="df05-desc">八个节点横向流程：支付回调写入订单状态、订单服务发布 MQ 事件、MQ 消费者写入 Redis 抢单池、推送服务通知候选陪诊师、陪诊师 APP 拉取抢单池、抢单写入加分布式锁的 Redis、订单服务确认接单、生成虚拟号与推送患者。</desc>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b8294"/></marker>
+  <marker id="arr-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1a8f7a"/></marker>
+</defs>
+
+<!-- swimlanes -->
+<rect x="40" y="56" width="1040" height="36" rx="4" fill="rgba(31,58,77,0.04)" stroke="rgba(31,58,77,0.20)" stroke-dasharray="4,3"/>
+<text x="56" y="78" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.10em">SYSTEM · 平台系统</text>
+
+<rect x="40" y="96" width="1040" height="240" rx="4" fill="rgba(26,143,122,0.03)" stroke="rgba(26,143,122,0.30)" stroke-dasharray="4,3"/>
+<text x="56" y="118" font-family="'Geist Mono',monospace" font-size="9" fill="#1a8f7a" letter-spacing="0.10em">FOCAL · 订单匹配主链路</text>
+
+<rect x="40" y="340" width="1040" height="200" rx="4" fill="rgba(46,90,168,0.03)" stroke="rgba(46,90,168,0.30)" stroke-dasharray="4,3"/>
+<text x="56" y="362" font-family="'Geist Mono',monospace" font-size="9" fill="#2e5aa8" letter-spacing="0.10em">EXTERNAL · 用户 / 陪诊师终端</text>
+
+<!-- ===== NODES ===== -->
+
+<!-- N1: 支付回调 (top lane) -->
+<rect x="80" y="130" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="88" y="138" width="28" height="12" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="102" y="147" font-size="7" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">N1</text>
+<text x="160" y="170" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">支付回调</text>
+<text x="160" y="188" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">payment webhook</text>
+<text x="160" y="202" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">幂等校验 → status=paid</text>
+
+<!-- N2: 订单服务 -->
+<rect x="280" y="130" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="288" y="138" width="28" height="12" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="302" y="147" font-size="7" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">N2</text>
+<text x="360" y="170" font-size="12" font-family="'Geist',sans-serif" font-weight="600" fill="#1f3a4d" text-anchor="middle">订单服务</text>
+<text x="360" y="188" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">order-service</text>
+<text x="360" y="202" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">写 order_event + 发 MQ</text>
+
+<!-- N3: MQ (FOCAL async) -->
+<rect x="480" y="130" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<rect x="488" y="138" width="44" height="12" rx="2" fill="rgba(26,143,122,0.20)" stroke="#1a8f7a" stroke-width="0.8"/>
+<text x="510" y="147" font-size="7" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">ASYNC</text>
+<text x="560" y="170" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">消息队列</text>
+<text x="560" y="188" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">topic: order.created</text>
+<text x="560" y="202" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">至少一次 + 幂等消费</text>
+
+<!-- N4: Redis 抢单池 (FOCAL) -->
+<rect x="680" y="130" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<rect x="688" y="138" width="56" height="12" rx="2" fill="rgba(26,143,122,0.20)" stroke="#1a8f7a" stroke-width="0.8"/>
+<text x="716" y="147" font-size="7" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL</text>
+<text x="760" y="170" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">抢单池（Redis）</text>
+<text x="760" y="188" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">zset: score=距离/时效</text>
+<text x="760" y="202" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">Top-N 候选陪诊师</text>
+
+<!-- N5: 推送服务 (FOCAL) -->
+<rect x="880" y="130" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<rect x="888" y="138" width="44" height="12" rx="2" fill="rgba(26,143,122,0.20)" stroke="#1a8f7a" stroke-width="0.8"/>
+<text x="910" y="147" font-size="7" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">FOCAL</text>
+<text x="960" y="170" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">推送服务</text>
+<text x="960" y="188" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">Push + 短信兜底</text>
+<text x="960" y="202" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">通知 N 个候选</text>
+
+<!-- N6: 陪诊师 APP (bottom lane) -->
+<rect x="680" y="380" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="688" y="388" width="28" height="12" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="702" y="397" font-size="7" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">N6</text>
+<text x="760" y="420" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">陪诊师 APP</text>
+<text x="760" y="438" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">长连接 / 30s 拉取</text>
+<text x="760" y="452" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">点击抢单 → 抢锁</text>
+
+<!-- N7: 分布式锁确认 -->
+<rect x="480" y="380" width="160" height="80" rx="6" fill="rgba(26,143,122,0.10)" stroke="#1a8f7a" stroke-width="1.2"/>
+<rect x="488" y="388" width="44" height="12" rx="2" fill="rgba(26,143,122,0.20)" stroke="#1a8f7a" stroke-width="0.8"/>
+<text x="510" y="397" font-size="7" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.08em">LOCK</text>
+<text x="560" y="420" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#0f6b5a" text-anchor="middle">分布式锁（Redis）</text>
+<text x="560" y="438" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">SETNX + 30s TTL</text>
+<text x="560" y="452" font-size="9" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle">先到先得 + 原子操作</text>
+
+<!-- N8: 接单确认 + 虚拟号 -->
+<rect x="280" y="380" width="160" height="80" rx="6" fill="#ffffff" stroke="#1f3a4d" stroke-width="1"/>
+<rect x="288" y="388" width="28" height="12" rx="2" fill="transparent" stroke="#1f3a4d" stroke-width="0.8" opacity="0.6"/>
+<text x="302" y="397" font-size="7" font-family="'Geist Mono',monospace" fill="#1f3a4d" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">N8</text>
+<text x="360" y="420" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">接单确认</text>
+<text x="360" y="438" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">status=accepted</text>
+<text x="360" y="452" font-size="9" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle">生成虚拟号 + 推送患者</text>
+
+<!-- ===== ARROWS ===== -->
+<path d="M 240 170 L 280 170" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="244" y="158" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="260" y="166" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">PAID</text>
+
+<path d="M 440 170 L 480 170" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="444" y="158" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="460" y="166" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">EVENT</text>
+
+<path d="M 640 170 L 680 170" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="644" y="158" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="660" y="166" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">CONSUME</text>
+
+<path d="M 840 170 L 880 170" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="844" y="158" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="860" y="166" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">QUERY</text>
+
+<!-- MQ consumer → match worker (curved down) -->
+<path d="M 560 210 L 560 380" fill="none" stroke="#1a8f7a" stroke-width="1.2" marker-end="url(#arr-acc)"/>
+<rect x="566" y="290" width="36" height="12" rx="2" fill="#fafbfc"/>
+<text x="584" y="299" font-size="7" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">MATCH</text>
+
+<!-- Lock → App (right to left, curved up) -->
+<path d="M 640 420 L 680 420" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- App → Lock (taking) -->
+<path d="M 680 420 L 640 420" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="644" y="408" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="660" y="416" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">GRAB</text>
+
+<!-- Lock → Confirm (left) -->
+<path d="M 480 420 L 440 420" fill="none" stroke="#1a8f7a" stroke-width="1.2" marker-end="url(#arr-acc)"/>
+<rect x="444" y="408" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="460" y="416" font-size="7" font-family="'Geist Mono',monospace" fill="#0f6b5a" text-anchor="middle" letter-spacing="0.06em">WIN</text>
+
+<!-- Notify patients (left from confirm) -->
+<path d="M 280 420 L 240 420" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="244" y="408" width="32" height="10" rx="2" fill="#fafbfc"/>
+<text x="260" y="416" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">NOTIFY</text>
+
+<!-- Push → App (vertical from N5 to N6) -->
+<path d="M 960 210 L 960 380" fill="none" stroke="#6b8294" stroke-width="1" marker-end="url(#arr)"/>
+<rect x="966" y="290" width="36" height="12" rx="2" fill="#fafbfc"/>
+<text x="984" y="299" font-size="7" font-family="'Geist Mono',monospace" fill="#6b8294" text-anchor="middle" letter-spacing="0.06em">PUSH</text>
+
+<!-- 患者端 (bottom-left small) -->
+<rect x="80" y="380" width="120" height="80" rx="6" fill="rgba(46,90,168,0.04)" stroke="rgba(46,90,168,0.30)" stroke-width="1"/>
+<rect x="88" y="388" width="28" height="12" rx="2" fill="transparent" stroke="#2e5aa8" stroke-width="0.8" opacity="0.6"/>
+<text x="102" y="397" font-size="7" font-family="'Geist Mono',monospace" fill="#2e5aa8" fill-opacity="0.8" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+<text x="140" y="420" font-size="12" font-family="'Geist',sans-serif; font-weight="600" fill="#1f3a4d" text-anchor="middle">患者端</text>
+<text x="140" y="438" font-size="9" font-family="'Geist Mono',monospace" fill="#2e5aa8" text-anchor="middle">接收通知</text>
+<text x="140" y="452" font-size="9" font-family="'Geist Mono',monospace" fill="#2e5aa8" text-anchor="middle">查看虚拟号</text>
+
+<!-- ===== CONSISTENCY GUARDRAIL ===== -->
+<rect x="80" y="580" width="960" height="100" rx="6" fill="rgba(31,58,77,0.04)" stroke="#6b8294" stroke-width="1" stroke-dasharray="5,3"/>
+<text x="100" y="604" font-family="'Geist Mono',monospace" font-size="9" fill="#6b8294" letter-spacing="0.10em">CONSISTENCY GUARDRAILS · 一致性保障</text>
+
+<g transform="translate(100, 622)" font-size="10" font-family="'Geist',sans-serif" fill="#1f3a4d">
+  <text y="0">· <tspan font-weight="600">幂等</tspan>：所有 MQ 消费带 dedup_key，重投不重复落库</text>
+  <text y="18">· <tspan font-weight="600">并发</tspan>：抢单池候选 ZSET；接单用 Redis SETNX + Lua 原子脚本</text>
+  <text y="36">· <tspan font-weight="600">超时</tspan>：接单 30s 超时释放锁 → 推下一批</text>
+  <text y="54">· <tspan font-weight="600">回退</tspan>：30min 全池无接单 → 客服介入 + 自动退款</text>
+</g>
+
+</svg>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch step"></span>普通节点</span>
+    <span class="legend-item"><span class="legend-swatch focal"></span>焦点节点（强一致 / 异步）</span>
+    <span class="legend-item"><span class="legend-swatch store"></span>数据存储 / 外部系统</span>
+  </div>
+
+  <p class="colophon">docs/diagrams/05-order-matching-flow.html · v1.0 · 医疗蓝绿主题</p>
+</div>
+</body>
+</html>

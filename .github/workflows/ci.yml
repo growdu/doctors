@@ -130,17 +130,10 @@ jobs:
             dockerfile: services/admin/Dockerfile
             build_args: SVC=admin
           # ---- 3 个 frontend 镜像 ----
-          - image: admin-web
-            context: frontend/admin-web
-            dockerfile: frontend/admin-web/Dockerfile
-            build_args: ''
-          - image: patient-miniapp
-            context: frontend/patient-miniapp
-            dockerfile: frontend/patient-miniapp/Dockerfile
-            build_args: ''
-          - image: escort-app
-            context: frontend/escort-app
-            dockerfile: frontend/escort-app/Dockerfile
+          # v2 unified-app（替代 v1 admin-web / patient-miniapp / escort-app）
+          - image: unified-app
+            context: frontend/unified-app
+            dockerfile: frontend/unified-app/Dockerfile
             build_args: ''
     steps:
       - uses: actions/checkout@v4
@@ -184,22 +177,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: admin-web
-            directory: frontend/admin-web
-            setup: node
-            command: npm install --no-audit --no-fund && npm run lint
-          - name: patient-miniapp
-            directory: frontend/patient-miniapp
-            setup: node
-            command: npm install --no-audit --no-fund && npm run test:unit
-          - name: escort-app
-            directory: frontend/escort-app
-            setup: flutter
-            command: flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings
           - name: unified-app
             directory: frontend/unified-app
             setup: node-pnpm
-            command: pnpm install && pnpm typecheck && pnpm build:h5
+            command: pnpm install && pnpm typecheck && pnpm test && pnpm build:h5
     defaults:
       run:
         working-directory: ${{ matrix.directory }}

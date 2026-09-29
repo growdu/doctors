@@ -148,33 +148,17 @@ else
     skip_step "go test ./... (unit)" "--skip-backend / --only"
 fi
 
-# ---------- 2. 前端单元测试 ----------
+# ---------- 2. 前端单元测试（v2 unified-app 单 codebase）----------
 if should_run frontend; then
-    # 2.1 admin-web (Vitest)
+    # v2 unified-app (Vitest + Vue Test Utils + Playwright)
     if require pnpm "安装 pnpm 后重试"; then
-        run_step "admin-web: pnpm install + vitest" \
-            bash -c "cd '$ROOT/frontend/admin-web' && pnpm install --silent && npx vitest run --reporter=basic"
+        run_step "unified-app: pnpm install + typecheck + vitest + build:h5" \
+            bash -c "cd '$ROOT/frontend/unified-app' && pnpm install --silent && pnpm typecheck && pnpm test && pnpm build:h5"
     else
-        skip_step "admin-web: pnpm install + vitest" "pnpm 缺失"
-    fi
-
-    # 2.2 patient-miniapp (Jest)
-    if require npm "安装 Node 20+ 后重试"; then
-        run_step "patient-miniapp: npm install + jest" \
-            bash -c "cd '$ROOT/frontend/patient-miniapp' && npm install --silent && npm test --silent"
-    else
-        skip_step "patient-miniapp: npm install + jest" "npm 缺失"
-    fi
-
-    # 2.3 escort-app (Flutter test)
-    if require flutter "安装 Flutter 3.24+ 后重试"; then
-        run_step "escort-app: flutter pub get + flutter test" \
-            bash -c "cd '$ROOT/frontend/escort-app' && flutter pub get --no-version-check && flutter test"
-    else
-        skip_step "escort-app: flutter pub get + flutter test" "flutter 缺失"
+        skip_step "unified-app: pnpm install + vitest" "pnpm 缺失"
     fi
 else
-    skip_step "frontend tests (3 apps)" "--skip-frontend / --only"
+    skip_step "frontend tests (v2 unified-app)" "--skip-frontend / --only"
 fi
 
 # ---------- 3. 集成测试 ----------

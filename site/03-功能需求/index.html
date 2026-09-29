@@ -1,0 +1,3149 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="MVP v1.0 全链路文档（架构 / 业务 / Spec / Plan / 实施记录）">
+      
+      
+        <meta name="author" content="growdu">
+      
+      
+        <link rel="canonical" href="https://growdu.github.io/doctors/03-%E5%8A%9F%E8%83%BD%E9%9C%80%E6%B1%82/">
+      
+      
+        <link rel="prev" href="../02-%E8%A7%92%E8%89%B2%E4%B8%8E%E6%9D%83%E9%99%90/">
+      
+      
+        <link rel="next" href="../04-%E4%B8%9A%E5%8A%A1%E6%B5%81%E7%A8%8B/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.49">
+    
+    
+      
+        <title>3. 功能需求 - 陪诊师平台 — 设计与实施文档</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.6f8fc17f.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Noto+Sans+SC:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Noto Sans SC";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#03" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href=".." title="陪诊师平台 — 设计与实施文档" class="md-header__button md-logo" aria-label="陪诊师平台 — 设计与实施文档" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            陪诊师平台 — 设计与实施文档
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              3. 功能需求
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到暗色"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="切换到暗色" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到亮色"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="切换到亮色" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="分享" aria-label="分享" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/growdu/doctors" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    growdu/doctors
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="标签" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+    
+  
+  首页
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../01-%E9%A1%B9%E7%9B%AE%E6%A6%82%E8%BF%B0/" class="md-tabs__link">
+          
+  
+    
+  
+  业务文档
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../superpowers/specs/2026-09-24-roadmap-design/" class="md-tabs__link">
+          
+  
+    
+  
+  Specs
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../superpowers/plans/2026-09-23-doctors-v1/" class="md-tabs__link">
+          
+  
+    
+  
+  Plans
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../diagrams/" class="md-tabs__link">
+          
+  
+    
+  
+  图纸
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../REVIEW-REPORT/" class="md-tabs__link">
+        
+  
+    
+  
+  评审报告
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="陪诊师平台 — 设计与实施文档" class="md-nav__button md-logo" aria-label="陪诊师平台 — 设计与实施文档" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    陪诊师平台 — 设计与实施文档
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/growdu/doctors" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    growdu/doctors
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    首页
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  <span class="md-ellipsis">
+    业务文档
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            业务文档
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-%E9%A1%B9%E7%9B%AE%E6%A6%82%E8%BF%B0/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    1. 项目概述
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-%E8%A7%92%E8%89%B2%E4%B8%8E%E6%9D%83%E9%99%90/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    2. 角色与权限
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    3. 功能需求
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    3. 功能需求
+  </span>
+  
+
+      </a>
+      
+        
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#30" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.0 功能地图
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#31" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1 公共能力
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 公共能力">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#311" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.1 账号与登录
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1.1 账号与登录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      注册
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      登录
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      找回 / 修改
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      注销
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#312" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.2 实名认证
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#313" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.3 消息中心
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#314" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.4 客服与帮助
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#315" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.5 支付与发票
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2 患者端功能
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.2 患者端功能">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#321" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.1 首页
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#322" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.2 医院浏览
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#323" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.3 下单流程
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#324" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.4 我的订单
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#325" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.5 评价
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#326" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.6 个人中心
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#327" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.7 安全相关
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3 陪诊师端功能
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.3 陪诊师端功能">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#331" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.1 工作台首页
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#332" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.2 注册入驻流程（陪诊师专属）
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#333" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.3 抢单 / 接单
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#334" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.4 服务执行
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#335" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.5 钱包与提现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#336" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.6 培训与考核
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#337" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.7 评价与申诉
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#338" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.8 个人中心
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#34-web" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4 管理后台功能（Web）
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.4 管理后台功能（Web）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#341" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.1 仪表盘
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#342" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.2 用户管理
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#343" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.3 医院与服务包
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#344" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.4 订单与监控
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#345" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.5 陪诊师管理
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#346" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.6 财务与结算
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#347" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.7 优惠券 / 活动
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#348" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.8 工单与客服
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#349" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.9 数据报表
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3410" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.10 系统配置
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#35" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.5 三端差异说明
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#36-p0p1p2" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.6 功能优先级（P0/P1/P2）
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#37" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.7 后续章节指引
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-%E4%B8%9A%E5%8A%A1%E6%B5%81%E7%A8%8B/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    4. 业务流程
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-%E9%9D%9E%E5%8A%9F%E8%83%BD%E9%9C%80%E6%B1%82/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    5. 非功能需求
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    6. 系统架构
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-%E6%95%B0%E6%8D%AE%E6%A8%A1%E5%9E%8B/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    7. 数据模型
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../08-%E6%8E%A5%E5%8F%A3%E9%9C%80%E6%B1%82/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    8. 接口需求
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../09-%E9%AA%8C%E6%94%B6%E4%B8%8E%E5%8F%91%E5%B8%83/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    9. 验收与发布
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Specs
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Specs
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/specs/2026-09-24-roadmap-design/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    总路线图
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/specs/2026-09-24-l2-api-gap-design/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    L2 后端 API Gap
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/specs/2026-09-24-patient-miniapp-design/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    patient-miniapp 设计
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/specs/2026-09-24-escort-app-design/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    escort-app 设计
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/specs/2026-09-24-admin-web-design/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    admin-web 设计
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/specs/2026-09-24-order-matching-redesign/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    订单匹配模式重构
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Plans
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Plans
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-23-doctors-v1/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    路线图汇总
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    后端
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            后端
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-state-machine/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    state-machine
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-order-lock/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    order-lock
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-escort-order-ext/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    escort-order-ext
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-escort-business/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    escort-business
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-escort-availability/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    escort-availability
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-sos/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    sos
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-virtual-number/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    virtual-number
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-hospital-package/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    hospital-package
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-address-coupon/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    address-coupon
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-refund/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    refund
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-review/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    review
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-message/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    message
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-wallet/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    wallet
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-admin/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    admin 后端
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    前端
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            前端
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-patient-miniapp-setup/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    patient-miniapp setup
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-escort-app-setup/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    escort-app setup
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-24-admin-web-setup/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    admin-web setup
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    v2 重构
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            v2 重构
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superpowers/plans/2026-09-28-unified-app-v2/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    unified-app v2 (3 端合并)
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../diagrams/" class="md-nav__link ">
+              
+  
+  <span class="md-ellipsis">
+    图纸
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            图纸
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/style-guide/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    图纸样式指南
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REVIEW-REPORT/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    评审报告
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#30" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.0 功能地图
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#31" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1 公共能力
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 公共能力">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#311" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.1 账号与登录
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1.1 账号与登录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      注册
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      登录
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      找回 / 修改
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      注销
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#312" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.2 实名认证
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#313" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.3 消息中心
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#314" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.4 客服与帮助
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#315" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1.5 支付与发票
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2 患者端功能
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.2 患者端功能">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#321" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.1 首页
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#322" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.2 医院浏览
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#323" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.3 下单流程
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#324" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.4 我的订单
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#325" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.5 评价
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#326" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.6 个人中心
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#327" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2.7 安全相关
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3 陪诊师端功能
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.3 陪诊师端功能">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#331" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.1 工作台首页
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#332" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.2 注册入驻流程（陪诊师专属）
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#333" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.3 抢单 / 接单
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#334" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.4 服务执行
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#335" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.5 钱包与提现
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#336" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.6 培训与考核
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#337" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.7 评价与申诉
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#338" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3.8 个人中心
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#34-web" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4 管理后台功能（Web）
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.4 管理后台功能（Web）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#341" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.1 仪表盘
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#342" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.2 用户管理
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#343" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.3 医院与服务包
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#344" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.4 订单与监控
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#345" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.5 陪诊师管理
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#346" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.6 财务与结算
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#347" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.7 优惠券 / 活动
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#348" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.8 工单与客服
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#349" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.9 数据报表
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3410" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4.10 系统配置
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#35" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.5 三端差异说明
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#36-p0p1p2" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.6 功能优先级（P0/P1/P2）
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#37" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.7 后续章节指引
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+<h1 id="03">03 · 功能需求<a class="headerlink" href="#03" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>本章按 <strong>角色 × 模块</strong> 列出全部功能点；每个功能点尽量写明：用户故事、入口、前置条件、主流程、异常分支、验收要点。
+三端（iOS / Android / 小程序）共享同一套业务能力，差异点会单独标注 <code>[小程序限制]</code>、<code>[Native 优势]</code>。</p>
+</blockquote>
+<hr />
+<h2 id="30">3.0 功能地图<a class="headerlink" href="#30" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>陪诊师平台
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── 公共能力
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── 账号与登录
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── 实名认证
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── 消息中心
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   ├── 客服与帮助
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   └── 支付与发票
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>├── 患者端
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   ├── 首页与发现
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── 医院浏览
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── 下单流程
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   ├── 我的订单
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│   ├── 评价
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│   └── 个人中心
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>├── 陪诊师端
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│   ├── 首页与工作台
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│   ├── 抢单 / 接单
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>│   ├── 我的订单（服务执行）
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>│   ├── 钱包与提现
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>│   ├── 培训与考核
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>│   ├── 评价与申诉
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>│   └── 个人中心
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>│
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>└── 管理后台（Web）
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    ├── 仪表盘
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    ├── 用户管理
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    ├── 医院与服务包
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    ├── 订单与监控
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    ├── 陪诊师管理
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    ├── 财务与结算
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    ├── 优惠券 / 活动
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    ├── 工单与客服
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    ├── 培训与考核
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    ├── 数据报表
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    └── 系统配置
+</span></code></pre></div>
+<hr />
+<h2 id="31">3.1 公共能力<a class="headerlink" href="#31" title="Permanent link">&para;</a></h2>
+<h3 id="311">3.1.1 账号与登录<a class="headerlink" href="#311" title="Permanent link">&para;</a></h3>
+<h4 id="_1">注册<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>入口</strong>：App / 小程序首页 → "立即注册"</li>
+<li><strong>方式</strong>：</li>
+<li>手机号 + 短信验证码（必选）</li>
+<li>微信一键登录（拉取 unionid，生成账号）</li>
+<li><strong>必填项</strong>：手机号、验证码、<strong>角色选择</strong>（patient / escort）</li>
+<li><strong>校验</strong>：</li>
+<li>手机号格式 + 唯一性</li>
+<li>短信验证码 60s 内有效，错误次数限制 5 次</li>
+<li>同一设备 24h 内最多注册 3 个账号（防刷）</li>
+<li><strong>异常</strong>：</li>
+<li>短信发送失败：提示"稍后重试"，并允许"语音验证码"</li>
+<li>微信授权失败：提示并降级为手机号注册</li>
+</ul>
+<h4 id="_2">登录<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>方式</strong>：手机号 + 验证码 / 微信一键</li>
+<li><strong>安全</strong>：</li>
+<li>异地 / 新设备登录触发二次验证（短信 + 人脸可选）</li>
+<li>连续 5 次密码 / 验证码错误锁定 30 分钟</li>
+<li><strong>登录态</strong>：JWT access token（2h） + refresh token（30d）</li>
+</ul>
+<h4 id="_3">找回 / 修改<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li>找回密码 / 修改手机号 / 修改密码：均需短信验证码</li>
+<li>修改手机号需老手机号二次确认</li>
+</ul>
+<h4 id="_4">注销<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li>注销前必须：清空钱包余额、处理未完成订单、解除所有绑定</li>
+<li>注销后账号冻结 30 天（防误操作），30 天后物理删除 PII（保留必要的财务凭证）</li>
+</ul>
+<h3 id="312">3.1.2 实名认证<a class="headerlink" href="#312" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>入口</strong>：个人中心 → 实名认证 / 下单前置</li>
+<li><strong>流程</strong>：</li>
+<li>填写真实姓名 + 身份证号</li>
+<li>调用第三方实名服务（公安二要素 + 活体）</li>
+<li>通过 → 标记 <code>real_name_verified = true</code>，<strong>仅保留哈希 + 末四位</strong></li>
+<li><strong>失败处理</strong>：可重试 3 次；仍失败引导人工客服</li>
+<li><strong>合规</strong>：实名信息加密存储；展示时<strong>全部脱敏</strong>（如 <code>110****1234</code>）</li>
+</ul>
+<h3 id="313">3.1.3 消息中心<a class="headerlink" href="#313" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>类型</strong>：</li>
+<li>系统通知（如订单状态、培训提醒）</li>
+<li>业务通知（订单进度、评价提醒）</li>
+<li>客服消息</li>
+<li><strong>通道</strong>：App Push（个推 / 极光）+ 微信模板消息（小程序）+ 短信（兜底）</li>
+<li><strong>用户偏好</strong>：可关闭"非必要通知"，但订单状态变更不可关闭</li>
+</ul>
+<h3 id="314">3.1.4 客服与帮助<a class="headerlink" href="#314" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>入口</strong>：个人中心 → 在线客服</li>
+<li><strong>形态</strong>：智能客服（FAQ） + 转人工</li>
+<li><strong>能力</strong>：订单查询、投诉、咨询、退款进度查询</li>
+</ul>
+<h3 id="315">3.1.5 支付与发票<a class="headerlink" href="#315" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>支付通道</strong>：微信支付（小程序 / App 共享同主体）</li>
+<li><strong>支付方式</strong>：服务费预付 + 完成后补差价</li>
+<li><strong>退款</strong>：原路退回；工作日 1-3 个工作日到账</li>
+<li><strong>发票</strong>：</li>
+<li>普通电子发票（默认）、增值税专票（需企业资质）</li>
+<li>自助开具：订单完成后可申请，5 个工作日内出票</li>
+</ul>
+<hr />
+<h2 id="32">3.2 患者端功能<a class="headerlink" href="#32" title="Permanent link">&para;</a></h2>
+<h3 id="321">3.2.1 首页<a class="headerlink" href="#321" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">模块</th>
+<th style="text-align: left;">内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Banner</td>
+<td style="text-align: left;">平台公告、活动、安全提示</td>
+</tr>
+<tr>
+<td style="text-align: left;">快捷入口</td>
+<td style="text-align: left;">代挂号、代取报告、半日陪诊、全日陪诊</td>
+</tr>
+<tr>
+<td style="text-align: left;">推荐医院</td>
+<td style="text-align: left;">基于位置推荐附近热门医院</td>
+</tr>
+<tr>
+<td style="text-align: left;">推荐陪诊师</td>
+<td style="text-align: left;">评分高 + 距离近（脱敏展示）</td>
+</tr>
+<tr>
+<td style="text-align: left;">我的订单</td>
+<td style="text-align: left;">状态卡（待支付、进行中、待评价）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="322">3.2.2 医院浏览<a class="headerlink" href="#322" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>列表</strong>：按城市、按距离、按热门排序</li>
+<li><strong>筛选</strong>：医院等级（三级 / 二级）、专科特色、是否医保</li>
+<li><strong>详情页</strong>：</li>
+<li>医院简介、地址、联系电话、交通指引</li>
+<li>支持的<strong>服务包</strong>列表</li>
+<li>历史服务评价（脱敏）</li>
+<li><strong>收藏 / 分享</strong>：可收藏医院到"我的"，可分享给微信好友</li>
+</ul>
+<h3 id="323">3.2.3 下单流程<a class="headerlink" href="#323" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p>这是最重要的端到端流程。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">步骤</th>
+<th style="text-align: left;">用户操作</th>
+<th style="text-align: left;">系统动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">1. 选择医院</td>
+<td style="text-align: left;">浏览或搜索</td>
+<td style="text-align: left;">展示医院列表</td>
+</tr>
+<tr>
+<td style="text-align: left;">2. 选择服务包</td>
+<td style="text-align: left;">半日 / 全日 / 代取报告 / 定制</td>
+<td style="text-align: left;">计算价格、显示明细</td>
+</tr>
+<tr>
+<td style="text-align: left;">3. 选择时间</td>
+<td style="text-align: left;">日期 + 时段</td>
+<td style="text-align: left;">校验陪诊师可用性</td>
+</tr>
+<tr>
+<td style="text-align: left;">4. 选择陪诊师</td>
+<td style="text-align: left;">系统匹配 / 自选</td>
+<td style="text-align: left;">匹配规则见 04</td>
+</tr>
+<tr>
+<td style="text-align: left;">5. 填写就诊信息</td>
+<td style="text-align: left;">患者姓名 / 性别 / 年龄 / 病情描述（可选）/ 紧急联系人</td>
+<td style="text-align: left;">加密存储</td>
+</tr>
+<tr>
+<td style="text-align: left;">6. 选择优惠券</td>
+<td style="text-align: left;">自动匹配可用券</td>
+<td style="text-align: left;">计算最终价</td>
+</tr>
+<tr>
+<td style="text-align: left;">7. 支付</td>
+<td style="text-align: left;">微信支付</td>
+<td style="text-align: left;">调用微信下单</td>
+</tr>
+<tr>
+<td style="text-align: left;">8. 下单成功</td>
+<td style="text-align: left;">返回订单详情</td>
+<td style="text-align: left;">触发匹配 / 推送接单</td>
+</tr>
+</tbody>
+</table>
+<p><strong>校验</strong>：</p>
+<ul>
+<li>下单前未实名 → 弹窗引导实名</li>
+<li>同一患者同时存在的"待匹配"订单 ≤ 2（防囤单）</li>
+<li>时间必须在未来 2h 之后（避免即时单难以匹配）</li>
+</ul>
+<p><strong>异常分支</strong>：</p>
+<ul>
+<li>长时间未匹配（&gt; 30 分钟）：自动提示"是否扩大匹配范围 / 改时间 / 退款"</li>
+<li>匹配后陪诊师拒绝：自动重试匹配，最多 N 次；仍失败人工介入</li>
+</ul>
+<h3 id="324">3.2.4 我的订单<a class="headerlink" href="#324" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Tab</strong>：全部 / 待支付 / 待匹配 / 进行中 / 待评价 / 已完成 / 已取消</li>
+<li><strong>订单详情</strong>：</li>
+<li>状态机可视化</li>
+<li>陪诊师信息（电话可点击拨打，需双方同意开启虚拟号）</li>
+<li>任务卡：就诊科室、医生、时间、地址、注意事项</li>
+<li>操作：取消、改时间、申请发票、联系客服、评价</li>
+</ul>
+<h3 id="325">3.2.5 评价<a class="headerlink" href="#325" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>时机</strong>：订单状态 = 已完成，且未评价</li>
+<li><strong>维度</strong>：</li>
+<li>星级（1~5）</li>
+<li>标签（专业、守时、有耐心、熟悉流程……）</li>
+<li>文字评价（≤ 500 字）</li>
+<li>匿名选项</li>
+<li><strong>追加 / 修改</strong>：提交后 24h 内可修改一次</li>
+</ul>
+<h3 id="326">3.2.6 个人中心<a class="headerlink" href="#326" title="Permanent link">&para;</a></h3>
+<ul>
+<li>头像 / 昵称 / 实名状态</li>
+<li>我的订单、我的评价、我的收藏、我的优惠券</li>
+<li>钱包（余额、充值记录）</li>
+<li>设置：通知开关、隐私设置、注销账号</li>
+<li>关于我们 / 用户协议 / 隐私政策 / 联系客服</li>
+</ul>
+<h3 id="327">3.2.7 安全相关<a class="headerlink" href="#327" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>SOS 一键报警</strong>：长按 3s 触发，向紧急联系人发送定位 + 自动拨打 110</li>
+<li><strong>行程上报</strong>：服务进行中，平台定期获取陪诊师 / 患者位置（用户授权）</li>
+<li><strong>虚拟号</strong>：陪诊师与患者互拨通过平台中转的虚拟号码，保护真实号码</li>
+</ul>
+<hr />
+<h2 id="33">3.3 陪诊师端功能<a class="headerlink" href="#33" title="Permanent link">&para;</a></h2>
+<h3 id="331">3.3.1 工作台首页<a class="headerlink" href="#331" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">模块</th>
+<th style="text-align: left;">内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">今日待办</td>
+<td style="text-align: left;">待服务订单数、待补差价、待提现金额</td>
+</tr>
+<tr>
+<td style="text-align: left;">抢单池</td>
+<td style="text-align: left;">实时可抢订单流</td>
+</tr>
+<tr>
+<td style="text-align: left;">数据卡片</td>
+<td style="text-align: left;">本月完成单数、收入、评分</td>
+</tr>
+<tr>
+<td style="text-align: left;">培训入口</td>
+<td style="text-align: left;">必修课程、未完成提醒</td>
+</tr>
+<tr>
+<td style="text-align: left;">资质状态</td>
+<td style="text-align: left;">健康证有效期、年审提醒</td>
+</tr>
+</tbody>
+</table>
+<h3 id="332">3.3.2 注册入驻流程（陪诊师专属）<a class="headerlink" href="#332" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p>这是陪诊师上线的全流程。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">步骤</th>
+<th style="text-align: left;">内容</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">1. 注册</td>
+<td style="text-align: left;">手机号 + 验证码 + 角色 = 陪诊师</td>
+<td style="text-align: left;">同通用注册</td>
+</tr>
+<tr>
+<td style="text-align: left;">2. 个人信息</td>
+<td style="text-align: left;">头像、昵称、性别、年龄、城市、所在区</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">3. 实名认证</td>
+<td style="text-align: left;">姓名 + 身份证 + 活体</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">4. 健康证</td>
+<td style="text-align: left;">上传健康证照片 + 有效期</td>
+<td style="text-align: left;">必填</td>
+</tr>
+<tr>
+<td style="text-align: left;">5. 资质材料</td>
+<td style="text-align: left;">学历证书、医护背景（护士证 / 医师证等）、其他证书</td>
+<td style="text-align: left;">选填但加分</td>
+</tr>
+<tr>
+<td style="text-align: left;">6. 服务范围</td>
+<td style="text-align: left;">擅长医院、擅长科室、擅长人群、可服务时段</td>
+<td style="text-align: left;">用于匹配</td>
+</tr>
+<tr>
+<td style="text-align: left;">7. 培训学习</td>
+<td style="text-align: left;">完成必修课程（视频 + 图文）</td>
+<td style="text-align: left;">必须 100% 完成</td>
+</tr>
+<tr>
+<td style="text-align: left;">8. 培训考核</td>
+<td style="text-align: left;">在线试卷（≥ 80 分通过）</td>
+<td style="text-align: left;">多次机会，记录最佳成绩</td>
+</tr>
+<tr>
+<td style="text-align: left;">9. 协议签署</td>
+<td style="text-align: left;">《陪诊师服务协议》《隐私承诺》</td>
+<td style="text-align: left;">电子签</td>
+</tr>
+<tr>
+<td style="text-align: left;">10. 审核</td>
+<td style="text-align: left;">运营人工审核（1~3 工作日）</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">11. 上线</td>
+<td style="text-align: left;">进入抢单池</td>
+<td style="text-align: left;"></td>
+</tr>
+</tbody>
+</table>
+<p><strong>状态机</strong>：</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>注册 → 资料填写中 → 培训中 → 待审核 → 审核通过（可接单）
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                              ↓
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>                          审核拒绝（可修改后重新提交）
+</span></code></pre></div>
+<h3 id="333">3.3.3 抢单 / 接单<a class="headerlink" href="#333" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>抢单池</strong>：平台按地理 + 时间 + 技能匹配的订单，按距离 / 时薪排序</li>
+<li><strong>接单方式</strong>：</li>
+<li>抢单（先到先得，30s 锁单）</li>
+<li>派单（平台强派，通常仅用于稀缺时段或专业技能匹配）</li>
+<li><strong>限制</strong>：</li>
+<li>同一时段最多持有 1 单</li>
+<li>接单前必须处于"在线"状态</li>
+<li>接单后 5 分钟内必须确认，否则超时自动放单并扣信用分</li>
+</ul>
+<h3 id="334">3.3.4 服务执行<a class="headerlink" href="#334" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>到院签到</strong>：必须到院后才能签到，校验 GPS 距离医院 ≤ 500m</li>
+<li><strong>关键节点打卡</strong>：</li>
+<li>到达医院</li>
+<li>挂号完成</li>
+<li>候诊中</li>
+<li>就诊完成</li>
+<li>取药 / 取报告完成</li>
+<li>离院</li>
+<li><strong>过程上传（可选）</strong>：服务过程中可拍照上传照片（如挂号单、检查单），便于患者子女远程查看</li>
+<li><strong>服务结束</strong>：填写实际服务时长、是否有补差价，提交"结束服务"</li>
+<li><strong>异常上报</strong>：患者未到、患者爽约、突发情况等可一键上报</li>
+</ul>
+<h3 id="335">3.3.5 钱包与提现<a class="headerlink" href="#335" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>收入构成</strong>：订单收入 + 奖励（高峰补贴、新人奖）</li>
+<li><strong>结算规则</strong>：T+7 结算（即订单完成后 7 天可提现，规避退款风险）</li>
+<li><strong>提现</strong>：本人微信钱包 / 银行卡，单笔 ≥ 100 元起，工作日 24h 内到账</li>
+<li><strong>账单明细</strong>：所有收支可查询</li>
+</ul>
+<h3 id="336">3.3.6 培训与考核<a class="headerlink" href="#336" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>课程分类</strong>：</li>
+<li>必修：医院就诊流程、应急处理、平台规则、服务礼仪、隐私合规</li>
+<li>选修：专科知识（妇产、肿瘤、儿科等）</li>
+<li><strong>考核</strong>：每季度复训 + 考核；不通过暂停接单</li>
+</ul>
+<h3 id="337">3.3.7 评价与申诉<a class="headerlink" href="#337" title="Permanent link">&para;</a></h3>
+<ul>
+<li>查看患者对自己的评价（脱敏后展示）</li>
+<li>对差评可<strong>申诉</strong>（仅一次机会），需提供证据</li>
+<li>被投诉 → 平台介入 → 视情节扣分 / 暂停 / 清退</li>
+</ul>
+<h3 id="338">3.3.8 个人中心<a class="headerlink" href="#338" title="Permanent link">&para;</a></h3>
+<ul>
+<li>同患者端基础模块</li>
+<li><strong>额外</strong>：</li>
+<li>我的评分、历史单数、收入统计</li>
+<li>资质中心（证件有效期、年审）</li>
+<li>接单设置（可服务时段、距离偏好、是否接受派单）</li>
+</ul>
+<hr />
+<h2 id="34-web">3.4 管理后台功能（Web）<a class="headerlink" href="#34-web" title="Permanent link">&para;</a></h2>
+<h3 id="341">3.4.1 仪表盘<a class="headerlink" href="#341" title="Permanent link">&para;</a></h3>
+<ul>
+<li>关键指标：DAU、订单量、GMV、完单率、平均评分</li>
+<li>异常告警：投诉飙升、陪诊师大量请假、某城市订单异常下降</li>
+<li>实时大屏（可选）：当日订单热力图</li>
+</ul>
+<h3 id="342">3.4.2 用户管理<a class="headerlink" href="#342" title="Permanent link">&para;</a></h3>
+<ul>
+<li>患者列表：搜索、筛选、查看详情、冻结、解冻</li>
+<li>陪诊师列表：搜索（手机号 / 姓名 / 状态 / 城市）、筛选、详情、审核、上下架</li>
+<li>管理员列表：增删改查、角色绑定</li>
+</ul>
+<h3 id="343">3.4.3 医院与服务包<a class="headerlink" href="#343" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>医院</strong>：增删改查、上下架、关联服务包</li>
+<li><strong>服务包</strong>：半日陪诊、全日陪诊、代取报告、定制；配置价格、时长、覆盖范围</li>
+<li><strong>价格策略</strong>：按城市 / 医院 / 时段差异化</li>
+</ul>
+<h3 id="344">3.4.4 订单与监控<a class="headerlink" href="#344" title="Permanent link">&para;</a></h3>
+<ul>
+<li>订单列表：多维筛选（状态 / 时间 / 城市 / 金额 / 陪诊师 / 患者）</li>
+<li>订单详情：全链路时间线、客服介入入口</li>
+<li><strong>异常订单</strong>：超时未匹配、超时未签到、投诉中</li>
+<li><strong>改派 / 退单</strong>：人工干预入口</li>
+</ul>
+<h3 id="345">3.4.5 陪诊师管理<a class="headerlink" href="#345" title="Permanent link">&para;</a></h3>
+<ul>
+<li>入驻审核：查看资料、通过 / 拒绝 / 退回补充</li>
+<li>培训管理：课程上下架、试卷配置、考核记录</li>
+<li>投诉处理：查看投诉、约谈、扣分、清退</li>
+<li>排班 / 在离线监控（可选）</li>
+</ul>
+<h3 id="346">3.4.6 财务与结算<a class="headerlink" href="#346" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>资金账户</strong>：平台总账户、待清算账户、已结算账户</li>
+<li><strong>对账</strong>：每日与微信支付对账</li>
+<li><strong>提现审核</strong>：陪诊师提现申请审核</li>
+<li><strong>发票管理</strong>：发票开具、寄出状态</li>
+<li><strong>佣金规则</strong>：抽佣比例配置（按城市 / 等级）</li>
+</ul>
+<h3 id="347">3.4.7 优惠券 / 活动<a class="headerlink" href="#347" title="Permanent link">&para;</a></h3>
+<ul>
+<li>创建优惠券（满减 / 折扣 / 限定城市）</li>
+<li>创建活动（拉新、促活、节庆）</li>
+<li>投放与核销数据</li>
+</ul>
+<h3 id="348">3.4.8 工单与客服<a class="headerlink" href="#348" title="Permanent link">&para;</a></h3>
+<ul>
+<li>工单列表：来自用户的咨询 / 投诉 / 退款</li>
+<li>SLA 监控：首响时长、解决时长</li>
+<li>转单 / 升级 / 关单</li>
+</ul>
+<h3 id="349">3.4.9 数据报表<a class="headerlink" href="#349" title="Permanent link">&para;</a></h3>
+<ul>
+<li>用户增长、留存、漏斗</li>
+<li>订单 / GMV / 客单价趋势</li>
+<li>陪诊师产能、评分分布</li>
+<li>城市 / 医院维度</li>
+</ul>
+<h3 id="3410">3.4.10 系统配置<a class="headerlink" href="#3410" title="Permanent link">&para;</a></h3>
+<ul>
+<li>角色 / 权限矩阵</li>
+<li>短信模板、Push 模板</li>
+<li>协议 / 隐私政策版本管理</li>
+<li>字典项维护</li>
+</ul>
+<hr />
+<h2 id="35">3.5 三端差异说明<a class="headerlink" href="#35" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">能力</th>
+<th style="text-align: left;">iOS / Android</th>
+<th style="text-align: left;">小程序</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">一键登录</td>
+<td style="text-align: left;">第三方 SDK</td>
+<td style="text-align: left;">微信原生</td>
+</tr>
+<tr>
+<td style="text-align: left;">推送</td>
+<td style="text-align: left;">个推 / 极光 / APNs / FCM</td>
+<td style="text-align: left;">微信模板消息（一次性）</td>
+</tr>
+<tr>
+<td style="text-align: left;">支付</td>
+<td style="text-align: left;">微信 App 支付</td>
+<td style="text-align: left;">微信小程序支付</td>
+</tr>
+<tr>
+<td style="text-align: left;">分享</td>
+<td style="text-align: left;">微信 SDK + 系统分享</td>
+<td style="text-align: left;">微信原生</td>
+</tr>
+<tr>
+<td style="text-align: left;">虚拟号拨打</td>
+<td style="text-align: left;">支持</td>
+<td style="text-align: left;">支持（小程序内嵌拨号受限，需引导外呼）</td>
+</tr>
+<tr>
+<td style="text-align: left;">后台定位</td>
+<td style="text-align: left;">支持</td>
+<td style="text-align: left;">受限，需用户主动授权</td>
+</tr>
+<tr>
+<td style="text-align: left;">Live Photo / 视频录制</td>
+<td style="text-align: left;">支持</td>
+<td style="text-align: left;">需用户主动选择</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="36-p0p1p2">3.6 功能优先级（P0/P1/P2）<a class="headerlink" href="#36-p0p1p2" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">优先级</th>
+<th style="text-align: left;">含义</th>
+<th style="text-align: left;">本期包含</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>P0</strong></td>
+<td style="text-align: left;">必须上线，否则 MVP 无意义</td>
+<td style="text-align: left;">三端基础流程：注册、实名、医院浏览、下单、匹配、接单、服务、支付、评价</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>P1</strong></td>
+<td style="text-align: left;">上线后快速补齐</td>
+<td style="text-align: left;">优惠券、抢单池、虚拟号、客服工单、数据看板</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>P2</strong></td>
+<td style="text-align: left;">后续版本迭代</td>
+<td style="text-align: left;">直播、AI 智能匹配、健康档案、保险接入、积分商城</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>v1.0 优先交付 P0，P1 在 1.0 发布后 1 个月内补齐；P2 进入 backlog。</p>
+</blockquote>
+<hr />
+<h2 id="37">3.7 后续章节指引<a class="headerlink" href="#37" title="Permanent link">&para;</a></h2>
+<ul>
+<li>这些功能怎么串联起来形成端到端流程 → 读 <a href="../04-%E4%B8%9A%E5%8A%A1%E6%B5%81%E7%A8%8B/">04 · 业务流程</a></li>
+<li>性能 / 安全 / 合规底线 → 读 <a href="../05-%E9%9D%9E%E5%8A%9F%E8%83%BD%E9%9C%80%E6%B1%82/">05 · 非功能需求</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        <div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/growdu" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.tracking", "search.highlight", "search.suggest", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.tooltips", "toc.follow"], "search": "../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.88dd0f4e.min.js"></script>
+      
+    
+  </body>
+</html>

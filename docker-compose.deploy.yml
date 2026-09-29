@@ -610,41 +610,16 @@ services:
         condition: service_started
 
   # ============================================================
-  # 3 个前端服务（nginx 静态托管）
+  # 1 个前端服务（v2 unified-app：nginx 静态托管，编译 4 端 h5）
   # ============================================================
-  patient-miniapp:
-    image: doctors/patient-miniapp:latest
+  unified-app:
+    image: doctors/unified-app:latest
     build:
-      context: ./frontend/patient-miniapp
+      context: ./frontend/unified-app
       dockerfile: Dockerfile
-    container_name: doctors-patient-miniapp
+    container_name: doctors-unified-app
     ports:
       - "80:80"
-    networks:
-      - doctors-net
-    restart: unless-stopped
-    # nginx 镜像自带 wget；Dockerfile 内已声明 HEALTHCHECK
-
-  escort-app:
-    image: doctors/escort-app:latest
-    build:
-      context: ./frontend/escort-app
-      dockerfile: Dockerfile
-    container_name: doctors-escort-app
-    ports:
-      - "8080:80"
-    networks:
-      - doctors-net
-    restart: unless-stopped
-
-  admin-web:
-    image: doctors/admin-web:latest
-    build:
-      context: ./frontend/admin-web
-      dockerfile: Dockerfile
-    container_name: doctors-admin-web
-    ports:
-      - "8092:80"
     networks:
       - doctors-net
     restart: unless-stopped
