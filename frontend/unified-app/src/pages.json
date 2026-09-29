@@ -50,6 +50,24 @@
       "style": {
         "navigationBarTitleText": "医院详情"
       }
+    },
+    {
+      "path": "pages/patient/coupons/index",
+      "style": {
+        "navigationBarTitleText": "我的优惠券"
+      }
+    },
+    {
+      "path": "pages/patient/order/list",
+      "style": {
+        "navigationBarTitleText": "我的订单"
+      }
+    },
+    {
+      "path": "pages/patient/order/detail",
+      "style": {
+        "navigationBarTitleText": "订单详情"
+      }
     }
   ],
   "globalStyle": {
