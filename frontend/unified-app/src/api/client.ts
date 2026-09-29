@@ -31,7 +31,7 @@ const BASE_URL = process.env.UNI_BASE_URL || 'http://127.0.0.1:8081';
 /** fetch 封装：自动注入 Authorization + 解析业务错误 */
 export async function request<T>(opts: {
   url: string;
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   data?: Record<string, unknown>;
   baseURL?: string;
 }): Promise<T> {
