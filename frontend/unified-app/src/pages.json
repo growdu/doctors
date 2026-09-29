@@ -308,6 +308,18 @@
       "style": {
         "navigationBarTitleText": "财务管理"
       }
+    },
+    {
+      "path": "pages/admin/reports/index",
+      "style": {
+        "navigationBarTitleText": "数据报表"
+      }
+    },
+    {
+      "path": "pages/admin/audit/index",
+      "style": {
+        "navigationBarTitleText": "审计管理"
+      }
     }
   ],
   "globalStyle": {
