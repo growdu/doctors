@@ -182,6 +182,30 @@
       "style": {
         "navigationBarTitleText": "确认下单"
       }
+    },
+    {
+      "path": "pages/patient/login/index/index",
+      "style": {
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/patient/register/index/index",
+      "style": {
+        "navigationBarTitleText": "注册"
+      }
+    },
+    {
+      "path": "pages/patient/messages/index/index",
+      "style": {
+        "navigationBarTitleText": "消息"
+      }
+    },
+    {
+      "path": "pages/patient/orders/index/index",
+      "style": {
+        "navigationBarTitleText": "我的订单"
+      }
     }
   ],
   "globalStyle": {
