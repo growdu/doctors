@@ -38,6 +38,18 @@
       "style": {
         "navigationBarTitleText": "地址"
       }
+    },
+    {
+      "path": "pages/patient/hospitals/list",
+      "style": {
+        "navigationBarTitleText": "选择医院"
+      }
+    },
+    {
+      "path": "pages/patient/hospitals/detail",
+      "style": {
+        "navigationBarTitleText": "医院详情"
+      }
     }
   ],
   "globalStyle": {
