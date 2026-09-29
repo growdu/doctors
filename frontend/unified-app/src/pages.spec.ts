@@ -56,8 +56,8 @@ describe('pages.json · globalStyle 基础配置', () => {
 });
 
 describe('pages.json · 路由完整性', () => {
-  it('pages[] 含 74 条路由（patient 31 + escort 16 + admin 26 + home 1）', () => {
-    expect(pagesJson.pages.length).toBe(74);
+  it('pages[] 含 75 条路由（patient 32 + escort 16 + admin 26 + home 1）', () => {
+    expect(pagesJson.pages.length).toBe(75);
   });
 
   it('每条路由都有 style.navigationBarTitleText（移动端导航一致性）', () => {

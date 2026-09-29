@@ -72,6 +72,12 @@
       }
     },
     {
+      "path": "pages/patient/order/share",
+      "style": {
+        "navigationBarTitleText": "分享订单"
+      }
+    },
+    {
       "path": "pages/patient/message/list",
       "style": {
         "navigationBarTitleText": "消息中心",
