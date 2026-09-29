@@ -107,6 +107,73 @@ export const uiDuration = {
 } as const;
 
 // ── 全部 token 列表（lint 用：新增 token 必须同步到 tokens.scss）──────
+/**
+ * CSS :root 变量块生成器。
+ * 给 App.vue 的 root style 块用，让所有组件 var(--ui-color-primary) 都能取到值。
+ * 为什么不直接 SCSS @import？因为 uni-app sass-loader 在处理 scoped style 时，
+ * 相对路径解析 + 行号偏移会失败（Phase 3.0.6 调试发现）。
+ * CSS 变量是 runtime 方案，不依赖 sass compile-time 解析，跨平台一致。
+ */
+export function generateCssVarsBlock(): string {
+  return `:root {
+  --ui-color-primary: ${uiColorPrimary};
+  --ui-color-primary-hover: ${uiColorPrimaryHover};
+  --ui-color-primary-active: ${uiColorPrimaryActive};
+  --ui-color-success: ${uiColorSuccess};
+  --ui-color-warning: ${uiColorWarning};
+  --ui-color-error: ${uiColorError};
+  --ui-color-info: ${uiColorInfo};
+  --ui-color-text-primary: ${uiColorTextPrimary};
+  --ui-color-text-secondary: ${uiColorTextSecondary};
+  --ui-color-text-disabled: ${uiColorTextDisabled};
+  --ui-color-text-inverse: ${uiColorTextInverse};
+  --ui-color-bg-base: ${uiColorBgBase};
+  --ui-color-bg-card: ${uiColorBgCard};
+  --ui-color-bg-hover: ${uiColorBgHover};
+  --ui-color-bg-mask: ${uiColorBgMask};
+  --ui-color-border: ${uiColorBorder};
+  --ui-color-border-light: ${uiColorBorderLight};
+  --ui-color-divider: ${uiColorDivider};
+  --ui-space-xxs: ${uiSpace.xxs}px;
+  --ui-space-xs: ${uiSpace.xs}px;
+  --ui-space-sm: ${uiSpace.sm}px;
+  --ui-space-md: ${uiSpace.md}px;
+  --ui-space-base: ${uiSpace.base}px;
+  --ui-space-lg: ${uiSpace.lg}px;
+  --ui-space-xl: ${uiSpace.xl}px;
+  --ui-space-xxl: ${uiSpace.xxl}px;
+  --ui-font-xs: ${uiFontSize.xs}px;
+  --ui-font-sm: ${uiFontSize.sm}px;
+  --ui-font-base: ${uiFontSize.base}px;
+  --ui-font-md: ${uiFontSize.md}px;
+  --ui-font-lg: ${uiFontSize.lg}px;
+  --ui-font-xl: ${uiFontSize.xl}px;
+  --ui-font-xxl: ${uiFontSize.xxl}px;
+  --ui-font-display: ${uiFontSize.display}px;
+  --ui-font-weight-regular: ${uiFontWeight.regular};
+  --ui-font-weight-medium: ${uiFontWeight.medium};
+  --ui-font-weight-semibold: ${uiFontWeight.semibold};
+  --ui-font-weight-bold: ${uiFontWeight.bold};
+  --ui-line-height-tight: ${uiLineHeight.tight};
+  --ui-line-height-base: ${uiLineHeight.base};
+  --ui-line-height-loose: ${uiLineHeight.loose};
+  --ui-radius-sm: ${uiRadius.sm}px;
+  --ui-radius-md: ${uiRadius.md}px;
+  --ui-radius-lg: ${uiRadius.lg}px;
+  --ui-radius-pill: ${uiRadius.pill}px;
+  --ui-shadow-sm: ${uiShadow.sm};
+  --ui-shadow-md: ${uiShadow.md};
+  --ui-shadow-lg: ${uiShadow.lg};
+  --ui-z-base: ${uiZIndex.base};
+  --ui-z-sticky: ${uiZIndex.sticky};
+  --ui-z-modal: ${uiZIndex.modal};
+  --ui-z-toast: ${uiZIndex.toast};
+  --ui-duration-fast: ${uiDuration.fast}ms;
+  --ui-duration-normal: ${uiDuration.normal}ms;
+  --ui-duration-slow: ${uiDuration.slow}ms;
+}`;
+}
+
 export const allTokenKeys = [
   // colors
   'uiColorPrimary', 'uiColorPrimaryHover', 'uiColorPrimaryActive',

@@ -106,30 +106,29 @@ function onSelect(d: Domain) {
   </view>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
+<style lang="css" scoped>
 
 .domain-switcher {
   display: flex;
-  gap: $ui-space-md;
+  gap: var(--ui-space-md);
   flex-wrap: wrap;
 }
 
 .domain-switcher__card {
   position: relative;
-  flex: 1 1 calc(33.33% - #{$ui-space-md});
+  flex: 1 1 calc(33.33% - #{var(--ui-space-md)});
   min-width: 120px;
-  padding: $ui-space-base;
-  background-color: $ui-color-bg-card;
-  border: 2px solid $ui-color-border;
-  border-radius: $ui-radius-md;
+  padding: var(--ui-space-base);
+  background-color: var(--ui-color-bg-card);
+  border: 2px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
   text-align: center;
   cursor: pointer;
-  transition: all $ui-duration-fast ease;
+  transition: all var(--ui-duration-fast) ease;
 }
 
 .domain-switcher__card--active {
-  border-color: $ui-color-primary;
+  border-color: var(--ui-color-primary);
   background-color: rgba(22, 119, 255, 0.04);
 }
 
@@ -140,26 +139,26 @@ function onSelect(d: Domain) {
 
 .domain-switcher__icon {
   font-size: 36px;
-  margin-bottom: $ui-space-sm;
+  margin-bottom: var(--ui-space-sm);
 }
 
 .domain-switcher__label {
-  font-size: $ui-font-md;
-  font-weight: $ui-font-weight-semibold;
-  color: $ui-color-text-primary;
-  margin-bottom: $ui-space-xs;
+  font-size: var(--ui-font-md);
+  font-weight: var(--ui-font-weight-semibold);
+  color: var(--ui-color-text-primary);
+  margin-bottom: var(--ui-space-xs);
 }
 
 .domain-switcher__desc {
-  font-size: $ui-font-xs;
-  color: $ui-color-text-secondary;
+  font-size: var(--ui-font-xs);
+  color: var(--ui-color-text-secondary);
 }
 
 .domain-switcher__lock {
   position: absolute;
-  top: $ui-space-xs;
-  right: $ui-space-xs;
-  font-size: $ui-font-xs;
-  color: $ui-color-text-disabled;
+  top: var(--ui-space-xs);
+  right: var(--ui-space-xs);
+  font-size: var(--ui-font-xs);
+  color: var(--ui-color-text-disabled);
 }
 </style>

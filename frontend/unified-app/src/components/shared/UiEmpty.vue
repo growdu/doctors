@@ -39,38 +39,37 @@ withDefaults(
   </view>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
+<style lang="css" scoped>
 
 .ui-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: $ui-space-xxl $ui-space-base;
-  color: $ui-color-text-disabled;
+  padding: var(--ui-space-xxl) var(--ui-space-base);
+  color: var(--ui-color-text-disabled);
 }
 
 .ui-empty__icon {
   font-size: 48px;
-  margin-bottom: $ui-space-md;
+  margin-bottom: var(--ui-space-md);
   opacity: 0.6;
 }
 
 .ui-empty__title {
-  font-size: $ui-font-md;
-  font-weight: $ui-font-weight-medium;
-  margin-bottom: $ui-space-xs;
+  font-size: var(--ui-font-md);
+  font-weight: var(--ui-font-weight-medium);
+  margin-bottom: var(--ui-space-xs);
 }
 
 .ui-empty__description {
-  font-size: $ui-font-sm;
+  font-size: var(--ui-font-sm);
   color: v-bind('uiColorTextSecondary');
-  margin-bottom: $ui-space-md;
+  margin-bottom: var(--ui-space-md);
   text-align: center;
 }
 
 .ui-empty__action {
-  margin-top: $ui-space-sm;
+  margin-top: var(--ui-space-sm);
 }
 </style>

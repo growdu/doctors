@@ -1,16 +1,11 @@
 <script setup lang="ts">
 /**
- * UiButton 通用按钮组件（v2 unified-app）。
+ * UiButton 通用按钮组件（v2 unified-app · Phase 3.0.6）。
  *
- * 设计原则：
- *   - 4 种 type：primary（强调操作）/ default（次要）/ ghost（边框）/ danger（危险）
- *   - 3 种 size：sm / base / lg
- *   - 状态：disabled / loading（loading 时自动 disabled + 显示 spinner）
- *   - block 模式：width: 100%
- *
- * 与 admin-web AntD Button 行为对齐（type / loading / disabled），便于业务迁移复用心智模型。
- *
- * 对应：plan 2026-09-28-unified-app-v2.md Phase 3 §0.2
+ * Phase 3.0.6 改动：
+ *   - 移除 SCSS @import tokens（uni-app sass-loader 集成下解析不可靠）
+ *   - 改用 CSS 变量（来自 App.vue 动态注入的 :root 块）
+ *   - computed style 仍用 TS 常量（uiColorPrimary 等）驱动
  */
 import { computed } from 'vue';
 import { uiColorPrimary, uiColorError, uiColorTextDisabled } from '@/styles/tokens';
@@ -25,7 +20,6 @@ const props = withDefaults(
     disabled?: boolean;
     loading?: boolean;
     block?: boolean;
-    /** native button[type]，button / submit / reset */
     htmlType?: 'button' | 'submit' | 'reset';
   }>(),
   {
@@ -64,13 +58,13 @@ const styleBindings = computed(() => {
     styles['--btn-border'] = '#d9d9d9';
   }
   if (props.size === 'sm') {
-    styles['--btn-padding'] = '4px 12px';
+    styles['--btn-padding'] = '4px 12';
     styles['--btn-font-size'] = '13px';
   } else if (props.size === 'lg') {
-    styles['--btn-padding'] = '10px 20px';
+    styles['--btn-padding'] = '10px 20';
     styles['--btn-font-size'] = '16px';
   } else {
-    styles['--btn-padding'] = '6px 16px';
+    styles['--btn-padding'] = '6px 16';
     styles['--btn-font-size'] = '14px';
   }
   if (isDisabled.value) {
@@ -103,24 +97,22 @@ function onClick(ev: MouseEvent) {
   </button>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
-
+<style scoped>
 .ui-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: $ui-space-xs;
+  gap: var(--ui-space-xs);
   padding: var(--btn-padding, 6px 16px);
   font-size: var(--btn-font-size, 14px);
-  font-weight: $ui-font-weight-medium;
-  line-height: $ui-line-height-tight;
+  font-weight: var(--ui-font-weight-medium);
+  line-height: var(--ui-line-height-tight);
   background: var(--btn-bg, #fff);
   color: var(--btn-color, rgba(0, 0, 0, 0.88));
   border: 1px solid var(--btn-border, #d9d9d9);
-  border-radius: $ui-radius-sm;
+  border-radius: var(--ui-radius-sm);
   cursor: pointer;
-  transition: opacity $ui-duration-fast ease;
+  transition: opacity var(--ui-duration-fast) ease;
   width: var(--btn-width, auto);
 }
 

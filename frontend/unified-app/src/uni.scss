@@ -1,26 +1,57 @@
-/**
- * uni-app 全局 SCSS 入口（v2 unified-app）。
+/* uni-app 全局 SCSS 入口（v2 unified-app · Phase 3.0.6 重构）
  *
- * 装配链：
- *   - tokens.scss：design tokens（颜色/间距/字号/圆角/阴影/断点/动画，TS 同步源 src/styles/tokens.ts）
- *   - global.scss：reset + 工具类 + 通用语义类
- *   - uni-app 主题色：与 uView Plus 对齐（$uni-color-* 系列）
- *
- * 注意：uni-app 在 h5 模式下会读 uni.scss 自动注入到每个 .vue；
- * 小程序 / app 模式通过条件编译引入。
- *
- * 对应：plan 2026-09-28-unified-app-v2.md Phase 3 §0.1
+ * 设计决策（Phase 3.0.6）：
+ *   - uni-app sass-loader 在 h5 build 模式下解析 .vue scoped style 时，
+ *     相对路径 @import 不可靠（line 偏移 + cwd 不一致）
+ *   - tokens 全部走 CSS 变量（App.vue 动态注入 :root）
+ *   - 全局工具类内联在 uni.scss（不依赖外部 SCSS partial）
  */
-@import './styles/tokens.scss';
-@import './styles/global.scss';
-
-/* uni-app 主题色（与 uView Plus 兼容；Phase 3 业务迁移时启用 uView Plus） */
-$uni-color-primary: $ui-color-primary;
-$uni-color-success: $ui-color-success;
-$uni-color-warning: $ui-color-warning;
-$uni-color-error: $ui-color-error;
-
-/* uView Plus 自定义主题色同步（保留兼容性） */
-$u-primary: $uni-color-primary;
-$u-primary-light: $ui-color-primary-hover;
-$u-primary-dark: $ui-color-primary-active;
+ *{box-sizing:border-box}
+page{box-sizing:border-box;padding-bottom:env(safe-area-inset-bottom);font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif;font-size:var(--ui-font-base);line-height:var(--ui-line-height-base);color:var(--ui-color-text-primary);background-color:var(--ui-color-bg-base)}
+button{margin:0;padding:0;background:transparent;border:none;font:inherit;color:inherit;cursor:pointer}
+input,textarea{font:inherit;color:inherit}
+.ui-page{padding:var(--ui-space-base);min-height:100vh;background-color:var(--ui-color-bg-base)}
+.ui-card{background-color:var(--ui-color-bg-card);border-radius:var(--ui-radius-md);padding:var(--ui-space-base);margin-bottom:var(--ui-space-md);box-shadow:var(--ui-shadow-sm)}
+.ui-title{font-size:var(--ui-font-lg);font-weight:var(--ui-font-weight-semibold);color:var(--ui-color-text-primary);margin-bottom:var(--ui-space-sm)}
+.ui-subtitle{font-size:var(--ui-font-base);color:var(--ui-color-text-secondary);margin-bottom:var(--ui-space-xs)}
+.ui-muted{color:var(--ui-color-text-disabled);font-size:var(--ui-font-sm)}
+.ui-text-primary{color:var(--ui-color-primary)!important}
+.ui-text-success{color:var(--ui-color-success)!important}
+.ui-text-warning{color:var(--ui-color-warning)!important}
+.ui-text-error{color:var(--ui-color-error)!important}
+.ui-text-muted{color:var(--ui-color-text-secondary)!important}
+.ui-text-xs{font-size:var(--ui-font-xs)!important}
+.ui-text-sm{font-size:var(--ui-font-sm)!important}
+.ui-text-base{font-size:var(--ui-font-base)!important}
+.ui-text-lg{font-size:var(--ui-font-lg)!important}
+.ui-text-xl{font-size:var(--ui-font-xl)!important}
+.ui-text-xxl{font-size:var(--ui-font-xxl)!important}
+.ui-text-bold{font-weight:var(--ui-font-weight-bold)!important}
+.ui-text-semibold{font-weight:var(--ui-font-weight-semibold)!important}
+.ui-text-center{text-align:center!important}
+.ui-text-right{text-align:right!important}
+.ui-flex{display:flex!important}
+.ui-flex-col{display:flex!important;flex-direction:column!important}
+.ui-flex-row{display:flex!important;flex-direction:row!important}
+.ui-flex-between{display:flex!important;align-items:center!important;justify-content:space-between!important}
+.ui-gap-sm{gap:var(--ui-space-sm)!important}
+.ui-gap-md{gap:var(--ui-space-md)!important}
+.ui-gap-base{gap:var(--ui-space-base)!important}
+.ui-w-full{width:100%!important}
+.ui-h-full{height:100%!important}
+.ui-mt-xxs{margin-top:var(--ui-space-xxs)!important}
+.ui-mt-xs{margin-top:var(--ui-space-xs)!important}
+.ui-mt-sm{margin-top:var(--ui-space-sm)!important}
+.ui-mt-md{margin-top:var(--ui-space-md)!important}
+.ui-mt-base{margin-top:var(--ui-space-base)!important}
+.ui-mt-lg{margin-top:var(--ui-space-lg)!important}
+.ui-mt-xl{margin-top:var(--ui-space-xl)!important}
+.ui-mt-xxl{margin-top:var(--ui-space-xxl)!important}
+.ui-mb-sm{margin-bottom:var(--ui-space-sm)!important}
+.ui-mb-md{margin-bottom:var(--ui-space-md)!important}
+.ui-mb-base{margin-bottom:var(--ui-space-base)!important}
+.ui-p-sm{padding:var(--ui-space-sm)!important}
+.ui-p-md{padding:var(--ui-space-md)!important}
+.ui-p-base{padding:var(--ui-space-base)!important}
+.ui-px-md{padding-left:var(--ui-space-md)!important;padding-right:var(--ui-space-md)!important}
+.ui-py-md{padding-top:var(--ui-space-md)!important;padding-bottom:var(--ui-space-md)!important}

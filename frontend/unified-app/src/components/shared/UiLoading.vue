@@ -45,16 +45,15 @@ withDefaults(
   </view>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
+<style lang="css" scoped>
 
 .ui-loading {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: $ui-space-sm;
-  padding: $ui-space-md;
+  gap: var(--ui-space-sm);
+  padding: var(--ui-space-md);
 }
 
 .ui-loading--fullscreen {
@@ -63,14 +62,14 @@ withDefaults(
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: $ui-z-modal;
+  z-index: var(--ui-z-modal);
   background-color: rgba(255, 255, 255, 0.85);
 }
 
 .ui-loading__spinner {
   display: inline-block;
   border: 2px solid #e8e8e8;
-  border-top-color: $ui-color-primary;
+  border-top-color: var(--ui-color-primary);
   border-radius: 50%;
   animation: ui-loading-spin 0.8s linear infinite;
 }
@@ -93,8 +92,8 @@ withDefaults(
 }
 
 .ui-loading__text {
-  font-size: $ui-font-sm;
-  color: $ui-color-text-secondary;
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-secondary);
 }
 
 @keyframes ui-loading-spin {

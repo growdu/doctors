@@ -91,13 +91,12 @@ function onCancel() {
   </view>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
+<style lang="css" scoped>
 
 .ui-modal {
   position: fixed;
   inset: 0;
-  z-index: $ui-z-modal;
+  z-index: var(--ui-z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,48 +105,48 @@ function onCancel() {
 .ui-modal__mask {
   position: absolute;
   inset: 0;
-  background-color: $ui-color-bg-mask;
+  background-color: var(--ui-color-bg-mask);
 }
 
 .ui-modal__panel {
   position: relative;
   width: 80%;
   max-width: 360px;
-  background-color: $ui-color-bg-card;
-  border-radius: $ui-radius-lg;
+  background-color: var(--ui-color-bg-card);
+  border-radius: var(--ui-radius-lg);
   overflow: hidden;
-  box-shadow: $ui-shadow-lg;
+  box-shadow: var(--ui-shadow-lg);
 }
 
 .ui-modal__title {
-  padding: $ui-space-base;
-  font-size: $ui-font-lg;
-  font-weight: $ui-font-weight-semibold;
+  padding: var(--ui-space-base);
+  font-size: var(--ui-font-lg);
+  font-weight: var(--ui-font-weight-semibold);
   text-align: center;
-  border-bottom: 1px solid $ui-color-divider;
+  border-bottom: 1px solid var(--ui-color-divider);
 }
 
 .ui-modal__content {
-  padding: $ui-space-base;
-  font-size: $ui-font-base;
-  color: $ui-color-text-secondary;
-  line-height: $ui-line-height-base;
+  padding: var(--ui-space-base);
+  font-size: var(--ui-font-base);
+  color: var(--ui-color-text-secondary);
+  line-height: var(--ui-line-height-base);
   text-align: center;
   min-height: 60px;
 }
 
 .ui-modal__actions {
   display: flex;
-  border-top: 1px solid $ui-color-divider;
+  border-top: 1px solid var(--ui-color-divider);
 }
 
 .ui-modal__btn {
   flex: 1;
-  padding: $ui-space-md;
-  font-size: $ui-font-base;
+  padding: var(--ui-space-md);
+  font-size: var(--ui-font-base);
   background-color: transparent;
   border: none;
-  border-right: 1px solid $ui-color-divider;
+  border-right: 1px solid var(--ui-color-divider);
   cursor: pointer;
 }
 
@@ -156,16 +155,16 @@ function onCancel() {
 }
 
 .ui-modal__btn--cancel {
-  color: $ui-color-text-secondary;
+  color: var(--ui-color-text-secondary);
 }
 
 .ui-modal__btn--primary {
-  color: $ui-color-primary;
-  font-weight: $ui-font-weight-medium;
+  color: var(--ui-color-primary);
+  font-weight: var(--ui-font-weight-medium);
 }
 
 .ui-modal__btn--danger {
-  color: $ui-color-error;
-  font-weight: $ui-font-weight-medium;
+  color: var(--ui-color-error);
+  font-weight: var(--ui-font-weight-medium);
 }
 </style>

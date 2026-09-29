@@ -48,26 +48,25 @@ withDefaults(
   </view>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
+<style lang="css" scoped>
 
 .ui-card {
-  background-color: $ui-color-bg-card;
-  border-radius: $ui-radius-md;
+  background-color: var(--ui-color-bg-card);
+  border-radius: var(--ui-radius-md);
   overflow: hidden;
-  margin-bottom: $ui-space-md;
+  margin-bottom: var(--ui-space-md);
 }
 
 .ui-card--shadow-sm {
-  box-shadow: $ui-shadow-sm;
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .ui-card--shadow-md {
-  box-shadow: $ui-shadow-md;
+  box-shadow: var(--ui-shadow-md);
 }
 
 .ui-card--shadow-lg {
-  box-shadow: $ui-shadow-lg;
+  box-shadow: var(--ui-shadow-lg);
 }
 
 .ui-card--shadow-none {
@@ -78,23 +77,23 @@ withDefaults(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: $ui-space-md $ui-space-base;
-  border-bottom: 1px solid $ui-color-divider;
+  padding: var(--ui-space-md) var(--ui-space-base);
+  border-bottom: 1px solid var(--ui-color-divider);
 }
 
 .ui-card__title {
-  font-size: $ui-font-md;
-  font-weight: $ui-font-weight-semibold;
-  color: $ui-color-text-primary;
+  font-size: var(--ui-font-md);
+  font-weight: var(--ui-font-weight-semibold);
+  color: var(--ui-color-text-primary);
 }
 
 .ui-card__extra {
-  font-size: $ui-font-sm;
-  color: $ui-color-primary;
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-primary);
 }
 
 .ui-card__body {
-  padding: $ui-space-base;
+  padding: var(--ui-space-base);
 }
 
 .ui-card--no-padding .ui-card__body {
@@ -102,7 +101,7 @@ withDefaults(
 }
 
 .ui-card__footer {
-  padding: $ui-space-md $ui-space-base;
-  border-top: 1px solid $ui-color-divider;
+  padding: var(--ui-space-md) var(--ui-space-base);
+  border-top: 1px solid var(--ui-color-divider);
 }
 </style>

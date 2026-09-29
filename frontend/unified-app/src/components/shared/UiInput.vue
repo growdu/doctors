@@ -118,19 +118,18 @@ function onFocus(ev: FocusEvent) {
   </view>
 </template>
 
-<style lang="scss" scoped>
-@import '@/styles/tokens.scss';
+<style lang="css" scoped>
 
 .ui-input {
   display: flex;
   flex-direction: column;
-  margin-bottom: $ui-space-md;
+  margin-bottom: var(--ui-space-md);
 }
 
 .ui-input__label {
-  font-size: $ui-font-sm;
-  color: $ui-color-text-secondary;
-  margin-bottom: $ui-space-xs;
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-secondary);
+  margin-bottom: var(--ui-space-xs);
 }
 
 .ui-input__field {
@@ -143,14 +142,14 @@ function onFocus(ev: FocusEvent) {
 .ui-input__textarea {
   flex: 1;
   width: 100%;
-  padding: $ui-space-sm $ui-space-md;
-  font-size: $ui-font-base;
-  color: $ui-color-text-primary;
-  background-color: $ui-color-bg-card;
-  border: 1px solid $ui-color-border;
-  border-radius: $ui-radius-sm;
+  padding: var(--ui-space-sm) var(--ui-space-md);
+  font-size: var(--ui-font-base);
+  color: var(--ui-color-text-primary);
+  background-color: var(--ui-color-bg-card);
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
   outline: none;
-  transition: border-color $ui-duration-fast ease;
+  transition: border-color var(--ui-duration-fast) ease;
   box-sizing: border-box;
 }
 
@@ -162,36 +161,36 @@ function onFocus(ev: FocusEvent) {
 
 .ui-input__inner:focus,
 .ui-input__textarea:focus {
-  border-color: $ui-color-primary;
+  border-color: var(--ui-color-primary);
 }
 
 .ui-input__inner::placeholder,
 .ui-input__textarea::placeholder {
-  color: $ui-color-text-disabled;
+  color: var(--ui-color-text-disabled);
 }
 
 .ui-input--disabled .ui-input__inner,
 .ui-input--disabled .ui-input__textarea {
-  background-color: $ui-color-bg-hover;
-  color: $ui-color-text-disabled;
+  background-color: var(--ui-color-bg-hover);
+  color: var(--ui-color-text-disabled);
   cursor: not-allowed;
 }
 
 .ui-input--error .ui-input__inner,
 .ui-input--error .ui-input__textarea {
-  border-color: $ui-color-error;
+  border-color: var(--ui-color-error);
 }
 
 .ui-input__clear {
   position: absolute;
-  right: $ui-space-sm;
+  right: var(--ui-space-sm);
   top: 50%;
   transform: translateY(-50%);
   width: 18px;
   height: 18px;
   padding: 0;
   font-size: 10px;
-  color: $ui-color-text-disabled;
+  color: var(--ui-color-text-disabled);
   background-color: #d9d9d9;
   border-radius: 50%;
   display: flex;
@@ -205,8 +204,8 @@ function onFocus(ev: FocusEvent) {
 }
 
 .ui-input__error {
-  margin-top: $ui-space-xs;
-  font-size: $ui-font-xs;
-  color: $ui-color-error;
+  margin-top: var(--ui-space-xs);
+  font-size: var(--ui-font-xs);
+  color: var(--ui-color-error);
 }
 </style>
