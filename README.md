@@ -16,14 +16,15 @@
 | 版本 | 状态 | 前端架构 |
 | --- | --- | --- |
 | **v1** | ✅ 已完成（§0–§44 384 commits） | 3 端独立 codebase（patient-miniapp uni-app / escort-app Flutter / admin-web React） |
-| **v2 unified-app** | 🚧 进行中（§42–§45 后端 + 基础设施完成，业务域迁移中） | 1 个 codebase = 3 域（uni-app + Vue 3 + Pinia + 多角色 + SSO） |
+| **v2 unified-app** | ✅ 已完成（§45–§46 487 tests passed / typecheck 0 / build DONE） | 1 个 codebase = 3 域（uni-app + Vue 3 + Pinia + 多角色 + SSO） |
 
-**v2 关键设计**（[plan 2026-09-28-unified-app-v2.md](./docs/superpowers/plans/2026-09-28-unified-app-v2.md)）：
-- **3 域统一**：同一份代码登录后按 `active_role` 切换访问 patient / escort / admin 域
+**v2 关键设计**（[plan 2026-09-28-unified-app-v2.md](./docs/superpowers/plans/2026-09-28-unified-app-v2.md) / [spec unified-app-design.md](./docs/superpowers/specs/2026-09-28-unified-app-design.md)）：
+- **3 域统一**：71 个 page（patient 28 + admin 26 + escort 16 + home 1）同一份代码，登录后按 `active_role` 切换
 - **JWT 多角色**：后端 Claims 从单字段 `role string` → `roles []string + active string`
 - **/switch-role 接口**：`POST /api/v1/auth/switch-role` 换 active 角色返回新 JWT
 - **SSO**：同账号一次登录，3 域 token 通用
 - **域快捷入口**：DomainSwitcher + RoleSwitcherModal 完整 UI 闭环
+- **组件库先行**：8 通用组件 + 10 API client + tokens + orderStore，业务域 100% 复用
 
 ### 1.2 设计目标
 
@@ -151,21 +152,22 @@ unified-app (admin 域 active)
 | `wallet-service` | 8090 | 余额 / 冻结 / 提现 / 流水 / T+7 scanner                              | patient/escort/admin | [dev.md §16](./dev.md#16-后端-wallet-t7-结算服务2026-09-24-wallet-plan-w1-w5) |
 | `admin-service`  | 8091 | 后台：工单 / 报表 / 内部服务代理（order / review / escort / user）   | super_admin + 5 admin_* | [dev.md §10](./dev.md#10-模块解耦与新骨架服务2026-09-24) + [§42](./dev.md#42-unified-app-v2--phase-1-后端--跨端契约同步完成9-commits) |
 
-### 3.2 前端应用（v1 三端 + v2 unified-app 合并目标）
+### 3.2 前端应用（v2 unified-app 单 codebase）
 
 | 前端                | 版本 | 端口 | 技术栈 | 状态 |
 | ------------------- | ---: | ---- | ------ | --- |
-| `patient-miniapp`   | v1   | 80   | uni-app + Vue 3 + uView Plus + Pinia | ✅ 已完成（v1.1 + multi-platform）→ 待迁移至 unified-app |
-| `escort-app`        | v1   | 8080 | Flutter 3.24+（web / iOS / Android） | ✅ 已完成（12 pages + Flutter Web PWA）→ 待重写为 Vue |
-| `admin-web`         | v1   | 8092 | Vite + React 18 + TypeScript + antd | ✅ 已完成（51 pages + MSW + Playwright e2e）→ 待重写为 Vue |
-| **`unified-app`**   | **v2** | **5174** | **uni-app + Vue 3 + Pinia + uView Plus** | 🚧 **§45 Phase 3.0 完成（基础设施 + HomeShell）；Phase 3.1 patient 域迁移待启动** |
+| `frontend/_archive_v1/admin-web` | v1 | — | Vite + React 18 + TS + antd | 📦 已归档（git mv 保留历史），不再开发 |
+| `frontend/_archive_v1/escort-app` | v1 | — | Flutter 3.24+ | 📦 已归档，Flutter 已退出项目技术栈 |
+| `frontend/_archive_v1/patient-miniapp` | v1 | — | uni-app + Vue 3 + uView Plus | 📦 已归档 |
+| **`frontend/unified-app`** | **v2** | **80** | **uni-app + Vue 3 + Pinia + CSS-var tokens** | ✅ **§45-§46 完成（71 page / 487 tests / 0 typecheck error / build:h5 DONE）** |
 
-**unified-app 当前进度（Phase 3.0 收官）**：
-- 测试基础设施：Vitest + jsdom + Vue Test Utils（**194 tests passed**）
-- 设计系统：58 design tokens（TS 单一真相源 + CSS 变量运行时注入）
-- 通用组件：UiButton / UiCard / UiInput / UiEmpty / UiLoading / UiModal（**6 个**组件 + 单测）
-- 域组件：DomainSwitcher / RoleSwitcherModal（**2 个**组件 + 单测）
-- API 扩展层：10 client × **60 端点** × 75 TS 类型
+**unified-app v2 完成状态（Phase 3 + Phase 4）**：
+- 测试基础设施：Vitest 2.1.9 + jsdom + Vue Test Utils（**487 tests passed**）
+- 设计系统：58 design tokens（TS 单一真相源 + CSS 变量运行时注入，弃用 SCSS）
+- 通用组件：UiButton / UiCard / UiInput / UiEmpty / UiLoading / UiModal + DomainSwitcher / RoleSwitcherModal / RoleGuard（**9 个**组件 + 单测）
+- API 扩展层：11 client × 60+ 端点 × 75+ TS 类型（auth / orders / match / payment / wallet / user / review / sos / message / admin / escort）
+- 业务域：patient 28 page + admin 26 page + escort 16 page + home 1 page = **71 page**（单 codebase）
+- Docker：multi-stage Dockerfile（pnpm build:h5 → nginx:1.27-alpine）
 - 业务 store：orderStore（fetchList / fetchDetail / create / cancel / confirm / reject / finish + upsert）
 - e2e spike：3 个 Playwright 测试（HomeShell 渲染 + 角色切换弹层 + 域可用性）
 - 重大决策：**SCSS → CSS 变量重构**（uni-app sass-loader 集成 issue）
