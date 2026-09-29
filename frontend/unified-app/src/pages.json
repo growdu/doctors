@@ -68,6 +68,18 @@
       "style": {
         "navigationBarTitleText": "订单详情"
       }
+    },
+    {
+      "path": "pages/patient/message/list",
+      "style": {
+        "navigationBarTitleText": "消息中心"
+      }
+    },
+    {
+      "path": "pages/patient/message/detail",
+      "style": {
+        "navigationBarTitleText": "消息详情"
+      }
     }
   ],
   "globalStyle": {
