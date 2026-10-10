@@ -31,6 +31,7 @@ func New(h *handler.Handler, jwtSecret string, readyzM *health.Manager) *gin.Eng
 	// 中间件顺序：Metrics → Recovery → OTelGin → RateLimit（全局）
 	r.Use(sharedmw.Metrics())
 	r.Use(sharedmw.Recovery())
+	r.Use(sharedmw.CORS())
 	r.Use(sharedmw.OTelGinMiddleware("wallet-service"))
 	r.Use(sharedmw.RateLimit())
 	r.GET("/healthz", func(c *gin.Context) {
