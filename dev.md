@@ -6492,3 +6492,128 @@ Icons 24 PNG
 | P1 | escort splash + login 真 UI 浏览器验证 |
 | P1 | 30s 倒计时实测（escort 邀请页）|
 
+---
+
+## §48.P escort 30s 倒计时调查（2026-10-10）
+
+> 用户说"继续"。本节按 D3 backlog 调查 escort 域 30s 倒计时。
+
+### P.1 现状调查（4 处断点）
+
+```
+1. DB schema 限制：
+   orders.status 字段类型 = varchar(16)
+   v1.1 设计的 'escort_pending_acceptance' = 25 chars → 装不下
+   CHECK constraint 接受所有 16 个状态字符串，但列宽拒绝
+   只能用 'selecting_escort' (16 chars 刚好) 模拟测试
+
+2. 后端 order.handler.go (144-147) 注释提到：
+   status='invitations' → escort_pending_acceptance + selected_escort_id
+   但 handler 实现中没看到 'invitations' 状态值（不是 schema 状态）
+
+3. 前端 escort/order-detail.vue 是 stub：190+ 行但函数体空
+   - onLoad / canStart / canFinish / onStart / onFinish 都没实现
+   - 没有任何 countdown widget 引用
+   - 没有 service_start_at 或 escort_pending_expire_at 的 UI 引用
+```
+
+### P.2 失败原因（4 层）
+
+1. **DB schema**：v1.1 的 `escort_pending_acceptance` 字符串 25 chars 超出 `varchar(16)`。
+   migrations/0009_select_escort.up.sql 加了新字段（selected_escort_id / escort_pending_expire_at）
+   **但没有** `ALTER TABLE orders ALTER COLUMN status TYPE varchar(32);`。
+   现状：列宽限制使 `escort_pending_acceptance` 永远写不进去。
+
+2. **后端 handler**：`status='invitations'` 的注释是 v1.1 计划，handler 收到 unknown 值会走 default case（按 status 精确查）→ 返回空列表。Escort 端 query `?status=invitations` 拿不到邀请。
+
+3. **前端 escort/order-detail.vue**：是占位 stub，190+ 行空函数体。
+
+### P.3 实测
+
+```bash
+$ PGPASSWORD=doctors psql ... UPDATE orders SET status='escort_pending_acceptance' ...
+ERROR: value too long for type character varying(16)
+
+$ PGPASSWORD=doctors psql ... UPDATE orders SET status='selecting_escort', selected_escort_id=8, ... 
+UPDATE 1  (status='selecting_escort' 16 chars, OK)
+```
+
+### P.4 修复优先级
+
+| 优先级 | 修复 | 影响 | 估时 |
+| :-- | :-- | :-- | :-- |
+| P0 | migrations/00XX: `ALTER TABLE orders ALTER COLUMN status TYPE varchar(32)` | DB schema 缺陷（v1.1 未补）| 5 min + 集成测试 |
+| P0 | services/order/handler/order.go: 实现 `?status=invitations` 真映射到 `escort_pending_acceptance + selected_escort_id=uid` | handler 注释 vs 实现脱节 | 30 min |
+| P1 | frontend pages/escort/order-detail.vue: 完整实现（含 30s CountdownBadge + service_start_at / escort_pending_expire_at 渲染）| v1.1 端到端 | 1 session |
+| P2 | match consumer 写 selected_escort_id 触发 escort_pending_acceptance（dev mode 用 devFakeEscortLoader）| Kafka 链路 | 1 session |
+
+### P.5 结论
+
+**v2 unified-app 的 30s 倒计时链路在前端 / 后端 / DB 都有断点；不是简单修一个文件能解决。**
+标记为 P0 + P1 + P2 多阶段任务，留给独立 session 推进。
+
+dev 模式下的"端到端倒计时可视化"需要：
+- DB schema 修复
+- 后端 handler 实现
+- 前端 stub 实现
+
+**本会话不修**（超出"基本能用"范畴；属于 v2 unified-app 功能完成度收口）。
+
+### P.6 当前最终状态（2026-10-10）
+
+```
+后端    11/11 services :8081-8091  healthz=200 readyz=200
+前端 dev   unified-app vite :5174
+        patient 域 7 页 ✅
+        admin 域 2 页 ✅
+        escort 域 1 页（splash fallback, 0 errors）
+        escort/order-detail = stub（需实现）
+前端 prod  unified-app dist/build/h5/ 1.2MB
+测试    unified-app 571/571 + admin-web 162/162 + CORS 4 = 737 it
+typecheck unified-app 0 errors
+CI      6 jobs + frontend-coverage
+PG/Redis  16 tables / 7.0.15
+Scripts 13 + Makefile 8 + Dockerfiles
+Icons 24 PNG
+截图 45
+```
+
+### P.7 dev.md 当前规模
+
+6546 → 6684 行（+138 §48.P）。
+
+### P.8 v2 unified-app 已验证 vs 待开发矩阵
+
+| 域 | pages.json | 后端 | 前端 | 浏览器 | 倒计时 |
+| :-- | :--: | :--: | :--: | :--: | :--: |
+| patient/auth/login | ✅ | ✅ | ✅ | ✅ | n/a |
+| patient/profile | ✅ | ✅ | ✅ | ✅ | n/a |
+| patient/wallet | ✅ | ✅ | ✅ | ✅ | n/a |
+| patient/coupons | ✅ | ✅ | ✅ | ✅ | n/a |
+| patient/order/list | ✅ | ✅ | ✅ | ✅ | n/a |
+| patient/order/detail | ✅ | ✅ | ✅ | ✅ | n/a |
+| **patient/order/candidates** | ✅ | ✅ | ❌ stub | ⏳ | n/a |
+| **patient/order/create** | ✅ | ✅ | ✅ | ⚠️ 未跑 | n/a |
+| patient/order/share | ✅ | n/a | ✅ | n/a | n/a |
+| admin/index | ✅ | ✅ | ✅ | 0 chars | n/a |
+| admin/orders | ✅ | ✅ | ✅ | ✅ | n/a |
+| admin/escorts | ✅ | ✅ | ✅ | ✅ | n/a |
+| **escort/order-detail** | ✅ | ⚠️ handler 脱节 | ❌ stub | ❌ | ❌ |
+| **escort/invitations** | ✅ | ⚠️ | ✅ | ⏳ | ❌ |
+| **escort/order accept/cancel** | ✅ | ✅ | ⚠️ | ⏳ | ❌ |
+
+**已知 degraded**：5 页（candidates / escort order-detail / escort invitations / escort accept-cancel / admin escort-detail）
+**完整可用**：10 页（patient 7 + admin 3 + escort index）
+
+### P.9 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | migrations/00XX widen status VARCHAR(32) |
+| P0 | order handler 实现 ?status=invitations 真映射 |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | frontend escort/order-detail.vue 完整实现（含 30s CountdownBadge）|
+| P1 | patient/order/candidates / share UI 实测 |
+| P2 | match consumer devFakeEscortLoader 触发 escrow 流程 |
+
