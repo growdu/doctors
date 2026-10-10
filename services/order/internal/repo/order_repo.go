@@ -24,30 +24,35 @@ import (
 )
 
 // Order 映射 orders 表行。
+//
+// §48.M：JSON 输出用 snake_case 字段名（适配 unified-app 前端 Order type）。
+// Go 内部仍用 PascalCase 字段名（保持 Go 习惯）。
 type Order struct {
-	ID                     int64
-	OrderNo                string
-	PatientID              int64
-	EscortID               *int64
-	HospitalID             int64
-	PackageID              int64
-	ServiceStartAt         any
-	Amount                 float64
-	FinalAmount            float64
-	Status                 string
-	Version                int
-	SelectedEscortID       *int64     // escort_pending_acceptance 已选陪诊师；nil 表示未选
-	EscortPendingExpireAt  *time.Time // 30s 确认窗口超时时间；nil 表示未进 escort_pending_acceptance
+	ID                     int64     `json:"id"`
+	OrderNo                string    `json:"order_no"`
+	PatientID              int64     `json:"patient_id"`
+	EscortID               *int64    `json:"escort_id,omitempty"`
+	HospitalID             int64     `json:"hospital_id"`
+	PackageID              int64     `json:"package_id"`
+	ServiceStartAt         any             `json:"service_start_at"`
+	Amount                 float64   `json:"amount"`
+	FinalAmount            float64   `json:"final_amount"`
+	Status                 string    `json:"status"`
+	Version                int       `json:"version"`
+	SelectedEscortID       *int64    `json:"selected_escort_id,omitempty"` // escort_pending_acceptance 已选陪诊师；nil 表示未选
+	EscortPendingExpireAt  *time.Time `json:"escort_pending_expire_at,omitempty"` // 30s 确认窗口超时时间
 }
 
 // OrderEvent 映射 order_events 表行。
+//
+// §48.M：JSON 输出 snake_case。
 type OrderEvent struct {
-	ID         int64
-	OrderID    int64
-	FromStatus *string
-	ToStatus   string
-	ActorID    *int64
-	Payload    []byte
+	ID         int64  `json:"id"`
+	OrderID    int64  `json:"order_id"`
+	FromStatus *string `json:"from_status,omitempty"`
+	ToStatus   string `json:"to_status"`
+	ActorID    *int64 `json:"actor_id,omitempty"`
+	Payload    []byte `json:"payload"`
 }
 
 // ErrOrderNotFound 是查询无结果时的哨兵。

@@ -92,11 +92,11 @@ onMounted(onLoad);
             {{ STATUS_LABEL[o.status] }}
           </text>
         </view>
-        <text class="order-list__time">📅 {{ formatDate(o.appointment_time) }}</text>
-        <text class="order-list__address">📍 {{ o.address }}</text>
+        <text class="order-list__time">📅 {{ formatDate(o.service_start_at) }}</text>
+        <text class="order-list__address">📍 医院 #{{ o.hospital_id }}</text>
         <template #footer>
           <view class="order-list__footer">
-            <text class="order-list__amount">{{ formatAmount(o.total_amount) }}</text>
+            <text class="order-list__amount">{{ formatAmount(o.amount) }}</text>
             <text class="order-list__view" :data-testid="`view-order-${o.id}`">查看详情 →</text>
           </view>
         </template>

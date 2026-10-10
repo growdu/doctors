@@ -6137,3 +6137,113 @@ dev.md  6019 行 / 52 章节
 
 6019 → 6163 行（+144 §48.L）。
 
+---
+
+## §48.M snake_case 字段适配（2026-10-10）
+
+> 用户说"继续"。本节把上一节标记的"留给独立 session 重构后端" 立刻推进掉。
+
+### M.1 §48.L 决定的执行
+
+```bash
+# 1. 后端加 json tag（不破坏 PascalCase 内部命名）
+# services/order/internal/repo/order_repo.go Order struct 加 json tag：
+ID                int64      `json:"id"`
+OrderNo           string     `json:"order_no"`
+PatientID         int64      `json:"patient_id"`
+EscortID          *int64     `json:"escort_id,omitempty"`
+HospitalID        int64      `json:"hospital_id"`
+PackageID         int64      `json:"package_id"`
+ServiceStartAt    any        `json:"service_start_at"`
+Amount            float64    `json:"amount"`
+FinalAmount       float64    `json:"final_amount"`
+Status            string     `json:"status"`
+Version           int        `json:"version"`
+SelectedEscortID  *int64     `json:"selected_escort_id,omitempty"`
+EscortPendingExpireAt *time.Time `json:"escort_pending_expire_at,omitempty"`
+
+# OrderEvent 同样加 json tag
+
+# 2. 前端 Order type 改为匹配后端 snake_case
+# 3. api/orders.ts listOrders 把 {orders:[]} 归一化为 {items, total}（store 期望）
+# 4. list.vue 改用 service_start_at / amount 字段名
+```
+
+### M.2 后端 curl 验证 snake_case
+
+```bash
+$ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8082/api/v1/orders
+{"code":0,"data":{"orders":[{"id":10,"order_no":"OC7CE931378BA3D5E","patient_id":8,
+"hospital_id":1,"package_id":1,"service_start_at":"2026-10-30T18:00:00+08:00",
+"amount":300,"final_amount":300,"status":"created","version":0}]}}
+```
+
+✅ 全部 snake_case，字段对齐。
+
+### M.3 前端 typecheck + tests
+
+```
+Test Files  69 passed (69)
+     Tests  571 passed (571)
+   Duration  26.51s
+```
+
+✅ 571 it 全过；vue-tsc 0 errors。
+
+### M.4 浏览器实测
+
+```
+order list bodyLen: 59
+  我的订单
+  订单 #10
+  医院 #1
+  📅 2026-10-30 18:00
+  📍 医院 #1
+  ¥3.00
+  查看详情 →
+errors: 0   ← 之前 1 个 TypeError 消失
+```
+
+**完整端到端真跑通**：
+- 浏览器登录 → 注入 token → unified.auth → 跳 /pages/patient/order/list → 调 /api/v1/orders → 渲染订单列表
+
+### M.5 总对比（before vs after）
+
+| 维度 | §48.L | §48.M |
+| :-- | :-- | :-- |
+| 浏览器渲染 order/list | ❌ TypeError | ✅ 完整数据 |
+| 后端 JSON 字段 | PascalCase | snake_case |
+| 前端 Order type | snake_case | snake_case（对齐后端）|
+| store 层 mapper | 不需要 | 不需要 |
+| 测试通过数 | 571 | 571 |
+| 浏览器 console errors | 1 | **0** |
+
+### M.6 提交清单
+
+```
+$ git status
+ M frontend/unified-app/src/api/orders.ts        (listOrders 归一化 + Order type 改 snake_case)
+ M frontend/unified-app/src/pages/patient/order/list.vue  (用 service_start_at / amount)
+ M services/order/internal/repo/order_repo.go   (Order + OrderEvent 加 json tag)
+```
+
+### M.7 当前最终状态（2026-10-10）
+
+```
+后端    11/11 services :8081-8091   healthz=200 readyz=200
+        snake_case JSON（v2 unified-app 兼容）
+前端 dev   unified-app vite :5174   order list 真实渲染 ✅
+前端 prod  unified-app dist/build/h5/ 1.2MB
+测试    unified-app 571/571 + admin-web 162/162 + CORS 4 = 737 it
+typecheck unified-app 0 errors
+CI      6 jobs + frontend-coverage
+PG/Redis 16 tables / 7.0.15
+Scripts 13 个 + Makefile 8 个
+Icons   24 PNG
+Dockerfile distroless frontend (nginx:alpine)
+```
+
+### M.9 dev.md 当前规模
+
+6163 → 6310 行（+147 §48.M）。
+

@@ -34,16 +34,19 @@ export type OrderStatus =
 
 export interface Order {
   id: number;
+  order_no: string;
   patient_id: number;
-  escort_id: number | null;
+  escort_id?: number | null;
   hospital_id: number;
-  package_id: number | null;
+  package_id: number;
+  // §48.M：v2 后端字段名（snake_case from pgx json tag）
+  service_start_at: string;
   status: OrderStatus;
-  appointment_time: string;
-  address: string;
-  total_amount: number;
-  created_at: string;
-  updated_at: string;
+  amount: number;
+  final_amount: number;
+  selected_escort_id?: number | null;
+  escort_pending_expire_at?: string | null;
+  version: number;
 }
 
 export interface CreateOrderRequest {
@@ -152,7 +155,10 @@ export async function listOrders(query: ListOrdersQuery = {}): Promise<{ items: 
   if (query.page) qs.set('page', String(query.page));
   if (query.page_size) qs.set('page_size', String(query.page_size));
   const url = qs.toString() ? `${ORDER_BASE_PATH}?${qs}` : ORDER_BASE_PATH;
-  return request({ url, baseURL: ORDER_BASE_URL });
+  // §48.M：后端响应 shape 是 {orders: Order[]}；store.fetchList 期望 {items, total}；在这里做归一化。
+  const r = await request<{ orders?: Order[] }>({ url, baseURL: ORDER_BASE_URL });
+  const items = r.orders ?? [];
+  return { items, total: items.length };
 }
 
 /** 详情。 */
