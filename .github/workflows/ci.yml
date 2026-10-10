@@ -213,6 +213,45 @@ jobs:
         run: ${{ matrix.command }}
 
   # ========================================================================
+  # 5) frontend-coverage — unified-app vitest coverage upload to Codecov
+  #    把 unified-app 单测覆盖率接入 codecov.io（dev.md §48.E 60% line baseline）。
+  #    与 frontend-lint 共享 setup，但额外跑 test:coverage + upload。
+  # ========================================================================
+  frontend-coverage:
+    name: frontend-coverage (unified-app)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/unified-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable pnpm via corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+
+      - name: pnpm install
+        run: pnpm install
+
+      - name: vitest coverage
+        run: pnpm test:coverage
+
+      - name: Upload to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          flags: unified-app
+          fail_ci_if_error: false
+          verbose: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ========================================================================
   # 4) backend-lint — golangci-lint run ./...
   # ========================================================================
   backend-lint:
