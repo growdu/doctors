@@ -5,7 +5,7 @@ service: admin
 service_version: "v1.3.0"
 
 http:
-  addr: ":8089"
+  addr: ":8091"
   read_timeout_sec: 30
   write_timeout_sec: 30
 
@@ -20,7 +20,7 @@ redis:
 
 kafka:
   brokers:
-    - 127.0.0.1:9092
+
   group_id: admin-service
 
 auth:

@@ -20,7 +20,7 @@ redis:
 
 kafka:
   brokers:
-    - 127.0.0.1:9092
+
   group_id: message-service
 
 auth:

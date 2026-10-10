@@ -6,7 +6,7 @@ service: wallet
 service_version: "v1.3.0"
 
 http:
-  addr: ":8088"
+  addr: ":8090"
   read_timeout_sec: 30
   write_timeout_sec: 30
 
@@ -17,7 +17,7 @@ db:
 
 kafka:
   brokers:
-    - 127.0.0.1:9092
+
   group_id: wallet-service
 
 auth:

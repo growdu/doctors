@@ -5,7 +5,7 @@ service: sos
 service_version: "v1.3.0"
 
 http:
-  addr: ":8085"
+  addr: ":8087"
   read_timeout_sec: 30
   write_timeout_sec: 30
 
@@ -20,7 +20,7 @@ redis:
 
 kafka:
   brokers:
-    - 127.0.0.1:9092
+
   group_id: sos-service
 
 auth:
