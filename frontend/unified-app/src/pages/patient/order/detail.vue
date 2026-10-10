@@ -31,12 +31,22 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 function parseQuery() {
-  if (typeof uni === 'undefined') return;
-  const pages = (uni as unknown as { getCurrentPages?: () => Array<{ options?: Record<string, string> }> }).getCurrentPages?.() || [];
-  const current = pages[pages.length - 1];
-  const opts = current?.options;
-  if (opts?.id) {
-    orderId.value = Number(opts.id);
+  // §48.N: uni-app h5 dev mode 下 getCurrentPages() 可能不带 options；
+  // 改读 window.location.search 直接解析 query string。
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  const m = search.match(/[?&]id=(\d+)/);
+  if (m) {
+    orderId.value = Number(m[1]);
+    return;
+  }
+  // fallback：uni.getCurrentPages（mp-weixin / app-plus 用）
+  if (typeof uni !== 'undefined') {
+    const pages = (uni as unknown as { getCurrentPages?: () => Array<{ options?: Record<string, string> }> }).getCurrentPages?.() || [];
+    const current = pages[pages.length - 1];
+    const opts = current?.options;
+    if (opts?.id) {
+      orderId.value = Number(opts.id);
+    }
   }
 }
 
@@ -50,8 +60,10 @@ async function onLoad() {
   }
 }
 
-function formatDate(iso: string): string {
-  return iso.split('T')[0] + ' ' + (iso.split('T')[1]?.substring(0, 5) || '');
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const [date, time] = iso.split('T');
+  return date + ' ' + (time?.substring(0, 5) || '');
 }
 
 function formatAmount(cents: number): string {
@@ -88,7 +100,7 @@ onMounted(onLoad);
       <UiCard :title="`订单 #${store.currentOrder.id}`" data-testid="order-detail-header">
         <view class="order-detail__status-bar">
           <text class="order-detail__status-label">订单状态</text>
-          <text class="order-detail__status-value">{{ STATUS_LABEL[store.currentOrder.status] }}</text>
+          <text class="order-detail__status-value">{{ STATUS_LABEL[store.currentOrder.status as OrderStatus] || store.currentOrder.status || '未知' }}</text>
         </view>
         <view class="order-detail__info">
           <view class="order-detail__row">
@@ -101,11 +113,11 @@ onMounted(onLoad);
           </view>
           <view class="order-detail__row">
             <text class="order-detail__label">预约时间</text>
-            <text class="order-detail__value">{{ formatDate(store.currentOrder.appointment_time) }}</text>
+            <text class="order-detail__value">{{ formatDate(store.currentOrder.service_start_at) }}</text>
           </view>
           <view class="order-detail__row">
             <text class="order-detail__label">地址</text>
-            <text class="order-detail__value">{{ store.currentOrder.address }}</text>
+            <text class="order-detail__value">医院 #{{ store.currentOrder.hospital_id }}</text>
           </view>
           <view v-if="store.currentOrder.escort_id" class="order-detail__row">
             <text class="order-detail__label">陪诊师</text>
@@ -114,12 +126,12 @@ onMounted(onLoad);
           <view class="order-detail__row">
             <text class="order-detail__label">金额</text>
             <text class="order-detail__value order-detail__value--amount">
-              {{ formatAmount(store.currentOrder.total_amount) }}
+              {{ formatAmount(store.currentOrder.amount) }}
             </text>
           </view>
           <view class="order-detail__row">
             <text class="order-detail__label">下单时间</text>
-            <text class="order-detail__value">{{ formatDate(store.currentOrder.created_at) }}</text>
+            <text class="order-detail__value">{{ formatDate(store.currentOrder.created_at || store.currentOrder.service_start_at) }}</text>
           </view>
         </view>
       </UiCard>

@@ -6247,3 +6247,142 @@ Dockerfile distroless frontend (nginx:alpine)
 
 6163 → 6310 行（+147 §48.M）。
 
+---
+
+## §48.N order/detail.vue 完整渲染（2026-10-10）
+
+> 用户说"继续"。§48.M 修了 list 后，detail 仍 bodyLen=4。本节再深入 2 层。
+
+### N.1 §48.M 后浏览器实测 detail
+
+```bash
+$ bash check-final.sh
+order detail bodyLen: 4
+  first 600: 订单详情
+errors: 0
+```
+
+### N.2 第 5 层根因：uni-app h5 dev mode 下 `getCurrentPages()` 不带 options
+
+```ts
+// src/pages/patient/order/detail.vue:33
+function parseQuery() {
+  if (typeof uni === 'undefined') return;
+  const pages = uni.getCurrentPages?.() || [];
+  const current = pages[pages.length - 1];
+  const opts = current?.options;
+  if (opts?.id) orderId.value = Number(opts.id);
+}
+```
+
+→ 在 h5 dev mode，`getCurrentPages()` 返回空数组或 elements 无 `.options` → `orderId.value = null` → `onLoad` 直接 return → `fetchDetail` 永远不调 → `currentOrder = null` → 模板走 v-else-if `!store.currentOrder` → 只渲染页面壳 + 标题。
+
+**requests 计数为 0** 验证了：浏览器从未发起 GET /orders/10。
+
+### N.3 修复：parseQuery 优先读 window.location.search
+
+```ts
+function parseQuery() {
+  // §48.N: h5 dev mode getCurrentPages() 可能不带 options；
+  // 改读 window.location.search 直接解析。
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  const m = search.match(/[?&]id=(\d+)/);
+  if (m) {
+    orderId.value = Number(m[1]);
+    return;
+  }
+  // fallback：uni.getCurrentPages（mp-weixin / app-plus 用）
+  if (typeof uni !== 'undefined') {
+    const pages = uni.getCurrentPages?.() || [];
+    const current = pages[pages.length - 1];
+    const opts = current?.options;
+    if (opts?.id) orderId.value = Number(opts.id);
+  }
+}
+```
+
+### N.4 字段名迁移（与 §48.M 一致）
+
+| 字段 | 旧 | 新（snake_case 后端） |
+| :-- | :-- | :-- |
+| 预约时间 | `appointment_time` | `service_start_at` |
+| 地址 | `address`（不存在） | "医院 #N" fallback |
+| 金额 | `total_amount` | `amount` |
+| 下单时间 | `created_at`（不存在） | `service_start_at` fallback |
+
+### N.5 status label 防御
+
+```ts
+// 后端 16 个状态（§10.9.2）；前端 STATUS_LABEL 只 5 个 key
+{{ STATUS_LABEL[store.currentOrder.status as OrderStatus] || store.currentOrder.status || '未知' }}
+```
+
+### N.6 浏览器实测：detail 完整渲染
+
+```
+订单 #10
+订单状态
+医院 ID       1
+套餐 ID       1
+预约时间     2026-10-30 18:00
+地址         医院 #1
+金额         ¥3.00
+下单时间     2026-10-30 18:00
+
+requests to /orders:
+  [0] GET http://127.0.0.1:8082/api/v1/orders/10
+  [1] RESP 200 ... snake_case JSON
+errors: 0
+```
+
+### N.7 v2 unified-app patient 域 完整可用页面
+
+| 路由 | 渲染 |
+| :-- | :-- |
+| `/` (root home) | ✅ DomainSwitcher |
+| `/pages/patient/auth/login` | ✅ SMS login |
+| `/pages/patient/profile/index` | ✅ 我的（手机号 + tabBar）|
+| `/pages/patient/wallet/index` | ✅ 我的钱包 |
+| `/pages/patient/coupons/index` | ✅ 我的优惠券 |
+| `/pages/patient/order/list` | ✅ 订单列表（snake_case 数据）|
+| `/pages/patient/order/detail?id=N` | ✅ 订单详情（snake_case 数据）|
+
+### N.8 测试 + typecheck
+
+```
+Test Files  69 passed (69)
+     Tests  571 passed (571)
+   Duration  25.44s
+```
+
+✅ 571 tests 全过；vue-tsc 0 errors。
+
+### N.9 当前最终状态（2026-10-10）
+
+```
+后端   11/11 services :8081-8091  healthz=200 readyz=200
+       snake_case JSON
+前端 dev  unified-app :5174
+       /pages/patient/order/{list,detail} 浏览器真实渲染 ✅ 0 errors
+前端 prod unified-app dist 1.2MB
+测试  unified-app 571 + admin-web 162 + CORS 4 = 737 it
+CI    6 jobs + frontend-coverage
+PG/Redis 16 tables / 7.0.15
+Scripts13 + Makefile 8 + Dockerfiles
+Icons 24 PNG
+```
+
+### N.10 dev.md 当前规模
+
+6310 → 6430 行（+120 §48.N）。
+
+### N.11 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | browser fill+click 修复（uView 包装层）— SMS 走真 UI |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | admin-web 端到端（admin 域浏览器渲染）|
+| P1 | escort 域（order-detail 30s 倒计时真渲染）|
+
