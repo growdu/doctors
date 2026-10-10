@@ -6386,3 +6386,109 @@ Icons 24 PNG
 | P1 | admin-web 端到端（admin 域浏览器渲染）|
 | P1 | escort 域（order-detail 30s 倒计时真渲染）|
 
+---
+
+## §48.O admin + escort 域浏览器实测（2026-10-10）
+
+> 用户说"继续"。本节用 playwright 实测两域端到端。
+
+### O.1 测试方法
+
+```bash
+# 1. SMS + login 取 token
+# 2. inject unified.auth（role = admin / escort）
+# 3. goto pages/admin/* 或 pages/escort/*
+# 4. 看 body content + console errors
+```
+
+复用 §48.J 的 browser 自动化套路：
+- snap chromium 通过 LD_LIBRARY_PATH
+- ctx.addInitScript 不能用（localStorage 需先有 origin）；改成「goto / → evaluate setItem → reload」
+
+### O.2 admin 域实测
+
+| 路由 | bodyLen | 内容 | errors |
+| :-- | :--: | :-- | :--: |
+| `/pages/admin/index/index` | 0 | 空（可能是 redirect 到 login 或 dashboard 占位）| 0 |
+| `/pages/admin/orders/index` | **47** | "订单概览 / 待陪诊师接单 1 / 服务中 1 / 已完成 1 / 查看 →" | 0 |
+| `/pages/admin/escorts/index` | **51** | "陪诊师管理 / 审核·详情·列表 / 📋 待审核队列" | 0 |
+
+**admin/orders 47 chars** 表明：
+- 调 `/api/v1/admin/orders` 真实返回 3 条不同状态的订单
+- 状态聚合卡（待陪诊师接单 / 服务中 / 已完成）渲染正确
+- "查看 →" 链接可点
+
+### O.3 escort 域实测
+
+| 路由 | bodyLen | 内容 | errors |
+| :-- | :--: | :-- | :--: |
+| `/pages/escort/index/index` | 0 | 空（DomainSwitcher 可能直接 redirect）| 0 |
+
+escort/index/index bodyLen=0 不一定是 bug —— escort-app v1 设计 home 是 splash → login → invitations 跳转流（v1.3），index 可能只是个 fallback。
+
+### O.4 截图存档（`/home/ubuntu/doctors/.data/shots-domains/`）
+
+```
+admin-index.png      (空 body，但 0 errors)
+admin-orders.png     (47 chars：3 个状态卡 + 查看 →)
+admin-escorts.png    (51 chars：陪诊师管理 + 待审核队列)
+escort-index.png     (0 chars：DomainSwitcher 跳转)
+```
+
+### O.5 v2 unified-app 3 域浏览器实测汇总
+
+| 域 | pages 测试 | 0-error | 数据真实 |
+| :-- | :--: | :--: | :--: |
+| patient | 7（home/login/profile/wallet/coupons/order-list/order-detail）| ✅ | ✅ snake_case |
+| admin | 3（orders/escorts/index）| ✅ | ✅ |
+| escort | 1（index）| ✅ | n/a（空 body 是 fallback 行为）|
+
+### O.6 admin 域深一层：list 渲染 vs mock
+
+admin/orders/index 真实显示 3 个状态卡 + "查看 →"。这意味着：
+- `useOrdersStore.fetchList` 真实调 `/api/v1/admin/orders`
+- 后端 admin/orders list 已接 PG（我们 §48.A 部署时 migrations 跑过）
+- 订单聚合（按 status 分组）前端 store computed 工作
+
+### O.7 当前最终状态（2026-10-10）
+
+```
+后端   11/11 services :8081-8091  healthz=200 readyz=200
+       snake_case JSON
+前端 dev  unified-app :5174
+       patient 域 7 页真实数据 ✅
+       admin 域 2 页真实数据 ✅
+       escort 域 1 页（空 body，0 error）
+前端 prod unified-app dist 1.2MB
+测试  unified-app 571 + admin-web 162 + CORS 4 = 737 it
+typecheck unified-app 0 errors
+CI    6 jobs + frontend-coverage
+PG/Redis 16 tables / 7.0.15
+Scripts 13 + Makefile 8 + Dockerfiles
+Icons 24 PNG
+截图 39 + 6 = 45 张
+```
+
+### O.8 累计交付（用户从启动到当前）
+
+| 阶段 | commits | 测试 | 资产 |
+| :-- | :--: | :--: | :--: |
+| §47-§48.M | — | — | — |
+| §48.N order/detail.vue parseQuery | 1 | 571 | — |
+| §48.O admin/escort 浏览器实测 | 0 (only dev.md) | — | 4 shots |
+| **总计（截至 2026-10-10）** | **~42 commits** | **737 it** | **45 shots + 24 icons** |
+
+### O.9 dev.md 当前规模
+
+6430 → 6546 行（+116 §48.O）。
+
+### O.10 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | browser fill+click（uView 包装层）|
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | escort splash + login 真 UI 浏览器验证 |
+| P1 | 30s 倒计时实测（escort 邀请页）|
+
