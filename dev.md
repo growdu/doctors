@@ -6617,3 +6617,155 @@ Icons 24 PNG
 | P1 | patient/order/candidates / share UI 实测 |
 | P2 | match consumer devFakeEscortLoader 触发 escrow 流程 |
 
+---
+
+## §48.Q migration 0017 + invitation 实测（2026-10-12）
+
+> 用户说"继续"。本节执行 §48.P 的 P0 修复。
+
+### Q.1 migration 0017 — widen status VARCHAR(32)
+
+```sql
+-- migrations/0017_widen_status_varchar32.up.sql
+ALTER TABLE orders ALTER COLUMN status TYPE VARCHAR(32);
+ALTER TABLE escort_availabilities ALTER COLUMN status TYPE VARCHAR(32);
+```
+
+应用：
+
+```bash
+$ PGPASSWORD=doctors psql -h 127.0.0.1 -U doctors -d doctors \
+    -v ON_ERROR_STOP=1 -f 0017_widen_status_varchar32.up.sql
+ALTER TABLE
+ALTER TABLE
+
+$ psql ... SELECT data_type, character_maximum_length
+       FROM information_schema.columns WHERE table_name='orders' AND column_name='status';
+character varying    32
+```
+
+**实测 schema 修复**：
+```sql
+$ UPDATE orders SET status='escort_pending_acceptance',
+  selected_escort_id=8,
+  escort_pending_expire_at=NOW()+INTERVAL '30 seconds'
+  WHERE id=10;
+-- UPDATE 1 ✅ (之前 varchar(16) 拒绝)
+```
+
+### Q.2 后端 handler / repo 不需改
+
+调研发现 `services/order/internal/repo/order_repo.go:131` 已经实现：
+```go
+func (r *OrderRepo) ListByEscort(ctx, escortID, statusFilter, limit, offset) {
+  switch statusFilter {
+  case "invitations":
+    q = baseSelect + ` WHERE selected_escort_id = $1
+                        AND status = 'escort_pending_acceptance'
+                        AND deleted_at IS NULL
+                        ORDER BY escort_pending_expire_at ASC
+                        LIMIT $2 OFFSET $3`
+    ...
+  case "":     // 所有 escort 订单
+  default:      // 精确 status
+  }
+}
+```
+
+handler `?status=invitations` 直接透传到 service → repo，无需改动。
+
+### Q.3 curl 实测 escort invitations（uid=8）
+
+```bash
+$ PGPASSWORD=doctors psql -h 127.0.0.1 -U doctors -d doctors \
+    -c "UPDATE users SET role='escort', roles='[\"escort\",\"patient\"]'::jsonb WHERE id=8"
+$ # login as 13977778888
+$ TOKEN=$(curl -s -X POST .../auth/login ... | jq -r .data.token)
+$ curl -H "Authorization: Bearer $TOKEN" \
+    "http://127.0.0.1:8082/api/v1/orders?role=escort&status=invitations"
+{
+  "code": 0,
+  "data": {
+    "orders": [{
+      "id": 10,
+      "order_no": "OC7CE931378BA3D5E",
+      "patient_id": 8,
+      "hospital_id": 1,
+      "package_id": 1,
+      "service_start_at": "2026-10-30T18:00:00+08:00",
+      "amount": 300,
+      "final_amount": 300,
+      "status": "escort_pending_acceptance",
+      "version": 1,
+      "selected_escort_id": 8,
+      "escort_pending_expire_at": "2026-10-12T10:00:03.110267+08:00"
+    }]
+  }
+}
+```
+
+**30s 倒计时字段（selected_escort_id + escort_pending_expire_at）已真实返回**。
+
+### Q.4 浏览器实测 escort invitations
+
+```
+$ bash /tmp/check-invitations.sh
+uid: 8 token len: 160
+--- visit /pages/escort/invitations/index ---
+bodyLen: 48
+  抢单池
+  🎯 抢单池
+  可接候选订单
+  ⚠️
+  加载失败
+  order_id required
+  点击重试
+errors: 0
+```
+
+**发现**：`/pages/escort/invitations/index` 是 **v1 抢单池**（lobby），不是 v2.1 选人模式（30s 倒计时）。
+页面要求 `order_id` query param，是单订单详情风格，不是列表风格。
+
+→ **v2.1 escort 选人模式的"我的邀请列表"页面尚未实现**；当前 escort/invitations/index 仍是 v1 抢单 lobby 的代码。
+
+### Q.5 v2 unified-app 倒计时落地路径
+
+完整链路：
+1. ✅ patient/order/candidates 选陪诊师 → 后端 `SelectEscort` → 写 selected_escort_id + status=selecting_escort + escort_pending_expire_at
+2. ✅ 后端 scheduler 30s 后扫描 → 转 escort_pending_acceptance
+3. ✅ escort GET `?status=invitations` 返回（api + DB schema 现在 OK）
+4. ❌ escort/invitations/index 仍是 v1 lobby 代码（不渲染邀请列表）
+5. ❌ escort/order-detail 是 stub（无 30s countdown UI）
+
+### Q.6 v2 unified-app 倒计时最终可见性
+
+| 链路节点 | 状态 |
+| :-- | :-- |
+| DB schema（migration 0017）| ✅ 修复 |
+| 后端 SelectEscort handler | ✅ |
+| 后端 scheduler（30s → 转状态）| ✅（§10.9.2）|
+| 后端 GET `?status=invitations` | ✅ 字段完整 |
+| escort/invitations/index v2.1 列表 | ❌ 未实现（仍是 v1 lobby）|
+| escort/order-detail v2.1 countdown UI | ❌ stub |
+| patient/order/candidates 选人页 | ❌ stub |
+
+### Q.7 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **12** |
+| dev.md | **6684 → 6806 行 / 57 章节** |
+| 测试 | 737 it |
+| migrations | 16 → **17**（含 widen status VARCHAR(32)）|
+
+### Q.8 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | frontend escort/order-detail.vue 完整实现（含 CountdownBadge）|
+| P1 | frontend escort/invitations/index v2.1 列表实现 |
+| P1 | frontend patient/order/candidates 选人页实现 |
+| P2 | match consumer + devFakeEscortLoader 触发 escrow 流程 |
+
