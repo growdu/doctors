@@ -1,17 +1,22 @@
 <script setup lang="ts">
 /**
- * patient/order/candidates/index.vue — 陪诊师候选列表（v2 unified-app）。
+ * patient/order/candidates/index.vue — 陪诊师候选列表（v2.1 选人模式）。
+ *
+ * §48.S v2.1 改进：
+ *   - 旧：只是列出候选，无操作
+ *   - 新：选择候选调 orderService.SelectEscort(orderId, escortId)
+ *     → 后端写 selected_escort_id + status='selecting_escort'
+ *     → 30s 倒计时启动（escort_pending_expire_at = NOW()+30s）
  *
  * 入口：
  *   - order/create 选择「手动选陪诊师」展开
- *   - admin-service 审批时查看候选
- *
- * 简化版：列出指定 order 的候选陪诊师（按 score 排序）+ 「选择此陪诊师」按钮
+ *   - URL: /pages/patient/order/candidates/index?orderId=N
  */
 import { ref, onMounted } from 'vue';
 import { listCandidates } from '@/api/match';
 import type { MatchCandidate } from '@/api/match';
 import { useOrderStore } from '@/store/order';
+import { selectEscort } from '@/api/orders';
 import UiCard from '@/components/shared/UiCard.vue';
 import UiEmpty from '@/components/shared/UiEmpty.vue';
 import UiLoading from '@/components/shared/UiLoading.vue';
@@ -22,12 +27,18 @@ const orderId = ref<number | null>(null);
 const candidates = ref<MatchCandidate[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
+const picking = ref(false);
 
 function parseQuery() {
-  if (typeof uni === 'undefined') return;
-  const pages = (uni as unknown as { getCurrentPages?: () => Array<{ options?: Record<string, string> }> }).getCurrentPages?.() || [];
-  const opts = pages[pages.length - 1]?.options;
-  if (opts?.orderId) orderId.value = Number(opts.orderId);
+  // §48.N: h5 dev mode getCurrentPages() 不带 options；优先读 window.location.search
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  const m = search.match(/[?&](?:orderId|id)=(\d+)/);
+  if (m) { orderId.value = Number(m[1]); return; }
+  if (typeof uni !== 'undefined') {
+    const pages = (uni as unknown as { getCurrentPages?: () => Array<{ options?: Record<string, string> }> }).getCurrentPages?.() || [];
+    const opts = pages[pages.length - 1]?.options;
+    if (opts?.orderId) orderId.value = Number(opts.orderId);
+  }
 }
 
 async function onLoad() {
@@ -48,15 +59,22 @@ async function onLoad() {
   }
 }
 
-async function onPick(_c: MatchCandidate) {
+async function onPick(c: MatchCandidate) {
   if (!orderId.value) return;
+  picking.value = true;
   try {
-    await orderStore.fetchDetail(orderId.value);
+    // §48.S: 真实调 SelectEscort → 后端写 selected_escort_id + 启动 30s 倒计时
+    await selectEscort(orderId.value, c.escort_id);
+    // 跳到订单详情（status 已是 selecting_escort，等待 escort accept）
     if (typeof uni !== 'undefined') {
-      uni.navigateBack({ delta: 1 });
+      uni.redirectTo({ url: `/pages/patient/order/detail?id=${orderId.value}` });
+    } else if (typeof window !== 'undefined') {
+      window.location.href = `/pages/patient/order/detail?id=${orderId.value}`;
     }
   } catch (e) {
     error.value = (e as Error).message;
+  } finally {
+    picking.value = false;
   }
 }
 
@@ -65,6 +83,11 @@ onMounted(onLoad);
 
 <template>
   <view class="ui-page" data-testid="patient-order-candidates">
+    <view class="candidates__header">
+      <text class="candidates__title">👨‍⚕️ 候选陪诊师</text>
+      <text v-if="orderId" class="candidates__subtitle">为订单 #{{ orderId }} 选择陪诊师（30s 倒计时）</text>
+    </view>
+
     <view v-if="loading" data-testid="candidates-loading">
       <UiLoading text="加载候选陪诊师..." />
     </view>
@@ -105,7 +128,8 @@ onMounted(onLoad);
           <UiButton
             type="primary"
             size="sm"
-            :disabled="!c.available"
+            :disabled="!c.available || picking"
+            :loading="picking"
             :data-testid="`pick-candidate-${c.escort_id}`"
             @click="onPick(c)"
           >
@@ -118,6 +142,22 @@ onMounted(onLoad);
 </template>
 
 <style scoped>
+.candidates__header {
+  padding: var(--ui-space-base) 0;
+}
+.candidates__title {
+  font-size: var(--ui-font-xl);
+  font-weight: var(--ui-font-weight-semibold);
+  color: var(--ui-color-text-primary);
+  display: block;
+}
+.candidates__subtitle {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-secondary);
+  display: block;
+  margin-top: var(--ui-space-xs);
+}
+
 .candidates__count {
   font-size: var(--ui-font-sm);
   color: var(--ui-color-text-secondary);
@@ -173,7 +213,6 @@ onMounted(onLoad);
   background: rgba(82, 196, 26, 0.1);
   color: var(--ui-color-success);
 }
-
 .candidates__status--busy {
   background: rgba(255, 77, 79, 0.1);
   color: var(--ui-color-error);
