@@ -7077,3 +7077,137 @@ $ bash scripts/e2e-escrow.sh
 | P1 | 修复 §46.G 残留 event insert bug（selectEscort + confirmAccept 返回 500）|
 | P2 | match consumer + devFakeEscortLoader |
 | P2 | admin / escort 域更多页面浏览器验证 |
+
+---
+
+## §48.T migration 0018 + event insert 500 修复（2026-10-12）
+
+> 用户说"继续迭代完善优化"。§46.G 残留 bug：selectEscort / confirmAccept handler 返回 500000 "insert event"。本节定位 + 修复。
+
+### T.1 根因（2 层）
+
+```
+第 1 层（已修于 0017）：orders.status VARCHAR(16) → 装不下 'escort_pending_acceptance'
+第 2 层（本节）：order_events.from_status / to_status 也是 VARCHAR(16)
+                     → InsertEvent 写入时 PG 报错 "value too long"
+                     → handler 捕获 → 返回 500000 "insert event"
+                     → 订单状态机正确转移（事务已 commit），但事件丢失
+```
+
+### T.2 实测
+
+```bash
+$ psql -c "SELECT column_name, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_name='order_events' AND column_name IN ('from_status','to_status');"
+ column_name  | character_maximum_length 
+--------------+-------------------------
+ from_status  |                       16
+ to_status    |                       16
+
+$ psql -c "INSERT INTO order_events (order_id, from_status, to_status, actor_id, payload)
+            VALUES (10, 'selecting_escort', 'escort_pending_acceptance', 5, NULL);"
+ERROR: value too long for type character varying(16)
+```
+
+### T.3 修复：migrations/0018
+
+```sql
+-- migrations/0018_widen_order_events_status.up.sql
+ALTER TABLE order_events ALTER COLUMN from_status TYPE VARCHAR(32);
+ALTER TABLE order_events ALTER COLUMN to_status   TYPE VARCHAR(32);
+```
+
+应用：
+
+```bash
+$ PGPASSWORD=doctors psql ... -f 0018_widen_order_events_status.up.sql
+ALTER TABLE
+ALTER TABLE
+
+$ psql -c "SELECT ... WHERE table_name='order_events'..."
+ from_status  | 32
+ to_status    | 32
+```
+
+### T.4 e2e 重测：handler 不再返 500000
+
+```
+══ 6) 陪诊师接受邀请 ══
+  {"code":0,"message":"ok","data":{...,"status":"accepted","escort_id":8,...}}
+✓ final status=accepted
+```
+
+对比 §48.S（修复前）：
+```
+  {"code":500000,"message":"insert event",...}   ← bug
+```
+
+### T.5 验证 order_events 实际写入
+
+```
+SELECT id, order_id, from_status, to_status, actor_id, created_at FROM order_events WHERE order_id=16;
+ id | order_id |     from_status       |          to_status           | actor_id |        created_at
+----+----------+----------------------+------------------------------+----------+---------------------------
+ 20 |       16 |                      | created                       |        5 | 2026-10-12 14:16:47.91
+ 21 |       16 | selecting_escort     | escort_pending_acceptance    |        5 | 2026-10-12 14:16:48.01
+ 22 |       16 | escort_pending_acceptance | accepted                  |        8 | 2026-10-12 14:16:48.22
+```
+
+3/3 事件落库（创建 + 选人 + 接受）。审计完整。
+
+### T.6 后端 tests 验证
+
+```bash
+$ go test ./services/order/...
+Go test: 106 passed in 10 packages
+```
+
+✅ 106 tests 全过（migration 0018 是 schema-only，不影响逻辑）。
+
+### T.7 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **15** |
+| dev.md | **7058 → 7095 行 / 60 章节** |
+| migrations | **18 个**（+1 widen order_events）|
+| 测试 | 572 it + 7 e2e steps + 106 Go tests |
+| scripts | 14 个 |
+
+### T.8 §46.G P1 残留清理
+
+| bug | 状态 |
+| :-- | :--: |
+| selectEscort 返回 500000 | ✅ **本节修复** |
+| confirmAccept 返回 500000 | ✅ **本节修复** |
+| refund.Cancel 流程 event insert | ✅ §10.11 已迁移时验证 |
+
+§46.G P1「事件写入残留」类别已**全部清理**。
+
+### T.9 当前最终状态（2026-10-12）
+
+```
+后端    11/11 services :8081-8091  healthz=200 readyz=200
+        snake_case JSON ✓
+        event insert 500 已修复 ✓
+前端 dev   unified-app vite :5174
+        patient 域 7 页 + admin 域 2 页 + escort 域 2 页（含 v2.1）✅
+前端 prod  unified-app dist/build/h5/ 1.2MB
+测试    unified-app 572 + admin-web 162 + CORS 4 + 106 Go = 844 it
+typecheck unified-app 0 errors
+CI      6 jobs + frontend-coverage
+PG/Redis  18 migrations + 7.0.15 装好
+Scripts 14 个（+ e2e-escrow.sh）
+Icons 24 PNG
+```
+
+### T.10 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | admin / escort 更多页面浏览器验证 |
+| P2 | match consumer + devFakeEscortLoader |
+| P2 | 修复 §46.G P2 残留（virtual-number service 等待补）|
