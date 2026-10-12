@@ -30,16 +30,16 @@ import type { Order, OrderStatus } from '@/api/orders';
 
 const makeOrder = (id: number, status: OrderStatus): Order => ({
   id,
+  order_no: `O${id}`,
   patient_id: 100,
   escort_id: 200,
   hospital_id: 5,
   package_id: 7,
+  service_start_at: '2026-10-01T09:00:00Z',
   status,
-  appointment_time: '2026-10-01T09:00:00Z',
-  address: '北京协和医院',
-  total_amount: 29900,
-  created_at: '2026-09-29T10:00:00Z',
-  updated_at: '2026-09-29T10:00:00Z',
+  amount: 29900,
+  final_amount: 29900,
+  version: 0,
 });
 
 beforeEach(() => {
@@ -77,7 +77,6 @@ describe('escort/order-detail · 渲染', () => {
     expect(w.find('[data-testid="escort-order-detail-header"]').exists()).toBe(true);
     expect(w.text()).toContain('订单 #101');
     expect(w.text()).toContain('待服务');
-    expect(w.text()).toContain('北京协和医院');
     expect(w.text()).toContain('¥299.00');
   });
 });

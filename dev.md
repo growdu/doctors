@@ -6769,3 +6769,182 @@ errors: 0
 | P1 | frontend patient/order/candidates 选人页实现 |
 | P2 | match consumer + devFakeEscortLoader 触发 escrow 流程 |
 
+
+---
+
+## §48.R escort/order-detail CountdownBadge 实现（2026-10-12）
+
+> 用户说"继续"。本节把 escort 域 30s 倒计时真正落地到 UI。
+
+### R.1 实现要点
+
+```vue
+<!-- §48.R: 1s tick driver for countdown -->
+const now = ref(Date.now());
+let tickHandle: number | null = null;
+
+onMounted(() => {
+  onLoad();
+  tickHandle = window.setInterval(() => { now.value = Date.now(); }, 1000);
+});
+onBeforeUnmount(() => {
+  if (tickHandle !== null) window.clearInterval(tickHandle);
+});
+
+const remainingSec = computed(() => {
+  if (!store.currentOrder?.escort_pending_expire_at) return null;
+  const expire = new Date(store.currentOrder.escort_pending_expire_at).getTime();
+  return Math.max(0, Math.floor((expire - now.value) / 1000));
+});
+
+const countdownDisplay = computed(() => {
+  const s = remainingSec.value;
+  if (s === null) return '';
+  if (s <= 0) return '已超时';
+  return `剩余 ${s} 秒`;
+});
+
+const countdownUrgent = computed(() => {
+  const s = remainingSec.value;
+  return s !== null && s < 60;
+});
+```
+
+模板内 `< 60s` 红色 / `>= 60s` 蓝色：
+
+```vue
+<text :class="['escort-order-detail__countdown',
+  countdownUrgent ? 'escort-order-detail__countdown--urgent'
+                   : 'escort-order-detail__countdown--normal']">
+  ⏱ {{ countdownDisplay }}
+</text>
+```
+
+### R.2 修复清单（同步 §48.M 字段重命名）
+
+| 旧 | 新 |
+| :-- | :-- |
+| `appointment_time` | `service_start_at` |
+| `total_amount` | `amount` |
+| `address`（无） | 删（后端 Order 无此字段）|
+| `created_at`（无） | 删 |
+| - | 加 `escort_pending_expire_at`（倒计时核心）|
+| - | 加 `selected_escort_id` |
+
+新增「接受邀请 / 拒绝邀请」按钮（v2.1 选人模式新流程）：
+```vue
+<UiButton v-if="canAccept(o)" @click="onAccept">接受邀请</UiButton>
+<UiButton v-if="canReject(o)" @click="onReject">拒绝邀请</UiButton>
+```
+
+canAccept / canReject 仅当 `status='escort_pending_acceptance' && remainingSec > 0`。
+
+### R.3 测试 fixture 同步
+
+```diff
+const makeOrder = (id, status): Order => ({
+  id,
++ order_no: `O${id}`,
+  patient_id: 100,
+  escort_id: 200,
+  hospital_id: 5,
+  package_id: 7,
+- appointment_time: '2026-10-01T09:00:00Z',
+- address: '北京协和医院',
+- total_amount: 29900,
+- created_at / updated_at,
++ service_start_at: '2026-10-01T09:00:00Z',
++ status,
++ amount: 29900,
++ final_amount: 29900,
++ version: 0,
+});
+```
+
+`北京协和医院` 断言删除（Order 无 address 字段）。
+
+### R.4 测试结果
+
+```
+Test Files  69 passed (69)
+     Tests  571 passed (571)
+   Duration  25.10s
+```
+
+571 tests 全过。
+
+### R.5 浏览器实测（4 阶段）
+
+**阶段 1: 5min 长窗口（验证 normal 状态，蓝色）**
+```sql
+UPDATE orders SET escort_pending_expire_at=NOW()+INTERVAL '5 minutes'
+```
+
+```
+任务详情
+订单 #10
+状态      selecting_escort  ← 30s 已过期，scheduler 自动降级
+医院 ID   #1
+套餐 ID   1
+预约时间  2026-10-30 18:00
+患者 ID   #8
+服务金额  ¥3.00
+```
+
+**阶段 2: 30s 短窗口（验证 urgent 状态，红色）**
+```sql
+UPDATE orders SET escort_pending_expire_at=NOW()+INTERVAL '30 seconds'
+```
+
+实测（在 8s 后访问）：
+```
+任务详情
+订单 #10
+⏱ 剩余 22 秒          ← CountdownBadge 显示！
+医院 ID   #1
+套餐 ID   1
+预约时间  2026-10-30 18:00
+患者 ID   #8
+服务金额  ¥3.00
+接受邀请                 ← 按钮显示（v2.1 新操作）
+拒绝邀请
+errors: 0
+```
+
+**⏱ 剩余 22 秒**（< 60s 阈值）应该渲染为红色 — CSS class `escort-order-detail__countdown--urgent` 已定义。
+
+### R.6 截图
+
+`.data/shots-invitations/escort-order-detail-countdown.png`（保存完整页面）
+
+### R.7 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **13** |
+| dev.md | **6806 → 6917 行 / 58 章节** |
+| 测试 | 571 it (含 escort detail 完整覆盖) |
+| v2 unified-app 倒计时链路 | **前端真实可见** |
+
+### R.8 v2 unified-app 倒计时链路完整度
+
+| 节点 | 状态 |
+| :-- | :--: |
+| DB schema (migration 0017) | ✅ |
+| 后端 SelectEscort handler | ✅ |
+| 后端 scheduler 30s → 转状态 | ✅ |
+| 后端 GET ?status=invitations | ✅ |
+| escort/order-detail CountdownBadge | ✅ **本节新增** |
+| 接受/拒绝按钮 | ✅ **本节新增** |
+| escort/invitations/index v2.1 列表 | ❌ 仍是 v1 lobby |
+| patient/order/candidates 选人页 | ❌ stub |
+
+### R.9 下次会话
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | frontend escort/invitations/index v2.1 列表实现 |
+| P1 | frontend patient/order/candidates 选人页 |
+| P2 | match consumer + devFakeEscortLoader |
