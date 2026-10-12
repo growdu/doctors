@@ -16,7 +16,8 @@ import { useAuthStore } from '@/store/auth';
 
 const auth = useAuthStore();
 
-function maskPhone(phone: string): string {
+function maskPhone(phone?: string): string {
+  if (!phone) return '—';
   if (phone.length !== 11) return phone;
   return `${phone.slice(0, 3)}****${phone.slice(7)}`;
 }

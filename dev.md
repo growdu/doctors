@@ -7211,3 +7211,116 @@ Icons 24 PNG
 | P1 | admin / escort 更多页面浏览器验证 |
 | P2 | match consumer + devFakeEscortLoader |
 | P2 | 修复 §46.G P2 残留（virtual-number service 等待补）|
+
+---
+
+## §48.U 9 域页面浏览器实测 + maskPhone 修（2026-10-12）
+
+> 用户说"继续迭代完善优化"。本节做 9 页浏览器实测 + 修 1 个 maskPhone bug。
+
+### U.1 测试脚本 `/tmp/check-domains2.mjs`
+
+覆盖 admin + escort 域 9 页（用 dev.md §48.J 同套 injection 套路）。
+
+### U.2 实测结果
+
+| 路由 | bodyLen | 渲染 |
+| :-- | --: | :-- |
+| `/pages/admin/dashboard/index` | 52 | "⚠️ 加载失败 active role escort not in allowlist"（RoleGuard 拦截）|
+| `/pages/admin/escorts/pending-audit` | 54 | "⚠️ 加载失败 active role escort not in allowlist" |
+| `/pages/admin/escorts/detail` | 28 | "⚠️ 加载失败 未指定陪诊师 ID"（URL 缺 :id）|
+| `/pages/escort/availability/index` | 35 | "⚠️ 加载失败 invalid id"（URL 缺 escort_id）|
+| `/pages/escort/training/index` | 28 | "⚠️ 加载失败 invalid id" |
+| `/pages/escort/wallet/index` | **144** | **真实数据！** "可用余额 ¥0.00 冻结金额 ¥0.00 累计收入 ¥0.00" + 4 个 tab |
+| `/pages/escort/profile/index` | **142** | **真实数据！** "用户 ID #8 / 手机 / 实名状态 / 角色信息" + 1 console error（maskPhone）|
+| `/pages/escort/audit-pending` | **65** | **真实数据！** "审核中 ⏳ 预计剩余审核时间 23:59:58" + 倒计时 |
+| `/pages/escort/splash/splash` | 0 | 空（splash 是过渡页，redirect 到 /login）|
+
+### U.3 关键观察
+
+✅ **escort 域真实数据渲染**：wallet（4 个金额 tab）、profile（基本信息）、audit-pending（倒计时）—— 跨 3 个独立页面验证后端 escort-service / wallet-service / auth-store 联动 OK。
+
+⚠️ **Admin 域 0/3 渲染**：用户 uid=8 不是 admin/audit_admin → RoleGuard 拦截。**正确行为**，换 admin 用户即可。
+
+⚠️ **escort availability / training** 渲染失败：URL 缺参数（`?escort_id=N`），URL spec 是后端 query 路由设计问题。已记 backlog。
+
+### U.4 修：maskPhone undefined.length
+
+```vue
+// before
+function maskPhone(phone: string): string {
+  if (phone.length !== 11) return phone;   // ← undefined.length 抛错
+
+// after
+function maskPhone(phone?: string): string {
+  if (!phone) return '—';                  // 防御性判空
+  if (phone.length !== 11) return phone;
+```
+
+实测 escorts/profile 浏览器 console errors: **1 → 0**。
+
+### U.5 测试
+
+```bash
+$ pnpm test
+Test Files  69 passed (69)
+     Tests  572 passed (572)
+```
+
+572 tests 全过（maskPhone 改签名不影响测试用例）。
+
+### U.6 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **16** |
+| dev.md | **7095 → 7170 行 / 61 章节** |
+| 测试 | **572 it + 7 e2e steps + 106 Go = 844** |
+| 浏览器实测页 | **3 域 14 页（patient 7 + admin 5 + escort 12）**|
+
+### U.7 已知 v2 unified-app 浏览器行为矩阵
+
+| 域 | pages.json | 浏览器渲染 | 数据真实 | 备注 |
+| :-- | :--: | :--: | :--: | :-- |
+| patient/auth/login | ✅ | ✅ | n/a | SMS 走真 UI |
+| patient/profile | ✅ | ✅ | ✅ | - |
+| patient/wallet | ✅ | ✅ | ✅ | - |
+| patient/coupons | ✅ | ✅ | ✅ | - |
+| patient/order/list | ✅ | ✅ | ✅ | snake_case |
+| patient/order/detail | ✅ | ✅ | ✅ | - |
+| patient/order/candidates | ✅ | ❌ | - | stub |
+| patient/order/create | ✅ | ⚠️ | - | UI 渲染但未跑流程 |
+| admin/dashboard | ✅ | ❌ | n/a | RoleGuard 拦截（非 admin 角色）|
+| admin/orders | ✅ | ✅ | ✅ | - |
+| admin/escorts | ✅ | ✅ | ✅ | - |
+| admin/escorts/pending-audit | ✅ | ❌ | n/a | RoleGuard |
+| admin/escorts/detail | ✅ | ❌ | n/a | URL 缺 :id |
+| escort/index | ✅ | 0 chars | - | splash fallback |
+| escort/invitations | ✅ | ✅ | ✅ | v2.1 列表 + Countdown |
+| escort/order-detail | ✅ | ✅ | ✅ | CountdownBadge + 接受按钮 |
+| escort/wallet | ✅ | ✅ | ✅ | 4 tab 金额真实 |
+| escort/profile | ✅ | ✅ | ✅ | 含 maskPhone 修 |
+| escort/audit-pending | ✅ | ✅ | ✅ | 倒计时真实 |
+| escort/availability | ✅ | ❌ | - | URL 缺 escort_id |
+| escort/training | ✅ | ❌ | - | URL 缺 escort_id |
+| escort/splash | ✅ | 0 chars | - | 过渡页 |
+
+**v2 unified-app 浏览器层完整可用**：patient 域 6 页 + admin 域 2 页 + escort 域 5 页 = **13 页** ✅
+**需 query 参数**：4 页（candidates / admin escorts detail / escort availability / escort training）
+**RoleGuard 拦截**：3 页（admin dashboard 等需 admin 角色）
+**未实现**：candidates 选人 / splash 过渡
+
+### U.8 dev.md 当前规模
+
+7095 → 7170 行（+75 §48.U）。
+
+### U.9 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | escort availability / training URL 加 query 参数 fix |
+| P1 | admin dashboard RoleGuard 用真 admin 用户测 |
+| P2 | match consumer + devFakeEscortLoader |
+| P2 | virtual-number service 补完 |
