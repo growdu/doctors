@@ -15,14 +15,12 @@
 import { ref, onMounted } from 'vue';
 import { listCandidates } from '@/api/match';
 import type { MatchCandidate } from '@/api/match';
-import { useOrderStore } from '@/store/order';
 import { selectEscort } from '@/api/orders';
 import UiCard from '@/components/shared/UiCard.vue';
 import UiEmpty from '@/components/shared/UiEmpty.vue';
 import UiLoading from '@/components/shared/UiLoading.vue';
 import UiButton from '@/components/shared/UiButton.vue';
 
-const orderStore = useOrderStore();
 const orderId = ref<number | null>(null);
 const candidates = ref<MatchCandidate[]>([]);
 const loading = ref(false);

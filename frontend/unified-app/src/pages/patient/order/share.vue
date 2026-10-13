@@ -47,14 +47,16 @@ async function onLoad() {
   }
 }
 
-function formatAmount(cents: number): string {
+function formatAmount(cents?: number): string {
+  if (cents === undefined || cents === null) return '¥—';
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
 function buildShareOptions(o: Order) {
+  const startAt = o.appointment_time ?? o.service_start_at;
   return {
     title: `陪诊订单 #${o.id}`,
-    desc: `预约时间 ${o.appointment_time.split('T')[0]} · 金额 ${formatAmount(o.total_amount)}`,
+    desc: `预约时间 ${startAt?.split('T')[0] ?? '—'} · 金额 ${formatAmount(o.total_amount ?? o.amount)}`,
     href: `/pages/patient/order/detail?id=${o.id}`,
   };
 }
@@ -111,11 +113,11 @@ onMounted(onLoad);
         <view class="order-share__summary">
           <view class="order-share__row">
             <text class="order-share__label">金额</text>
-            <text class="order-share__amount">{{ formatAmount(store.currentOrder.total_amount) }}</text>
+            <text class="order-share__amount">{{ formatAmount(store.currentOrder.total_amount ?? store.currentOrder.amount) }}</text>
           </view>
           <view class="order-share__row">
             <text class="order-share__label">预约</text>
-            <text class="order-share__value">{{ store.currentOrder.appointment_time.split('T')[0] }}</text>
+            <text class="order-share__value">{{ (store.currentOrder.appointment_time ?? store.currentOrder.service_start_at)?.split('T')[0] ?? '—' }}</text>
           </view>
           <view class="order-share__row">
             <text class="order-share__label">状态</text>

@@ -27,6 +27,7 @@ const ORDER_BASE_URL =
 
 export type OrderStatus =
   | 'pending_escort'
+  | 'escort_pending_acceptance'
   | 'escort_confirmed'
   | 'in_service'
   | 'completed'
@@ -47,6 +48,18 @@ export interface Order {
   selected_escort_id?: number | null;
   escort_pending_expire_at?: string | null;
   version: number;
+  /** 服务地址 · admin / detail 视图用 */
+  address?: string;
+  /** 备注 */
+  remark?: string;
+  /** 创建时间 · admin / detail 视图用 */
+  created_at?: string;
+  /** 兼容旧字段（v1 命名） */
+  total_amount?: number;
+  /** 兼容旧字段（v1 命名） */
+  appointment_time?: string;
+  /** 更新时间 · admin 视图用 */
+  updated_at?: string;
 }
 
 export interface CreateOrderRequest {

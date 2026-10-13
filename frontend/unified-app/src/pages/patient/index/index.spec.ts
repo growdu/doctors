@@ -13,6 +13,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
 import { useAuthStore } from '@/store/auth';
 import * as userApi from '@/api/user';
+import type { Hospital, Package } from '@/api/user';
 import * as ordersApi from '@/api/orders';
 import PatientHome from './index.vue';
 
@@ -21,16 +22,17 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const HOSPITALS = {
+const HOSPITALS: { items: Hospital[]; total: number } = {
   items: [
-    { id: 1, name: '协和医院', city: '北京', level: '三级甲等', address: '东城区帅府园1号' },
-    { id: 2, name: '301 医院', city: '北京', level: '三级甲等', address: '海淀区复兴路28号' },
+    { id: 1, name: '协和医院', city: '北京', level: '三级甲等', address: '东城区帅府园1号', phone: '010-12345' },
+    { id: 2, name: '301 医院', city: '北京', level: '三级甲等', address: '海淀区复兴路28号', phone: '010-54321' },
   ],
+  total: 2,
 };
 
-const PACKAGES = {
+const PACKAGES: { items: Package[] } = {
   items: [
-    { id: 100, hospital_id: 1, title: '半日陪诊', description: '陪诊半天', price: 29900 },
+    { id: 100, hospital_id: 1, title: '半日陪诊', description: '陪诊半天', price: 29900, duration_minutes: 240, cover_url: null },
   ],
 };
 

@@ -35,6 +35,7 @@ const ACTIVE_STATUSES: OrderStatus[] = ['pending_escort', 'escort_confirmed', 'i
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   pending_escort: '待接单',
+  escort_pending_acceptance: '陪诊师待确认',
   escort_confirmed: '待服务',
   in_service: '服务中',
   completed: '已完成',

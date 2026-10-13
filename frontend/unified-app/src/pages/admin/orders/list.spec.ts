@@ -30,11 +30,16 @@ import type { Order } from '@/api/orders';
 
 const makeOrder = (id: number, status: Order['status']): Order => ({
   id,
+  order_no: `P2026100100${id.toString().padStart(3, '0')}`,
   patient_id: 100,
   escort_id: status === 'escort_confirmed' ? 200 : null,
   hospital_id: 5,
   package_id: 7,
   status,
+  service_start_at: '2026-10-01T09:00:00Z',
+  amount: 29900,
+  final_amount: 29900,
+  version: 1,
   appointment_time: '2026-10-01T09:00:00Z',
   address: '北京协和医院',
   total_amount: 29900,

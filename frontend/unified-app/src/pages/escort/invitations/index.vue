@@ -110,6 +110,13 @@ function onCancelReject() {
   currentOrderId.value = null;
 }
 
+/** 点击 card body（不点按钮）跳详情 */
+function onCardClick(o: Order) {
+  if (typeof uni !== 'undefined') {
+    uni.navigateTo({ url: `/pages/escort/order-detail?id=${o.id}` });
+  }
+}
+
 function formatDate(iso?: string): string {
   if (!iso) return '—';
   const [date, time] = iso.split('T');
@@ -234,15 +241,7 @@ onBeforeUnmount(() => {
 </template>
 
 <script lang="ts">
-// §48.S: 跳到详情页（点击 card body 但不点按钮）
-import { useRouter } from '@/utils/router';
-import type { Order } from '@/api/orders';
-function onCardClick(_o: Order) {
-  // SPA 路由跳转（uni-app API）
-  if (typeof uni !== 'undefined') {
-    uni.navigateTo({ url: `/pages/escort/order-detail?id=${_o.id}` });
-  }
-}
+// §48.S: 占位（保留 script 块以备后续扩展；原 useRouter 已被 uni.navigateTo 替代）
 </script>
 
 <style scoped>

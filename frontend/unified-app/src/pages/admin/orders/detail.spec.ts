@@ -37,11 +37,16 @@ import type { Order, OrderStatus } from '@/api/orders';
 
 const makeOrder = (id: number, status: OrderStatus, extras: Partial<Order> = {}): Order => ({
   id,
+  order_no: `P2026100100${id.toString().padStart(3, '0')}`,
   patient_id: 100,
   escort_id: null,
   hospital_id: 5,
   package_id: 7,
   status,
+  service_start_at: '2026-10-01T09:00:00Z',
+  amount: 29900,
+  final_amount: 29900,
+  version: 1,
   appointment_time: '2026-10-01T09:00:00Z',
   address: '北京协和医院',
   total_amount: 29900,
@@ -123,8 +128,16 @@ describe('admin/orders/detail · 强制取消按钮可见性', () => {
 
 describe('admin/orders/detail · 强制取消流程', () => {
   beforeEach(() => {
-    vi.mocked(apiOrders.getOrder).mockResolvedValue(makeOrder(101, 'pending_escort'));
-    vi.mocked(apiAdmin.forceCancelOrder).mockResolvedValue(makeOrder(101, 'cancelled'));
+    vi.mocked(apiOrders.getOrder).mockResolvedValue(makeOrder(101, 'pending_escort') as unknown as Awaited<ReturnType<typeof apiOrders.getOrder>>);
+    vi.mocked(apiAdmin.forceCancelOrder).mockResolvedValue({
+      id: 101,
+      patient_id: 100,
+      escort_id: null,
+      hospital_id: 5,
+      status: 'cancelled',
+      total_amount: 29900,
+      created_at: '2026-09-29T10:00:00Z',
+    });
   });
 
   it('点击「强制取消订单」打开 modal', async () => {

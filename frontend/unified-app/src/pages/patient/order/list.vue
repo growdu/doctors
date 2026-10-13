@@ -21,6 +21,7 @@ const store = useOrderStore();
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   pending_escort: '待陪诊师接单',
+  escort_pending_acceptance: '陪诊师待确认',
   escort_confirmed: '已确认',
   in_service: '服务中',
   completed: '已完成',
@@ -29,6 +30,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 
 const STATUS_CLASS: Record<OrderStatus, string> = {
   pending_escort: 'order-list__status--pending',
+  escort_pending_acceptance: 'order-list__status--acceptance',
   escort_confirmed: 'order-list__status--confirmed',
   in_service: 'order-list__status--active',
   completed: 'order-list__status--done',

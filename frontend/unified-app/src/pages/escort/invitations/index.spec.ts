@@ -66,8 +66,8 @@ describe('escort/invitations · 加载', () => {
     mount(EscortInvitations);
     await flushPromises();
     expect(apiOrders.listOrders).toHaveBeenCalledTimes(1);
-    const call = vi.mocked(apiOrders.listOrders).mock.calls[0][0];
-    expect(call.role).toBe('escort');
+    const call = vi.mocked(apiOrders.listOrders).mock.calls[0]?.[0];
+    expect(call?.role).toBe('escort');
   });
 });
 

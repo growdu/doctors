@@ -30,11 +30,16 @@ vi.mock('./client', () => ({
 
 const fakeOrder: Order = {
   id: 1,
+  order_no: 'P2026100100001',
   patient_id: 100,
   escort_id: 200,
   hospital_id: 5,
   package_id: 7,
   status: 'escort_confirmed',
+  service_start_at: '2026-10-01T09:00:00Z',
+  amount: 29900,
+  final_amount: 29900,
+  version: 1,
   appointment_time: '2026-10-01T09:00:00Z',
   address: '北京协和医院',
   total_amount: 29900,

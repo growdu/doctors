@@ -30,6 +30,7 @@ const STATUS_TABS: Array<{ status: OrderStatus | 'all'; label: string }> = [
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   pending_escort: '待陪诊师接单',
+  escort_pending_acceptance: '陪诊师待确认',
   escort_confirmed: '已确认',
   in_service: '服务中',
   completed: '已完成',
@@ -38,6 +39,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 
 const STATUS_CLASS: Record<OrderStatus, string> = {
   pending_escort: 'admin-orders-list__status--pending',
+  escort_pending_acceptance: 'admin-orders-list__status--acceptance',
   escort_confirmed: 'admin-orders-list__status--confirmed',
   in_service: 'admin-orders-list__status--active',
   completed: 'admin-orders-list__status--done',
@@ -70,12 +72,15 @@ function onDetail(o: Order) {
   if (typeof uni !== 'undefined') uni.navigateTo({ url: `/pages/admin/orders/detail?id=${o.id}` });
 }
 
-function formatAmount(cents: number): string {
+function formatAmount(cents?: number): string {
+  if (cents === undefined || cents === null) return '¥—';
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
-function formatDate(iso: string): string {
-  return iso.split('T')[0] + ' ' + (iso.split('T')[1]?.substring(0, 5) || '');
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const t = iso.split('T');
+  return t[0] + ' ' + (t[1]?.substring(0, 5) || '');
 }
 
 onMounted(async () => {

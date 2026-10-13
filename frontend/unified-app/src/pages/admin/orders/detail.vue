@@ -29,6 +29,7 @@ const cancelling = ref(false);
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   pending_escort: '待陪诊师接单',
+  escort_pending_acceptance: '陪诊师待确认',
   escort_confirmed: '已确认',
   in_service: '服务中',
   completed: '已完成',
@@ -71,12 +72,15 @@ async function onConfirmCancel() {
   }
 }
 
-function formatYuan(cents: number): string {
+function formatYuan(cents?: number): string {
+  if (cents === undefined || cents === null) return '¥—';
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
-function formatDate(iso: string): string {
-  return iso.split('T')[0] + ' ' + (iso.split('T')[1]?.substring(0, 5) || '');
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const t = iso.split('T');
+  return t[0] + ' ' + (t[1]?.substring(0, 5) || '');
 }
 
 function canForceCancel(o: Order): boolean {
