@@ -7608,6 +7608,117 @@ Test Files  72 passed (72)     （原 69 + 3 新：patient/index + admin/index +
 | P0 | Codecov.io + CODECOV_TOKEN |
 | P0 | docker compose up 18 容器 |
 | P1 | admin dashboard 用真 admin 用户测 |
-| P1 | typecheck 批量修 §48.M snake_case 遗留（17 个 file） |
 | P2 | match consumer + devFakeEscortLoader |
 | P2 | virtual-number service 补完 |
+
+---
+
+## §48.X frontend 占位页升级 + typecheck 全清（2026-10-13）
+
+> 用户说"继续开发完善，边提交边完善并记录进度"。本节做 4 批改动 + 1 套 typecheck 修复。
+
+### X.1 改动总览（5 commit）
+
+```
+058729c fix(frontend): typecheck 全清（47 → 0）                      —  89 行
+0ed3548 feat(admin): coupons/messages/reviews/sos 4 占位页升级 dashboard  1038 行
+142c379 feat(escort): checkin 3 步状态机 + 距离估算 + 备注字段        258 行
+981a272 feat(escort): message/chat v2.1 timeline + 标记/收藏/删除      259 行
+```
+
+### X.2 改动 1：typecheck 全清
+
+`pnpm typecheck` 从 47 errors → 0 errors。涉及：
+
+- `src/api/orders.ts`：
+  - 增 `escort_pending_acceptance` 状态值（v2 lock 阶段新增）
+  - 兼容 v1 字段：`address / remark / created_at / updated_at / total_amount / appointment_time`（都标 optional）
+- 6 文件 STATUS_LABEL/STATUS_CLASS：补 `escort_pending_acceptance` 枚举值
+  - admin/orders/{list,detail}、escort/orders/index、patient/{index/index, order/list, order/detail}
+- 4 测试 fixture：补 `order_no / service_start_at / amount / final_amount / version` 必填字段
+- 修 `escort/invitations/index.vue` 孤立 script 块（重复 Order import + 不存在的 `@/utils/router`）
+- 删 `patient/order/candidates` 未用 `orderStore` import
+- 修 `formatDate / formatAmount / formatYuan` 接收 `undefined` fallback
+
+### X.3 改动 2：admin/coupons 占位页升级
+
+**v2.1 升级**：从"占位 toast + 跳转 patient 视角"升级为"实时拉取 + 状态聚合 dashboard"。
+
+- 4 张统计卡：总券 / 可领取 / 已领取 / 已使用
+- 2 个列表：可领取券（user-service `/coupons`） + 用户已领取（user-service `/coupons/my`）
+- 状态徽章：4 种（available / claimed / used / expired）
+- 区块级 catch：单 API 失败时不阻塞
+- Promise.allSettled：两个并发，部分降级
+
+### X.4 改动 3：admin/messages 占位页升级
+
+- 2 张统计卡：总消息 / 未读
+- 5 类型 chip：system / order / payment / sos / review（带 icon + 计数）
+- 消息列表：前 20 条，类型 icon + 标题 + 内容 + 时间 + 未读红点
+
+### X.5 改动 4：admin/reviews 占位页升级
+
+- 4 张统计卡：总数 / 平均分 / 5 星 / 差评(≤3)
+- 评价列表：星级（★ 字符渲染）+ 标签（#专业 #准时 等 chip）+ 内容 + 陪诊师回复（独立 block）
+
+### X.6 改动 5：admin/sos 占位页升级
+
+- 4 张状态卡：pending / in_progress / resolved / closed
+- SOS 列表：触发人 #id / 关联订单 / 原因 / 触发时间 / 位置 / 脱敏电话
+- 状态徽章：4 种颜色（red / orange / green / grey）
+
+### X.7 改动 6：escort/checkin 3 步状态机
+
+**v2.1 升级**：原 1 步按钮 + toast 升级为 3 步状态机 UX。
+
+- 状态机：locating → ready → done
+- 步骤条：3 个 step 同时渲染，当前态 primary 高亮，已完成态 success 边框
+- 距离估算：Haversine 公式（mock 医院经纬度 39.9135/116.4188，v3 接 order.address 后换真实距离）
+- 备注字段：textarea，签到时随 updateLocation 提交
+- 完成后停留：显示「签到时间 + 备注」+ 「返回订单详情」按钮（不再 auto navigateBack）
+
+### X.8 改动 7：escort/message/chat v2.1 timeline
+
+- Timeline 消息轨迹：created（必）+ read（条件）+ starred（条件）+ removed（条件）
+- 「标记已读」按钮：API read + 本地 toggle 合并
+- 「收藏」按钮：localStorage 持久化（escort.msg.star.* key）
+- 「删除」按钮：本地软删除 + navigateBack
+- 类型徽章加 icon（🔔📋💰🚨⭐）
+
+### X.9 测试
+
+```
+Test Files  72 passed (72)
+     Tests  601 passed (601)   （原 572 → 601，+29）
+
+新增覆盖：
+- admin/coupons:  4 cases（+1 老的删除）   = 6 cases
+- admin/messages: 5 cases                  = 5 cases
+- admin/reviews:  5 cases                  = 5 cases
+- admin/sos:      4 cases                  = 4 cases
+- escort/checkin: +5 cases（v2.1 状态机 + 距离 + 备注）
+- escort/chat:    +6 cases（v2.1 timeline + 标记/收藏/删除）
+```
+
+### X.10 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **23**（4 commit in this batch） |
+| dev.md | **7614 → 7710 行**（+96） |
+| 测试 | 601 it + 7 e2e + 106 Go = 714（原 699） |
+| typecheck errors | **0**（原 47） |
+| admin 域浏览器完整可用 | **6 页**（orders/escorts/dashboard/coupons/messages/reviews/sos） |
+| escort 域浏览器完整可用 | 9 页（+checkin 升级 + chat v2.1） |
+| patient 域浏览器完整可用 | 6 页（同 §48.W） |
+
+### X.11 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | admin dashboard 用真 admin 用户测 |
+| P2 | admin/finance + admin/hospitals + admin/packages 进一步升级 |
+| P2 | patient/profile + escort/profile UI 升级 |
+| P2 | match consumer + devFakeEscortLoader |
