@@ -118,3 +118,73 @@ describe('escort/message/chat · 关联资源跳转', () => {
     expect(toastSpy).toHaveBeenCalledWith({ title: '相关资源跳转暂未实现', icon: 'none' });
   });
 });
+
+describe('escort/message/chat · v2.1 timeline + 操作', () => {
+  it('未读消息显示「未读」徽章', async () => {
+    vi.mocked(apiMessage.getMessage).mockResolvedValue(makeMessage(101, { read: false }));
+    const w = mount(MessageChat);
+    await flushPromises();
+    expect(w.find('[data-testid="escort-message-chat-unread"]').exists()).toBe(true);
+  });
+
+  it('已读消息（API 返回 read=true）不显示未读徽章', async () => {
+    vi.mocked(apiMessage.getMessage).mockResolvedValue(makeMessage(101, { read: true }));
+    const w = mount(MessageChat);
+    await flushPromises();
+    expect(w.find('[data-testid="escort-message-chat-unread"]').exists()).toBe(false);
+  });
+
+  it('timeline 至少包含「收到通知」节点', async () => {
+    vi.mocked(apiMessage.getMessage).mockResolvedValue(makeMessage(101));
+    const w = mount(MessageChat);
+    await flushPromises();
+    expect(w.find('[data-testid="escort-message-chat-timeline-0"]').text()).toContain('收到通知');
+  });
+
+  it('点击「标记已读」后 timeline 出现「已读」节点 + 隐藏未读徽章', async () => {
+    vi.mocked(apiMessage.getMessage).mockResolvedValue(makeMessage(101, { read: false }));
+    (globalThis as unknown as { uni: { showToast: () => void } }).uni.showToast = () => {};
+
+    const w = mount(MessageChat);
+    await flushPromises();
+
+    await w.find('[data-testid="escort-message-chat-mark-read"]').trigger('click');
+    await flushPromises();
+
+    expect(w.find('[data-testid="escort-message-chat-unread"]').exists()).toBe(false);
+    // timeline 至少 2 个节点（收到通知 + 已读）
+    expect(w.find('[data-testid="escort-message-chat-timeline-1"]').text()).toContain('已读');
+  });
+
+  it('点击「收藏」切换星标状态 + timeline 出现「已收藏」', async () => {
+    vi.mocked(apiMessage.getMessage).mockResolvedValue(makeMessage(101));
+    (globalThis as unknown as { uni: { showToast: () => void } }).uni.showToast = () => {};
+
+    const w = mount(MessageChat);
+    await flushPromises();
+
+    expect(w.find('[data-testid="escort-message-chat-star"]').text()).toContain('收藏');
+
+    await w.find('[data-testid="escort-message-chat-star"]').trigger('click');
+    await flushPromises();
+
+    expect(w.find('[data-testid="escort-message-chat-star"]').text()).toContain('已收藏');
+    // timeline 包含「已收藏」节点（可能不是 index 1，因为默认 read=false 时 0=收到通知 1=已收藏）
+    const timelineText = w.find('[data-testid="escort-message-chat-timeline"]').text();
+    expect(timelineText).toContain('已收藏');
+  });
+
+  it('点击「删除」后进入空态', async () => {
+    vi.mocked(apiMessage.getMessage).mockResolvedValue(makeMessage(101));
+    const navigateBackSpy = vi.fn();
+    (globalThis as unknown as { uni: { showToast: () => void; navigateBack: typeof navigateBackSpy } }).uni.showToast = () => {};
+    (globalThis as unknown as { uni: { navigateBack: typeof navigateBackSpy } }).uni.navigateBack = navigateBackSpy;
+
+    const w = mount(MessageChat);
+    await flushPromises();
+
+    await w.find('[data-testid="escort-message-chat-remove"]').trigger('click');
+    // 注意：setTimeout 600ms 才会 navigateBack；立即检查空态可见
+    expect(w.find('[data-testid="escort-message-chat-removed"]').exists()).toBe(true);
+  });
+});
