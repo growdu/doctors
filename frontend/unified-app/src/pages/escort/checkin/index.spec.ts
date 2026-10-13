@@ -120,3 +120,69 @@ describe('escort/checkin · 签到流程', () => {
     expect(toastSpy).toHaveBeenCalledWith({ title: '签到失败：网络异常', icon: 'none' });
   });
 });
+
+describe('escort/checkin · v2.1 步骤状态机', () => {
+  it('初始为 locating 步骤', async () => {
+    setupGetLocationMock('success', { latitude: 39.9, longitude: 116.4 });
+    const w = mount(CheckinPage);
+    await flushPromises();
+    // 定位完成后进入 ready
+    expect(w.find('[data-testid="escort-checkin-step-ready"]').classes()).toContain('escort-checkin__step--active');
+  });
+
+  it('签到成功后进入 done 步骤 + 显示时间 + 返回按钮', async () => {
+    setupGetLocationMock('success', { latitude: 39.9, longitude: 116.4 });
+    vi.mocked(apiEscort.updateLocation).mockResolvedValue({ ok: true });
+    const toastSpy = vi.fn();
+    (globalThis as unknown as { uni: { showToast: typeof toastSpy; navigateBack: () => void } }).uni.showToast = toastSpy;
+    (globalThis as unknown as { uni: { navigateBack: () => void } }).uni.navigateBack = () => {};
+
+    const w = mount(CheckinPage);
+    await flushPromises();
+
+    await w.find('[data-testid="escort-checkin-submit"]').trigger('click');
+    await flushPromises();
+
+    expect(w.find('[data-testid="escort-checkin-done"]').exists()).toBe(true);
+    expect(w.find('[data-testid="escort-checkin-back"]').exists()).toBe(true);
+    expect(w.find('[data-testid="escort-checkin-time"]').exists()).toBe(true);
+  });
+
+  it('距离医院显示数字（km）', async () => {
+    setupGetLocationMock('success', { latitude: 39.9, longitude: 116.4 });
+    const w = mount(CheckinPage);
+    await flushPromises();
+
+    const distanceText = w.find('[data-testid="escort-checkin-distance"]').text();
+    expect(distanceText).toMatch(/\d+\.\d{2} km/);
+  });
+});
+
+describe('escort/checkin · 备注字段', () => {
+  it('ready 步骤显示备注输入框', async () => {
+    setupGetLocationMock('success', { latitude: 39.9, longitude: 116.4 });
+    const w = mount(CheckinPage);
+    await flushPromises();
+
+    expect(w.find('[data-testid="escort-checkin-remark-field"]').exists()).toBe(true);
+    expect(w.find('[data-testid="escort-checkin-remark-input"]').exists()).toBe(true);
+  });
+
+  it('签到时把备注传给 updateLocation', async () => {
+    setupGetLocationMock('success', { latitude: 39.9, longitude: 116.4 });
+    vi.mocked(apiEscort.updateLocation).mockResolvedValue({ ok: true });
+    (globalThis as unknown as { uni: { showToast: () => void; navigateBack: () => void } }).uni.showToast = () => {};
+    (globalThis as unknown as { uni: { navigateBack: () => void } }).uni.navigateBack = () => {};
+
+    const w = mount(CheckinPage);
+    await flushPromises();
+
+    await w.find('[data-testid="escort-checkin-remark-input"]').setValue('已到达患者门口');
+    await w.find('[data-testid="escort-checkin-submit"]').trigger('click');
+    await flushPromises();
+
+    expect(apiEscort.updateLocation).toHaveBeenCalledWith(expect.objectContaining({
+      address: '已到达患者门口',
+    }));
+  });
+});

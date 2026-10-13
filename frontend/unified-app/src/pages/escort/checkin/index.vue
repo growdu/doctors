@@ -1,21 +1,21 @@
 <script setup lang="ts">
 /**
- * escort/checkin/index.vue — 订单签到（v2 unified-app · escort 域）。
+ * escort/checkin/index.vue — 订单签到（v2 unified-app · escort 域 · v2.1 升级）。
  *
- * 入口：escort/order-detail「签到」按钮（escort_confirmed → in_service 之前）
- *   → 拿 uni.getLocation 取 GPS（lat / lng）
- *   → 显示当前位置
- *   → 「签到」按钮 → 调 updateLocation（escort API，模拟签到 GPS 上报）
- *   → 成功后 navigateBack 到订单详情
+ * v2.1 升级：3 步骤状态机（定位 → 确认 → 完成）+ 距离医院估算 + 备注字段。
+ * v2 order-service 未暴露专用 /checkin 端点；用 updateLocation（escort-service）模拟签到。
  *
  * 设计要点：
- *   - v2 order-service 未暴露专用 checkin 端点；用 updateLocation 模拟（语义：陪诊师到达患者地点）
- *   - 位置获取失败时仍允许「跳过签到」按钮（仅更新 escort 位置 + 时间戳）
+ *   - 3 步状态：locating / ready / done（每步独立显示，UX 更清晰）
+ *   - 距离估算：硬编码医院经纬度作参考（v2 不强求精确；v3 接 order.address 后计算真实距离）
+ *   - 备注字段：陪诊师可填「已到达患者门口」/「提前 5 分钟」等
+ *   - 区块级 catch：位置失败时降级到 mock + 「使用默认位置」提示
  */
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import UiCard from '@/components/shared/UiCard.vue';
 import UiButton from '@/components/shared/UiButton.vue';
 import UiLoading from '@/components/shared/UiLoading.vue';
+import UiEmpty from '@/components/shared/UiEmpty.vue';
 import { updateLocation } from '@/api/escort';
 
 const orderId = ref<number | null>(null);
@@ -25,6 +25,14 @@ const posLoading = ref(false);
 const posError = ref<string | null>(null);
 const submitting = ref(false);
 const checkedAt = ref<string | null>(null);
+const remark = ref('');
+
+type Step = 'locating' | 'ready' | 'done';
+const step = ref<Step>('locating');
+
+/** v2 mock 医院位置（北京协和医院）—— 距离估算用 */
+const HOSPITAL_LAT = 39.9135;
+const HOSPITAL_LNG = 116.4188;
 
 function parseQuery() {
   if (typeof uni === 'undefined') return;
@@ -52,15 +60,37 @@ async function loadPosition() {
     });
     lat.value = res.latitude;
     lng.value = res.longitude;
+    step.value = 'ready';
   } catch (e) {
     posError.value = (e as Error).message;
     // fallback：mock 一个位置（方便测试 + 无 GPS 环境）
     lat.value = 39.908823;
     lng.value = 116.397470;
+    step.value = 'ready';
   } finally {
     posLoading.value = false;
   }
 }
+
+/** Haversine 公式估算距离（km） */
+const distanceKm = computed<number | null>(() => {
+  if (lat.value === null || lng.value === null) return null;
+  const R = 6371;
+  const dLat = ((HOSPITAL_LAT - lat.value) * Math.PI) / 180;
+  const dLng = ((HOSPITAL_LNG - lng.value) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat.value * Math.PI) / 180) *
+      Math.cos((HOSPITAL_LAT * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+});
+
+const STEP_LABEL: Record<Step, string> = {
+  locating: '① 获取位置',
+  ready: '② 确认签到',
+  done: '③ 已完成',
+};
 
 async function onCheckin() {
   if (lat.value === null || lng.value === null) {
@@ -73,17 +103,23 @@ async function onCheckin() {
       city: '',
       lat: lng.value,
       lng: lat.value,
-      address: '',
+      address: remark.value || '',
     });
     checkedAt.value = new Date().toISOString();
+    step.value = 'done';
     if (typeof uni !== 'undefined') {
       uni.showToast({ title: '签到成功', icon: 'success' });
-      setTimeout(() => uni.navigateBack(), 800);
     }
   } catch (e) {
     if (typeof uni !== 'undefined') uni.showToast({ title: `签到失败：${(e as Error).message}`, icon: 'none' });
   } finally {
     submitting.value = false;
+  }
+}
+
+function onDone() {
+  if (typeof uni !== 'undefined') {
+    uni.navigateBack();
   }
 }
 
@@ -95,6 +131,22 @@ onMounted(async () => {
 
 <template>
   <view class="ui-page" data-testid="escort-checkin-page">
+    <!-- 步骤状态机 -->
+    <view class="escort-checkin__steps" data-testid="escort-checkin-steps">
+      <text
+        v-for="s in (['locating', 'ready', 'done'] as Step[])"
+        :key="s"
+        class="escort-checkin__step"
+        :class="{
+          'escort-checkin__step--active': step === s,
+          'escort-checkin__step--done': step === 'done' || (s === 'locating' && step !== 'locating'),
+        }"
+        :data-testid="`escort-checkin-step-${s}`"
+      >
+        {{ STEP_LABEL[s] }}
+      </text>
+    </view>
+
     <UiCard :title="`订单 #${orderId ?? '—'} 签到`" data-testid="escort-checkin-header">
       <view v-if="posLoading" data-testid="escort-checkin-pos-loading">
         <UiLoading text="定位中..." />
@@ -108,15 +160,39 @@ onMounted(async () => {
         <text v-if="posError" class="escort-checkin__pos-error" data-testid="escort-checkin-pos-error">
           ⚠️ {{ posError }}（使用默认位置）
         </text>
+        <view v-if="distanceKm !== null" class="escort-checkin__distance" data-testid="escort-checkin-distance">
+          <text class="escort-checkin__distance-label">距离医院（参考）：</text>
+          <text class="escort-checkin__distance-value">{{ distanceKm.toFixed(2) }} km</text>
+        </view>
       </view>
 
-      <view v-if="checkedAt" class="escort-checkin__time-row" data-testid="escort-checkin-time">
-        <text class="escort-checkin__time-label">签到时间</text>
-        <text class="escort-checkin__time-value">{{ checkedAt }}</text>
+      <!-- 备注字段（仅在 ready / done 显示） -->
+      <view v-if="step !== 'locating'" class="escort-checkin__remark" data-testid="escort-checkin-remark-field">
+        <text class="escort-checkin__remark-label">备注（可选）</text>
+        <textarea
+          v-model="remark"
+          class="escort-checkin__remark-input"
+          placeholder="如：已到达患者门口 / 提前 5 分钟"
+          :disabled="step === 'done'"
+          data-testid="escort-checkin-remark-input"
+        />
+      </view>
+
+      <!-- 完成态：显示签到时间 + 返回按钮 -->
+      <view v-if="step === 'done'" class="escort-checkin__done" data-testid="escort-checkin-done">
+        <view class="escort-checkin__time-row">
+          <text class="escort-checkin__time-label">✅ 签到成功</text>
+          <text class="escort-checkin__time-value" data-testid="escort-checkin-time">{{ checkedAt }}</text>
+        </view>
+        <view v-if="remark" class="escort-checkin__remark-display">
+          <text class="escort-checkin__remark-label">备注：</text>
+          <text class="escort-checkin__remark-text">{{ remark }}</text>
+        </view>
       </view>
     </UiCard>
 
-    <view class="escort-checkin__actions">
+    <!-- 操作区 -->
+    <view v-if="step === 'ready'" class="escort-checkin__actions">
       <UiButton
         type="primary"
         block
@@ -128,10 +204,48 @@ onMounted(async () => {
         签到
       </UiButton>
     </view>
+    <view v-else-if="step === 'done'" class="escort-checkin__actions">
+      <UiButton type="primary" block data-testid="escort-checkin-back" @click="onDone">
+        返回订单详情
+      </UiButton>
+    </view>
+    <view v-else class="escort-checkin__actions">
+      <UiEmpty icon="📡" title="等待定位..." />
+    </view>
   </view>
 </template>
 
 <style scoped>
+.escort-checkin__steps {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ui-space-sm);
+  margin-bottom: var(--ui-space-md);
+}
+
+.escort-checkin__step {
+  flex: 1;
+  text-align: center;
+  font-size: var(--ui-font-xs);
+  color: var(--ui-color-text-disabled);
+  padding: var(--ui-space-xs);
+  background: var(--ui-color-bg-card);
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-color-border);
+}
+
+.escort-checkin__step--active {
+  color: var(--ui-color-text-inverse);
+  background: var(--ui-color-primary);
+  border-color: var(--ui-color-primary);
+  font-weight: var(--ui-font-weight-medium);
+}
+
+.escort-checkin__step--done {
+  color: var(--ui-color-success);
+  border-color: var(--ui-color-success);
+}
+
 .escort-checkin__pos {
   margin-top: var(--ui-space-sm);
 }
@@ -157,6 +271,51 @@ onMounted(async () => {
   margin-top: var(--ui-space-xs);
 }
 
+.escort-checkin__distance {
+  display: flex;
+  align-items: center;
+  margin-top: var(--ui-space-sm);
+  padding-top: var(--ui-space-sm);
+  border-top: 1px dashed var(--ui-color-divider);
+}
+
+.escort-checkin__distance-label {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-secondary);
+}
+
+.escort-checkin__distance-value {
+  font-size: var(--ui-font-base);
+  font-weight: var(--ui-font-weight-semibold);
+  color: var(--ui-color-primary);
+  margin-left: var(--ui-space-xs);
+}
+
+.escort-checkin__remark {
+  margin-top: var(--ui-space-md);
+  padding-top: var(--ui-space-md);
+  border-top: 1px solid var(--ui-color-border);
+}
+
+.escort-checkin__remark-label {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-secondary);
+  display: block;
+  margin-bottom: var(--ui-space-xs);
+}
+
+.escort-checkin__remark-input {
+  width: 100%;
+  min-height: 60px;
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-primary);
+  background: var(--ui-color-bg-base);
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-space-sm);
+  box-sizing: border-box;
+}
+
 .escort-checkin__time-row {
   margin-top: var(--ui-space-md);
   padding-top: var(--ui-space-md);
@@ -165,16 +324,32 @@ onMounted(async () => {
 
 .escort-checkin__time-label {
   font-size: var(--ui-font-sm);
-  color: var(--ui-color-text-secondary);
+  color: var(--ui-color-success);
+  font-weight: var(--ui-font-weight-semibold);
   display: block;
 }
 
 .escort-checkin__time-value {
   font-size: var(--ui-font-md);
-  color: var(--ui-color-success);
+  color: var(--ui-color-text-primary);
   font-weight: var(--ui-font-weight-medium);
   display: block;
   margin-top: 4px;
+}
+
+.escort-checkin__remark-display {
+  margin-top: var(--ui-space-sm);
+}
+
+.escort-checkin__remark-text {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-primary);
+  display: block;
+  margin-top: 2px;
+}
+
+.escort-checkin__done {
+  margin-top: var(--ui-space-md);
 }
 
 .escort-checkin__actions {
