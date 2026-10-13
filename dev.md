@@ -7484,3 +7484,130 @@ Test Files  69 passed (69)
 | P1 | admin dashboard 用真 admin 用户测 |
 | P2 | match consumer + devFakeEscortLoader |
 | P2 | virtual-number service 补完 |
+
+---
+
+## §48.W unified-app patient / escort 域首页 UI 增强（2026-10-13）
+
+> 用户说"根据当前目录下的文档继续完善前端界面"。本节做 3 块改动 + 1 套测试。
+
+### W.1 改动总览
+
+```
+页 src/pages/patient/index.vue          26 行  alias 重定向 → /pages/patient/index/index
+页 src/pages/admin/index.vue            24 行  alias 重定向 → /pages/admin/dashboard/index
+页 src/pages/escort/index.vue          200 行  钱包余额卡 + 6 入口
+页 src/pages/patient/index/index.vue   320 行  「进行中订单」widget + 区块级 catch
+页 src/pages/patient/index/index.spec.ts   新  9 cases
+页 src/pages/patient/index.spec.ts        新  1 case
+页 src/pages/admin/index.spec.ts          新  1 case
+页 src/pages/escort/index.spec.ts         扩  7 cases（原 4 + 新 3）
+```
+
+### W.2 改动 1：patient / admin index alias 重定向
+
+DomainSwitcher 跳 `/pages/${d}/index`，patient / admin 这两个入口文件原是占位卡（"Phase 3 业务迁移"），用户体验断裂。改 alias 模式：onLoad → uni.reLaunch 到真首页。
+
+```vue
+<!-- src/pages/patient/index.vue -->
+<script setup lang="ts">
+import { onLoad } from '@dcloudio/uni-app';
+
+onLoad(() => {
+  if (typeof uni !== 'undefined') {
+    uni.reLaunch({ url: '/pages/patient/index/index' });
+  }
+});
+</script>
+<template><view /></template>
+```
+
+src/pages/admin/index.vue 同模式，跳 `/pages/admin/dashboard/index`。
+
+### W.3 改动 2：patient/index/index.vue 「进行中订单」widget
+
+原页面只有「欢迎卡 + 4 快捷入口 + 推荐医院 + 推荐套餐」，缺一个让用户一眼看到自己订单进展的入口。加 §2 widget：
+
+- 已登录 + 有 active 订单（pending_escort / escort_confirmed / in_service）→ 渲染订单卡列表 + 「查看全部 →」
+- 未登录 / 无 active 订单 → 不渲染（不影响原视觉）
+- 区块级 catch：listOrders 失败不阻塞医院/套餐渲染
+- 订单字段已 snake_case（service_start_at / amount / final_amount，§48.M）
+
+```ts
+const ACTIVE_STATUSES: OrderStatus[] = ['pending_escort', 'escort_confirmed', 'in_service'];
+const STATUS_LABEL: Record<OrderStatus, string> = {
+  pending_escort: '待接单',
+  escort_confirmed: '待服务',
+  in_service: '服务中',
+  completed: '已完成',
+  cancelled: '已取消',
+};
+
+async function loadActiveOrders() {
+  if (!auth.isAuthed) return;          // 未登录不调
+  ordersLoading.value = true;
+  try {
+    const r = await listOrders({ role: 'patient', page_size: 50 });
+    activeOrders.value = r.items.filter((o) => ACTIVE_STATUSES.includes(o.status));
+  } catch { /* 区块级回退，不抛错 */ }
+  finally { ordersLoading.value = false; }
+}
+```
+
+UI 卡片包含：订单号 / 状态徽章 / 预约时间 / 金额；点击跳详情。
+
+### W.4 改动 3：escort/index.vue 钱包卡 + 6 入口
+
+原 3 入口（invitations / orders / profile），文档（web-user-manual §4.2）要求 ≥ 6 入口 + 钱包余额卡显示。扩到 6 入口 + 余额卡。
+
+```ts
+const ENTRIES: Entry[] = [
+  { key: 'invitations',  icon: '🎯', title: '抢单池',     desc: '查看可接候选订单', path: '/pages/escort/invitations/index' },
+  { key: 'orders',       icon: '📋', title: '我的任务',   desc: '查看已接订单',     path: '/pages/escort/orders/index' },
+  { key: 'wallet',       icon: '💰', title: '我的钱包',   desc: '余额 · 流水 · 提现', path: '/pages/escort/wallet/index' },
+  { key: 'availability', icon: '📅', title: '可接时段',   desc: '设置可接单时段',   path: '/pages/escort/availability/index' },
+  { key: 'training',     icon: '🎓', title: '培训记录',   desc: '已完成的培训',     path: '/pages/escort/training/index' },
+  { key: 'profile',      icon: '👤', title: '个人中心',   desc: '资料 · 设置 · 退出', path: '/pages/escort/profile/index' },
+];
+```
+
+钱包卡显示「可用余额（¥X.XX 主色大字）/ 冻结金额 / 累计收入」；getEscortWallet 失败时降级为空态 + 「前往钱包 →」兜底，不阻塞入口列表。
+
+### W.5 测试
+
+```
+Test Files  72 passed (72)     （原 69 + 3 新：patient/index + admin/index + patient/index/index）
+     Tests  586 passed (586)   （原 572 + 14 新）
+   Duration  25.90s
+```
+
+新增测试覆盖：
+
+| 文件 | case | 覆盖点 |
+|---|--:|---|
+| patient/index.spec.ts | 1 | alias reLaunch 到 /pages/patient/index/index |
+| admin/index.spec.ts | 1 | alias reLaunch 到 /pages/admin/dashboard/index |
+| patient/index/index.spec.ts | 9 | 欢迎卡 + 快捷入口 + 推荐医院 + 进行中订单 widget（有/无/失败/未登录态）+ 跳转 |
+| escort/index.spec.ts | 7（新增 3）| 6 入口渲染 + 4 跳转 + 钱包加载成功（分→元）+ 钱包加载失败降级 |
+
+### W.6 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **18** |
+| dev.md | **7486 → 7564 行** |
+| 测试 | **586 it + 7 e2e + 106 Go = 699**（原 572 → 586，+14 it） |
+| patient 域浏览器完整可用 | 6 页（同 §48.U） |
+| escort 域浏览器完整可用 | 8 页（同 §48.V） |
+| admin 域浏览器完整可用 | 2 页（orders/escorts；dashboard 跳 dashboard/detail §48.U） |
+
+### W.7 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | admin dashboard 用真 admin 用户测 |
+| P1 | typecheck 批量修 §48.M snake_case 遗留（17 个 file） |
+| P2 | match consumer + devFakeEscortLoader |
+| P2 | virtual-number service 补完 |

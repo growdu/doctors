@@ -1,30 +1,48 @@
 <script setup lang="ts">
 /**
- * patient/index/index.vue — patient 域首页（v2 unified-app）。
+ * patient/index/index.vue — patient 域首页（v2 unified-app · tabBar 主页）。
  *
- * 入口：登录后或 HomeShell 域切换
- *   → 顶部欢迎语 + 快捷入口（4 网格）
+ * 入口：登录后或 HomeShell 域切换（tabBar "首页"）
+ *   → 顶部欢迎语
+ *   → 「进行中订单」 widget（pending_escort / escort_confirmed / in_service，未登录态自动隐藏）
+ *   → 快捷入口（4 网格）
  *   → 推荐医院（顶部 3 个）
  *   → 推荐套餐（瀑布流）
  *
  * 设计要点：
- *   - 简化版：4 入口 + 医院列表 + 套餐列表
- *   - 真实接口：listHospitals + listPackagesByHospital
+ *   - 真实接口：listOrders（role=patient）+ listHospitals + listPackagesByHospital
+ *   - 「进行中订单」 widget：让用户打开 app 第一眼看到自己订单进展（v2 SaaS 体验提升）
+ *   - 失败回退：每个 section 独立 catch，单个失败不阻塞整体渲染
  */
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/store/auth';
 import { listHospitals, listPackagesByHospital } from '@/api/user';
+import { listOrders } from '@/api/orders';
 import type { Hospital, Package } from '@/api/user';
+import type { Order, OrderStatus } from '@/api/orders';
 import UiCard from '@/components/shared/UiCard.vue';
 import UiEmpty from '@/components/shared/UiEmpty.vue';
+import UiLoading from '@/components/shared/UiLoading.vue';
 
 const auth = useAuthStore();
 const hospitals = ref<Hospital[]>([]);
 const packages = ref<Package[]>([]);
-const loading = ref(false);
+const activeOrders = ref<Order[]>([]);
+const hospitalsLoading = ref(false);
+const ordersLoading = ref(false);
 
-async function onLoad() {
-  loading.value = true;
+const ACTIVE_STATUSES: OrderStatus[] = ['pending_escort', 'escort_confirmed', 'in_service'];
+
+const STATUS_LABEL: Record<OrderStatus, string> = {
+  pending_escort: '待接单',
+  escort_confirmed: '待服务',
+  in_service: '服务中',
+  completed: '已完成',
+  cancelled: '已取消',
+};
+
+async function loadHospitals() {
+  hospitalsLoading.value = true;
   try {
     const r = await listHospitals();
     hospitals.value = r.items.slice(0, 3);
@@ -33,12 +51,28 @@ async function onLoad() {
       const pkgs = await listPackagesByHospital(hospitals.value[0].id);
       packages.value = pkgs.items.slice(0, 3);
     }
-  } catch (e) {
-    // ignore
+  } catch {
+    // ignore — 区块级回退
   } finally {
-    loading.value = false;
+    hospitalsLoading.value = false;
   }
 }
+
+async function loadActiveOrders() {
+  if (!auth.isAuthed) return;
+  ordersLoading.value = true;
+  try {
+    // 拉全部 patient 订单，按状态本地过滤；后端无 in[] 过滤，前端分页过滤
+    const r = await listOrders({ role: 'patient', page_size: 50 });
+    activeOrders.value = r.items.filter((o) => ACTIVE_STATUSES.includes(o.status));
+  } catch {
+    // ignore — 区块级回退
+  } finally {
+    ordersLoading.value = false;
+  }
+}
+
+const hasActiveOrders = computed(() => activeOrders.value.length > 0);
 
 interface QuickLink {
   icon: string;
@@ -61,11 +95,28 @@ function onHospital(h: Hospital) {
   if (typeof uni !== 'undefined') uni.navigateTo({ url: `/pages/patient/hospitals/detail?id=${h.id}` });
 }
 
+function onOrder(o: Order) {
+  if (typeof uni !== 'undefined') uni.navigateTo({ url: `/pages/patient/order/detail?id=${o.id}` });
+}
+
+function onViewAllOrders() {
+  if (typeof uni !== 'undefined') uni.navigateTo({ url: '/pages/patient/order/list' });
+}
+
 function formatPrice(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
-onMounted(onLoad);
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const t = iso.split('T');
+  return t[0] + ' ' + (t[1]?.substring(0, 5) || '');
+}
+
+onMounted(() => {
+  loadActiveOrders();
+  loadHospitals();
+});
 </script>
 
 <template>
@@ -77,7 +128,43 @@ onMounted(onLoad);
       </view>
     </UiCard>
 
+    <!-- 进行中订单 widget：登录态 + 有订单时才显示 -->
+    <view
+      v-if="auth.isAuthed && (hasActiveOrders || ordersLoading)"
+      data-testid="home-active-orders"
+    >
+      <view class="home__section-title home__section-title--row">
+        <text>📋 进行中订单</text>
+        <text class="home__section-link" @click="onViewAllOrders" data-testid="home-view-all-orders">
+          查看全部 →
+        </text>
+      </view>
+      <view v-if="ordersLoading && activeOrders.length === 0" data-testid="home-active-orders-loading">
+        <UiLoading text="加载订单..." />
+      </view>
+      <view v-else-if="hasActiveOrders" data-testid="home-active-orders-list">
+        <UiCard
+          v-for="o in activeOrders"
+          :key="o.id"
+          :data-testid="`home-active-order-${o.id}`"
+          @click="onOrder(o)"
+        >
+          <view class="home-order__row">
+            <text class="home-order__id">#{{ o.order_no || o.id }}</text>
+            <text class="home-order__status" :data-testid="`home-order-status-${o.status}`">
+              {{ STATUS_LABEL[o.status] }}
+            </text>
+          </view>
+          <view class="home-order__meta">
+            <text class="home-order__time">📅 {{ formatDate(o.service_start_at) }}</text>
+            <text class="home-order__amount">{{ formatPrice(o.amount) }}</text>
+          </view>
+        </UiCard>
+      </view>
+    </view>
+
     <!-- 快捷入口 4 列 -->
+    <view class="home__section-title" data-testid="home-quick-title">快捷入口</view>
     <view class="home__quick-links" data-testid="patient-home-quick-links">
       <view
         v-for="l in QUICK_LINKS"
@@ -93,7 +180,10 @@ onMounted(onLoad);
 
     <!-- 推荐医院 -->
     <view class="home__section-title" data-testid="home-hospitals-title">推荐医院</view>
-    <view v-if="hospitals.length === 0" data-testid="home-hospitals-empty">
+    <view v-if="hospitalsLoading && hospitals.length === 0" data-testid="home-hospitals-loading">
+      <UiLoading text="加载医院..." />
+    </view>
+    <view v-else-if="hospitals.length === 0" data-testid="home-hospitals-empty">
       <UiEmpty icon="🏥" title="暂无医院" />
     </view>
     <view v-else data-testid="home-hospitals-list">
@@ -144,6 +234,25 @@ onMounted(onLoad);
   margin-top: var(--ui-space-xs);
 }
 
+.home__section-title {
+  font-size: var(--ui-font-md);
+  font-weight: var(--ui-font-weight-semibold);
+  color: var(--ui-color-text-primary);
+  padding: var(--ui-space-md) 0 var(--ui-space-sm);
+}
+
+.home__section-title--row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.home__section-link {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-primary);
+  font-weight: var(--ui-font-weight-regular);
+}
+
 .home__quick-links {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -172,13 +281,6 @@ onMounted(onLoad);
   color: var(--ui-color-text-secondary);
 }
 
-.home__section-title {
-  font-size: var(--ui-font-md);
-  font-weight: var(--ui-font-weight-semibold);
-  color: var(--ui-color-text-primary);
-  padding: var(--ui-space-md) 0 var(--ui-space-sm);
-}
-
 .home__hospital-city {
   font-size: var(--ui-font-sm);
   color: var(--ui-color-text-secondary);
@@ -204,5 +306,43 @@ onMounted(onLoad);
   font-weight: var(--ui-font-weight-semibold);
   color: var(--ui-color-error);
   display: block;
+}
+
+.home-order__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--ui-space-xs);
+}
+
+.home-order__id {
+  font-size: var(--ui-font-base);
+  font-weight: var(--ui-font-weight-medium);
+  color: var(--ui-color-text-primary);
+}
+
+.home-order__status {
+  font-size: var(--ui-font-xs);
+  padding: 2px 8px;
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-color-primary);
+  color: var(--ui-color-text-inverse);
+}
+
+.home-order__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.home-order__time {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-color-text-secondary);
+}
+
+.home-order__amount {
+  font-size: var(--ui-font-base);
+  font-weight: var(--ui-font-weight-semibold);
+  color: var(--ui-color-error);
 }
 </style>
