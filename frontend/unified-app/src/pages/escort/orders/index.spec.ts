@@ -36,9 +36,9 @@ const makeOrder = (id: number, status: Order['status']): Order => ({
   status,
   appointment_time: '2026-10-01T09:00:00Z',
   address: '北京协和医院',
-  total_amount: 29900,
-  created_at: '2026-09-29T10:00:00Z',
-  updated_at: '2026-09-29T10:00:00Z',
+  service_start_at: '2026-10-01T09:00:00Z',
+  amount: 29900,
+  final_amount: 29900,
 });
 
 beforeEach(() => {

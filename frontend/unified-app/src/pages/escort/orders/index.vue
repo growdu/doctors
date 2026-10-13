@@ -60,12 +60,15 @@ function onDetail(o: Order) {
   if (typeof uni !== 'undefined') uni.navigateTo({ url: `/pages/escort/order-detail?id=${o.id}` });
 }
 
-function formatAmount(cents: number): string {
+function formatAmount(cents?: number): string {
+  if (cents === undefined || cents === null) return '¥—';
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
-function formatDate(iso: string): string {
-  return iso.split('T')[0] + ' ' + (iso.split('T')[1]?.substring(0, 5) || '');
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const [date, time] = iso.split('T');
+  return date + ' ' + (time?.substring(0, 5) || '');
 }
 
 onMounted(onLoad);
@@ -118,11 +121,11 @@ onMounted(onLoad);
             </text>
           </view>
           <text class="escort-orders__hospital">🏥 医院 #{{ o.hospital_id }}</text>
-          <text class="escort-orders__time">📅 {{ formatDate(o.appointment_time) }}</text>
+          <text class="escort-orders__time">📅 {{ formatDate(o.service_start_at) }}</text>
           <text class="escort-orders__address">📍 {{ o.address }}</text>
           <template #footer>
             <view class="escort-orders__footer">
-              <text class="escort-orders__amount">{{ formatAmount(o.total_amount) }}</text>
+              <text class="escort-orders__amount">{{ formatAmount(o.amount) }}</text>
               <text class="escort-orders__view">查看详情 →</text>
             </view>
           </template>

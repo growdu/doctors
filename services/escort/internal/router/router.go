@@ -48,8 +48,10 @@ func New(h *handler.Handler, availH *availability.Handler, jwtSecret string, rea
 
 	auth := mw.Auth(jwtSecret, mw.UserIDKey, mw.RoleKey)
 	v1 := r.Group("/api/v1", auth)
-	h.RegisterRoutes(v1)
+	// §48.V 路由顺序：availability 静态路径必须先于 escort 的 /:id 注册，
+	// 否则 GET /escorts/me/availability 会被 /:id 抢匹配（id="me" → invalid id）。
 	availH.RegisterRoutes(v1)
+	h.RegisterRoutes(v1)
 	return r
 }
 

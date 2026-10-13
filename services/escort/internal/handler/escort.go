@@ -52,17 +52,17 @@ func New(svc Service) *Handler { return &Handler{svc: svc} }
 // RegisterRoutes 把 escort 路由挂到 RouterGroup。
 //
 // auth 中间件已先挂在 v1 上；handler 内部取 uid。
+//
+// §48.V 路由顺序修正：/me/* 子树必须在 /:id 之前注册，
+// 否则 gin router 会把 /me/availabilities 匹配到 /:id（id="me"）+ Get handler，
+// 返回 10001 "invalid id"。修：把 /me/* 移到 /:id 之前。
 func (h *Handler) RegisterRoutes(v1 gin.IRouter) {
 	e := v1.Group("/escorts")
 
 	// 自我注册（role=escort）
 	e.POST("", h.Register)
-	// 公开：按 id 查 escort（v1 简化）
-	e.GET("/:id", h.Get)
-	// 兼容旧路径（admin 调或内部调用）：按 id 设可用状态
-	e.POST("/:id/availability", h.SetAvailability)
 
-	// /me/*：陪诊师自己（owner 校验在 service 里）
+	// /me/*：陪诊师自己（owner 校验在 service 里）—— 必须先于 /:id 注册
 	me := e.Group("/me")
 	me.PATCH("/location", h.UpdateLocation)
 	me.PATCH("/city", h.UpdateCity)
@@ -78,6 +78,12 @@ func (h *Handler) RegisterRoutes(v1 gin.IRouter) {
 	tr := me.Group("/trainings")
 	tr.POST("", h.CreateTraining)
 	tr.GET("", h.ListTrainings)
+
+	// /:id 在最后（兜底匹配，参数必须可解析为 int64）
+	// 公开：按 id 查 escort（v1 简化）
+	e.GET("/:id", h.Get)
+	// 兼容旧路径（admin 调或内部调用）：按 id 设可用状态
+	e.POST("/:id/availability", h.SetAvailability)
 }
 
 // respondError 统一错误翻译。

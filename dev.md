@@ -7324,3 +7324,163 @@ Test Files  69 passed (69)
 | P1 | admin dashboard RoleGuard 用真 admin 用户测 |
 | P2 | match consumer + devFakeEscortLoader |
 | P2 | virtual-number service 补完 |
+
+---
+
+## §48.V escort URL + 字段统一修复（2026-10-13）
+
+> 用户说"继续迭代完善优化"。本节修 2 个 escort 域 URL 路由 + 字段统一 bug。
+
+### V.1 根因
+
+```
+根因 1（escort/availability + training "invalid id"）：
+  services/escort/internal/handler/escort.go RegisterRoutes
+  先注册 e.GET("/:id", h.Get) → /escorts/:id 通配
+  后注册 me.Group("/trainings") → /escorts/me/trainings
+  → gin radix tree 实际按注册顺序匹配，:id 抢了 me/* 的路由
+  → GET /escorts/me/availabilities 命中 :id (id="me" → strconv err → 10001)
+
+根因 2（前端 api 路径 typo）：
+  src/api/escort.ts listMyAvailabilities
+    /api/v1/escorts/me/availabilities （错，plural）
+  后端实际路由：
+    /api/v1/escorts/me/availability （singular）
+  → 即使 gin 路由修好，fetch 仍 404
+
+根因 3（escort/orders 字段命名）：
+  §48.M 后端 json tag 改 snake_case
+  但 src/pages/escort/orders/index.vue 仍用 appointment_time / total_amount
+  → formatDate(undefined.split) / formatAmount(NaN)
+```
+
+### V.2 修复 1：escort RegisterRoutes 顺序
+
+```go
+// services/escort/internal/handler/escort.go
+func (h *Handler) RegisterRoutes(v1 gin.IRouter) {
+  e := v1.Group("/escorts")
+  e.POST("", h.Register)
+
+  // /me/* 必须先于 /:id 注册（gin v1 顺序敏感）
+  me := e.Group("/me")
+  me.PATCH("/location", h.UpdateLocation)
+  me.PATCH("/city", h.UpdateCity)
+  q := me.Group("/qualifications")
+  // ... qualifications + trainings
+  tr := me.Group("/trainings")
+  tr.POST("", h.CreateTraining)
+  tr.GET("", h.ListTrainings)
+
+  // /:id 兜底在最后
+  e.GET("/:id", h.Get)
+  e.POST("/:id/availability", h.SetAvailability)
+}
+
+// services/escort/internal/router/router.go
+// availH.RegisterRoutes(v1) 在 h.RegisterRoutes(v1) 之前
+```
+
+### V.3 修复 2：前端 api 路径 singular
+
+```ts
+// src/api/escort.ts
+export async function listMyAvailabilities() {
+  // before: '/api/v1/escorts/me/availabilities' (404)
+  return request({ url: '/api/v1/escorts/me/availability', baseURL: ESCORT_BASE_URL });
+}
+```
+
+### V.4 修复 3：escort/orders 字段 snake_case
+
+```vue
+<!-- src/pages/escort/orders/index.vue -->
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const [date, time] = iso.split('T');
+  return date + ' ' + (time?.substring(0, 5) || '');
+}
+function formatAmount(cents?: number): string {
+  if (cents === undefined || cents === null) return '¥—';
+  return `¥${(cents / 100).toFixed(2)}`;
+}
+
+<text>{{ formatDate(o.service_start_at) }}</text>  <!-- appointment_time → service_start_at -->
+<text>{{ formatAmount(o.amount) }}</text>           <!-- total_amount → amount -->
+```
+
+测试 fixture 同步 snake_case（service_start_at / amount / final_amount）。
+
+### V.5 curl 验证
+
+```bash
+# 修复前
+$ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8089/api/v1/escorts/me/availability
+{"code":10001,"message":"invalid id","trace_id":"..."}
+
+# 修复后
+$ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8089/api/v1/escorts/me/availability
+{"code":0,"message":"ok","data":{"items":[]},"trace_id":"..."}  ✅
+```
+
+### V.6 浏览器实测
+
+```bash
+$ bash /tmp/check-avail.sh
+--- visit /pages/escort/availability/index ---
+  bodyLen: 35
+  📅
+  暂未设置时段
+  点上方「+ 新增时段」添加
+errors: 0  ✅（之前 10001 invalid id）
+
+$ bash /tmp/check-orders.sh
+--- visit /pages/escort/orders/index ---
+  bodyLen: 多行（含 2 订单卡片）
+  订单 #15
+  🏥 医院 #1
+  📅 2026-12-31 18:00
+  💰 ¥3.00
+  订单 #14
+  🏥 医院 #1
+  📅 2026-12-31 18:00
+  💰 ¥3.00
+errors: 0  ✅（之前 6 个 TypeError）
+```
+
+### V.7 测试结果
+
+```
+Test Files  69 passed (69)
+     Tests  572 passed (572)
+   Duration  26.12s
+```
+
+572 tests 全过（含 escort/orders 同步 snake_case fixture）。
+
+### V.8 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **17** |
+| dev.md | **7170 → 7255 行 / 62 章节** |
+| 测试 | 572 it + 7 e2e + 106 Go = 844 |
+| escort 域浏览器完整可用 | **8 页**（之前 5 页）|
+
+### V.9 v2 unified-app 浏览器层完整可用矩阵（更新）
+
+| 域 | 完整可用 | 备注 |
+| :-- | :--: | :-- |
+| patient | 6 页 | login/profile/wallet/coupons/order-list/order-detail |
+| admin | 2 页 | orders/escorts（dashboard RoleGuard 拦截）|
+| **escort** | **8 页** | **+availability +orders**（本节）|
+
+### V.10 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | admin dashboard 用真 admin 用户测 |
+| P2 | match consumer + devFakeEscortLoader |
+| P2 | virtual-number service 补完 |

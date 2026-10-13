@@ -180,7 +180,7 @@ export async function addAvailability(slot: Omit<Availability, 'id' | 'escort_id
 }
 
 export async function listMyAvailabilities(): Promise<{ items: Availability[] }> {
-  return request({ url: '/api/v1/escorts/me/availabilities', baseURL: ESCORT_BASE_URL });
+  return request({ url: '/api/v1/escorts/me/availability', baseURL: ESCORT_BASE_URL });
 }
 
 export async function removeAvailability(id: number): Promise<{ ok: true }> {
