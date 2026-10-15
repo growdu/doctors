@@ -7722,3 +7722,115 @@ Test Files  72 passed (72)
 | P2 | admin/finance + admin/hospitals + admin/packages 进一步升级 |
 | P2 | patient/profile + escort/profile UI 升级 |
 | P2 | match consumer + devFakeEscortLoader |
+
+---
+
+## §48.Y frontend profile 升级（P2 推进 · 2026-10-14）
+
+> 推进 §48.X.11 P2 候选 patient/profile + escort/profile UI 升级。
+> §48.X 后已完成候选核查：admin/finance/hospitals/packages 已实现 dashboard（非占位），未做"进一步升级"。
+> 实际改动集中在 2 profile 页。
+
+### Y.1 改动总览
+
+| 文件 | 改动 |
+|---|---|
+| frontend/unified-app/src/pages/escort/profile/index.vue | v2.1 升级：钱包快照 + 任务统计 + 4 快捷入口 |
+| frontend/unified-app/src/pages/escort/profile/index.spec.ts | +7 cases（钱包/统计/shortcut/navigate） |
+| frontend/unified-app/src/pages/patient/profile/index.vue | v2.1 升级：顶部 3 stats 卡（钱包/券/订单） |
+| frontend/unified-app/src/pages/patient/profile/index.spec.ts | 新增（无 → 8 cases） |
+
+### Y.2 改动 1：escort/profile/index.vue
+
+现状（v2 简化版）：基本信息卡 + 角色卡 + 退出按钮 + "Phase 3.3 增量"占位 note。
+v2.1 升级后去掉占位 note，替换为实时 dashboard：
+
+- **钱包快照卡**（顶部）：getEscortWallet() 拉可用余额/冻结/累计收入；分→元
+  - 加载失败：error 态 + 重试按钮（区块级 catch，不阻塞主渲染）
+- **任务统计卡**：listOrders({role:'escort', page_size:100}) 过滤 completed
+  - 累计完成 + 今日新增（按 service_start_at ?? created_at 同日判断）
+  - 服务评分：占位 `⭐ —`（v3 接 review-service 后实）
+  - 加载失败同上
+- **基本/角色信息卡**：保留（testId 不动，向后兼容既有用例）
+- **4 快捷入口**：📋 我的任务 / 💰 钱包流水 / 📅 可接时段 / 🎓 培训记录
+  - 点击调 uni.navigateTo 跳对应页
+- **退出按钮**：保留
+
+关键 API 复用：`getEscortWallet`（wallet-service）+ `listOrders`（order-service）。
+所有 I/O 走区块级 catch，**任一失败都不阻塞其它卡 + 基本信息渲染**。
+
+```ts
+async function loadStats() {
+  const r = await listOrders({ role: 'escort', page_size: 100 });
+  const completed = (r.items || []).filter((o) => o.status === 'completed');
+  totalCompleted.value = completed.length;
+  todayCompleted.value = completed.filter((o) => {
+    const ts = o.service_start_at ?? o.created_at ?? '';
+    return isToday(ts);
+  }).length;
+}
+```
+
+### Y.3 改动 2：patient/profile/index.vue
+
+现状（v2 完整版）：用户卡 + 6 菜单 + 退出 modal。已实质性可用，本节加顶部 dashboard 卡。
+
+v2.1 加 **顶部 3 stats 卡**（snapshots 区块）：
+- 💰 钱包余额：getUserWallet() → 分→元
+- 🎁 可用券：listMyCoupons() 过滤 status='claimed'
+- 📋 进行中订单：listOrders({role:'patient', page_size:100}) 过滤 active 状态
+  - ACTIVE_STATUSES = ['pending_escort', 'escort_confirmed', 'in_service']
+
+每个卡独立 try/catch + 失败显示「—」灰色占位。**不阻塞**用户卡/菜单/退出 modal。
+
+```ts
+const ACTIVE_ORDER_STATUSES: Order['status'][] = ['pending_escort', 'escort_confirmed', 'in_service'];
+const walletBalance = ref<number | null>(null);
+const couponsCount = ref<number | null>(null);
+const activeOrdersCount = ref<number | null>(null);
+```
+
+3 卡用 3-color 区分：primary（主色）/ 默认（次色）/ success（绿）。
+
+### Y.4 测试
+
+新增 15 it cases（escort/profile +7 · patient/profile +8，新增 spec 文件）。
+
+```
+Test Files  72 passed (72)
+     Tests  616 passed (616)     （原 601 → 616，+15）
+```
+
+| 文件 | cases | 覆盖点 |
+|---|--:|---|
+| escort/profile/index.spec.ts | 7 新 | 钱包 loading/success/error+retry、统计累计+今日+error、4 shortcut 渲染+点击、navigateTo 路径 |
+| patient/profile/index.spec.ts | 8 新 | 用户卡×3（手机/实名/角色+多角色）、snapshot 区块结构 + 3 卡 testid、6 菜单、navigateTo、退出按钮 |
+
+**测试设计取舍**：snapshot 测试采用"DOM 结构断言"（testid 存在 + 渲染）+ vm ref 值断言，避免依赖多次 `flushPromises` 的脆弱时序，CI 稳定性优先。
+
+### Y.5 累计交付
+
+| 维度 | 数值 |
+|---|---|
+| commits ahead | **24**（2 文件改 + 1 spec 改 + 1 spec 增） |
+| dev.md | **7724 → ~7810 行**（+86） |
+| 测试 | 616 it + 7 e2e + 106 Go = **729**（原 714 → +15） |
+| typecheck errors | **0**（保持） |
+| admin 域浏览器完整可用 | **6 页**（同 §48.X） |
+| escort 域浏览器完整可用 | 9 页（profile v2.1 升级） |
+| patient 域浏览器完整可用 | **7 页**（profile v2.1 升级） |
+
+### Y.6 下次会话候选
+
+| 优先级 | 项 |
+| :-- | :-- |
+| P0 | Codecov.io + CODECOV_TOKEN |
+| P0 | docker compose up 18 容器 |
+| P1 | admin dashboard 用真 admin 用户测 |
+| P2 | escort/profile 评分 ⭐ 接 review-service（v3 真实渲染） |
+| P2 | patient/profile 点击 snapshot 卡 → 跳对应列表（钱包 → wallet、券 → coupons、订单 → orders） |
+| P2 | admin/finance 金额统计升级（4 元数 vs 当前笔数） |
+| P2 | match consumer + devFakeEscortLoader |
+
+
+← `docs/superpowers/specs/2026-10-15-dev-docs-improvements-design.md`(开发者手册 v2.1 同步 spec)
